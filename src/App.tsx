@@ -66,11 +66,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -82,11 +84,15 @@ const parseRaySafeText = (
   text: string,
   scanType: string
 ): Record<string, string> => {
-  // Regex Patterns
+  // Updated Regex Patterns
   const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
   const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)/i;
-  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR)/i;
-  const regexHvl = /(\d+\.?\d*)\s*(mm)/i;
+
+  // Updated Dose: Includes mGr, uGr, µGr for Gray units
+  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)/i;
+
+  // Updated HVL: Includes "HVL" keyword or "mm Al"
+  const regexHvl = /(\d+\.?\d*)\s*(mm|mm Al|HVL)/i;
 
   const results: Record<string, string> = {};
 
@@ -385,7 +391,8 @@ export default function RayScanLocal() {
           {templateFile && (
             <button
               onClick={clearTemplate}
-              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full"
+              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200"
+              title="Remove Template"
             >
               <Trash2 size={16} />
             </button>
