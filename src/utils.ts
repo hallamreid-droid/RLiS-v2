@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+/*import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
@@ -54,4 +54,4 @@ export const createWordDoc = (
     console.error(error);
     alert("Error generating document.");
   }
-};
+};*/

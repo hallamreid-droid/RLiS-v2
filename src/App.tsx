@@ -12,9 +12,103 @@ import {
   Trash2,
   UploadCloud,
 } from "lucide-react";
-import { parseExcel, createWordDoc } from "./utils"; // Import logic
+import * as XLSX from "xlsx";
+import PizZip from "pizzip";
+import Docxtemplater from "docxtemplater";
+import { saveAs } from "file-saver";
 
-// --- TYPES ---
+// --- LOGIC FUNCTIONS (Moved inside to avoid import errors) ---
+
+const parseExcel = (file: File, callback: (data: any[]) => void) => {
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const arrayBuffer = evt.target?.result;
+    const wb = XLSX.read(arrayBuffer, { type: "array" });
+    const wsname = wb.SheetNames[0];
+    const ws = wb.Sheets[wsname];
+
+    // Header Hunter: Find the row with "Inspection Number"
+    const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+    let headerRowIndex = -1;
+    for (let i = 0; i < Math.min(20, rawData.length); i++) {
+      // Check if the row exists and has "Inspection Number" in the first few columns
+      if (
+        rawData[i] &&
+        rawData[i].some(
+          (cell: any) => cell && cell.toString().includes("Inspection Number")
+        )
+      ) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    if (headerRowIndex === -1) {
+      alert(
+        "Could not find header row 'Inspection Number'. Check Excel format."
+      );
+      return;
+    }
+
+    // Parse data starting from the header row
+    const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
+    callback(data);
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+const createWordDoc = (
+  templateBuffer: ArrayBuffer,
+  data: any,
+  filename: string
+) => {
+  try {
+    const zip = new PizZip(templateBuffer);
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+    });
+    doc.render(data);
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    saveAs(out, filename);
+  } catch (error) {
+    console.error(error);
+    alert("Error generating document. Check template tags.");
+  }
+};
+
+const parseRaySafeText = (text: string, field: string): string => {
+  // RaySafe Format: "80.48 kVp", "50.34 ms", "179.3 uGy"
+
+  let regex: RegExp;
+
+  if (field === "kvp") {
+    // Look for number followed by kV or kVp
+    regex = /(\d+\.?\d*)\s*(kV|kVp)/i;
+  } else if (field === "time") {
+    // Look for number followed by ms, s, sec
+    regex = /(\d+\.?\d*)\s*(ms|s|sec)/i;
+  } else if (field === "dose") {
+    // Look for number followed by mGy, uGy, R, mR, Gy
+    // Note: Google Vision often reads 'µ' as 'u' or 'y' or just 'm'
+    regex = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR)/i;
+  } else if (field === "hvl") {
+    regex = /(\d+\.?\d*)\s*(mm)/i;
+  } else {
+    // Fallback: Just grab the first big number
+    regex = /(\d+\.?\d*)/;
+  }
+
+  const match = text.match(regex);
+  return match ? match[1] : "";
+};
+
+// --- MAIN COMPONENT ---
+
 type Machine = {
   id: string;
   make: string;
@@ -85,22 +179,22 @@ export default function RayScanLocal() {
 
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
-        // FILTER 1: Must have basic data
+        // FILTER 1: Must have basic data columns
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
         // FILTER 2: Must be a machine row (contains parentheses with details)
-        // This skips the "TESLA MOTORS INC" header-like row
+        // This logic specifically targets the ALiS format "FACILITY(MAKE- MODEL - SERIAL)"
         .filter((row: any) => {
           const name = row["Entity Name"] || "";
           return name.includes("(") && name.includes(")");
         })
         .map((row: any, index: number) => {
-          // ALiS Logic
           const rawString = row["Entity Name"] || "";
           let make = "Unknown";
           let model = "Unknown";
           let serial = "Unknown";
           let facility = rawString;
 
+          // Logic to parse "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
@@ -125,13 +219,14 @@ export default function RayScanLocal() {
             model,
             serial,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            location: row["Credential #"] || facility,
+            location: row["Credential #"] || facility, // Using Credential # as identifier
             data: {},
             isComplete: false,
           };
         });
 
-      if (newMachines.length === 0) alert("No machines found.");
+      if (newMachines.length === 0)
+        alert("No valid machine rows found. Check file format.");
       else {
         setMachines(newMachines);
         alert(`Loaded ${newMachines.length} machines.`);
@@ -162,7 +257,10 @@ export default function RayScanLocal() {
       );
       const data = await response.json();
       const text = data.responses[0]?.fullTextAnnotation?.text || "";
-      let value = text.match(/(\d+\.?\d*)/)?.[1] || "";
+
+      // Use the specialized parser for RaySafe units
+      const value = parseRaySafeText(text, field);
+
       if (value) updateMachineData(field, value);
       else alert(`No value found in: ${text}`);
     } catch (e) {
@@ -200,6 +298,8 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
+
+    // Prepare data map for the Word template
     const data = {
       make: machine.make,
       model: machine.model,
