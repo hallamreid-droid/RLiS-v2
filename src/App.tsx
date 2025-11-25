@@ -85,7 +85,14 @@ export default function RayScanLocal() {
 
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
+        // FILTER 1: Must have basic data
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
+        // FILTER 2: Must be a machine row (contains parentheses with details)
+        // This skips the "TESLA MOTORS INC" header-like row
+        .filter((row: any) => {
+          const name = row["Entity Name"] || "";
+          return name.includes("(") && name.includes(")");
+        })
         .map((row: any, index: number) => {
           // ALiS Logic
           const rawString = row["Entity Name"] || "";
