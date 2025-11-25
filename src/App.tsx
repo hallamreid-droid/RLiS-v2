@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS ---
+// --- LOGIC FUNCTIONS (Internalized) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -28,9 +28,11 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
+    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
+      // Check if row exists and has "Inspection Number"
       if (
         rawData[i] &&
         rawData[i].some(
@@ -49,6 +51,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
+    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -67,13 +70,11 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc
-      .getZip()
-      .generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -81,13 +82,14 @@ const createWordDoc = (
   }
 };
 
-// Improved Parser that extracts ALL known values from a block of text
+// SMART PARSER: Extracts ALL values at once
 const extractAllValues = (text: string): Record<string, string> => {
   const results: Record<string, string> = {};
 
   // Regex Patterns
   const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
   const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)/i;
+  // Expanded Dose Regex for Gray units
   const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)/i;
   const regexHvl = /(\d+\.?\d*)\s*(mm|mm Al|HVL)/i;
 
@@ -169,7 +171,7 @@ export default function RayScanLocal() {
   const [templateName, setTemplateName] =
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
-  const [lastScannedText, setLastScannedText] = useState<string>(""); // To show the user what OCR saw
+  const [lastScannedText, setLastScannedText] = useState<string>(""); // Debug info
 
   // Force Styles
   useEffect(() => {
@@ -223,7 +225,9 @@ export default function RayScanLocal() {
 
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
+        // FILTER 1: Must have basic data columns
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
+        // FILTER 2: Must be a machine row (contains parentheses with details)
         .filter((row: any) => {
           const name = row["Entity Name"] || "";
           return name.includes("(") && name.includes(")");
@@ -235,6 +239,7 @@ export default function RayScanLocal() {
           let serial = "Unknown";
           let facility = rawString;
 
+          // Logic to parse "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
@@ -265,7 +270,8 @@ export default function RayScanLocal() {
           };
         });
 
-      if (newMachines.length === 0) alert("No machines found.");
+      if (newMachines.length === 0)
+        alert("No valid machine rows found. Check file format.");
       else {
         setMachines(newMachines);
         alert(`Loaded ${newMachines.length} machines.`);
