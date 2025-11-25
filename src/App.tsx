@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Internalized to avoid import errors) ---
+// --- LOGIC FUNCTIONS (Internalized) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -28,7 +28,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -50,7 +49,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
-    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -69,13 +67,11 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc
-      .getZip()
-      .generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -83,37 +79,21 @@ const createWordDoc = (
   }
 };
 
-// SMART PARSER: Refined for RaySafe Grid
-const extractAllValues = (text: string): Record<string, string> => {
-  const results: Record<string, string> = {};
+// LIST PARSER: Extracts numbers in order found
+const extractValuesByOrder = (text: string): string[] => {
+  // 1. Clean text to remove non-numeric chars that might confuse regex (keep decimals)
+  // 2. Find all floating point numbers
+  const numberPattern = /(\d+\.?\d*)/g;
+  const matches = text.match(numberPattern);
 
-  // Pre-clean: Remove "Rate" units that confuse the dose parser
-  // We remove anything like "mGy/s" or "R/min" to avoid false positives for dose
-  const cleanText = text.replace(
-    /\b\d+(\.\d+)?\s*(mGy\/s|R\/s|R\/min|Gy\/s|Gr\/s)\b/gi,
-    " "
-  );
+  if (!matches) return [];
 
-  // Regex Patterns
-  // Adjusted to be more robust for RaySafe screens
-  const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
-  const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)\b/i;
-  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)\b/i;
-  const regexHvl = /(\d+\.?\d*)\s*(mm\s*Al|HVL|mm)/i;
+  // Filter out "noise" numbers (e.g. very small integers that might be part of words, or huge years)
+  // RaySafe values usually have decimals or are specific integers.
+  // Let's keep it simple: take all numbers found.
+  // We might want to filter out '0' or '1' if they appear as noise, but RaySafe can read 0.
 
-  const matchKvp = cleanText.match(regexKvp);
-  if (matchKvp) results["kvp"] = matchKvp[1];
-
-  const matchTime = cleanText.match(regexTime);
-  if (matchTime) results["time"] = matchTime[1];
-
-  const matchDose = cleanText.match(regexDose);
-  if (matchDose) results["dose"] = matchDose[1];
-
-  const matchHvl = cleanText.match(regexHvl);
-  if (matchHvl) results["hvl"] = matchHvl[1];
-
-  return results;
+  return matches;
 };
 
 // --- MAIN COMPONENT ---
@@ -133,37 +113,37 @@ const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Capture All (kVp, HVL, Time, Dose)",
-    fields: ["kvp", "hvl", "time1", "mR1"],
+    desc: "Order: kVp, Dose, Time, HVL",
+    fields: ["kvp", "mR1", "time1", "hvl"],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Capture Time, Dose",
-    fields: ["time2", "mR2"],
+    desc: "Order: Dose, Time",
+    fields: ["mR2", "time2"],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Capture Time, Dose",
-    fields: ["time3", "mR3"],
+    desc: "Order: Dose, Time",
+    fields: ["mR3", "time3"],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Capture Time, Dose",
-    fields: ["time4", "mR4"],
+    desc: "Order: Dose, Time",
+    fields: ["mR4", "time4"],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Capture Dose only",
+    desc: "Order: Dose",
     fields: ["6 foot"],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Capture Dose only",
+    desc: "Order: Dose",
     fields: ["operator location"],
   },
 ];
@@ -179,7 +159,7 @@ export default function RayScanLocal() {
   const [templateName, setTemplateName] =
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
-  const [lastScannedText, setLastScannedText] = useState<string>(""); // Debug info
+  const [lastScannedText, setLastScannedText] = useState<string>("");
 
   // Force Styles
   useEffect(() => {
@@ -191,7 +171,6 @@ export default function RayScanLocal() {
     }
   }, []);
 
-  // Load Data
   useEffect(() => {
     const savedKey = localStorage.getItem("rayScanApiKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
@@ -203,7 +182,6 @@ export default function RayScanLocal() {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
-  // Handlers
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
     localStorage.setItem("rayScanApiKey", e.target.value);
@@ -233,16 +211,12 @@ export default function RayScanLocal() {
 
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
-        // FILTER 1: Must have basic data columns
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
-        // FILTER 2: Must be a machine row (contains parentheses with details)
-        // This skips the "TESLA MOTORS INC" header-like row
         .filter((row: any) => {
           const name = row["Entity Name"] || "";
           return name.includes("(") && name.includes(")");
         })
         .map((row: any, index: number) => {
-          // ALiS Logic
           const rawString = row["Entity Name"] || "";
           let make = "Unknown";
           let model = "Unknown";
@@ -287,7 +261,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- NEW SMART SCAN LOGIC ---
+  // --- LIST-BASED SCAN LOGIC ---
   const performSmartScan = async (
     base64Image: string,
     targetFields: string[]
@@ -315,31 +289,26 @@ export default function RayScanLocal() {
       const data = await response.json();
       const fullText = data.responses[0]?.fullTextAnnotation?.text || "";
 
-      setLastScannedText(fullText); // Show user what we found
+      setLastScannedText(fullText);
 
-      // 1. Extract everything we can find
-      const extracted = extractAllValues(fullText);
+      // 1. Extract all numbers as a flat list
+      // Note: We sort of trust the OCR reads top-to-bottom, left-to-right
+      const allNumbers = extractValuesByOrder(fullText);
 
-      // 2. Map extracted values to the specific fields needed for this step
+      console.log("Found Numbers:", allNumbers);
+
+      // 2. Map numbers to target fields by index
       const updates: Record<string, string> = {};
 
-      targetFields.forEach((field) => {
-        // If the target field is 'kvp', look for our extracted 'kvp'
-        if (field === "kvp" && extracted.kvp) updates[field] = extracted.kvp;
-        if (field === "hvl" && extracted.hvl) updates[field] = extracted.hvl;
-
-        // If target is 'time1', 'time2', etc., use the extracted 'time'
-        if (field.includes("time") && extracted.time)
-          updates[field] = extracted.time;
-
-        // If target is 'mR1', '6 foot', etc., use extracted 'dose'
-        if (
-          (field.includes("mR") ||
-            field === "6 foot" ||
-            field === "operator location") &&
-          extracted.dose
-        ) {
-          updates[field] = extracted.dose;
+      targetFields.forEach((field, index) => {
+        if (allNumbers[index]) {
+          // Specific fix for Scan 1 order: RaySafe usually shows kVp, Dose, Time, HVL
+          // But we might need to be flexible. Assuming order:
+          // 1st number found -> targetFields[0] (kVp)
+          // 2nd number found -> targetFields[1] (mR1)
+          // 3rd number found -> targetFields[2] (time1)
+          // 4th number found -> targetFields[3] (hvl)
+          updates[field] = allNumbers[index];
         }
       });
 
@@ -353,7 +322,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`No matching values found. OCR saw:\n${fullText}`);
+        alert(`No numbers found. OCR saw:\n${fullText}`);
       }
     } catch (e) {
       alert("OCR Error");
@@ -396,7 +365,7 @@ export default function RayScanLocal() {
       serial: machine.serial,
       location: machine.location,
       type: machine.type,
-      ...machine.data, // Spreads all captured fields
+      ...machine.data,
     };
     createWordDoc(templateFile, data, `Inspection_${machine.serial}.docx`);
     setMachines((prev) =>
@@ -497,10 +466,9 @@ export default function RayScanLocal() {
           <div className="font-bold">{activeMachine.make}</div>
         </header>
         <div className="p-4 space-y-6">
-          {/* OCR Debugging Area */}
           {lastScannedText && (
             <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 truncate">
-              Last Scan: {lastScannedText}
+              Last Scan Raw: {lastScannedText}
             </div>
           )}
 
@@ -547,7 +515,6 @@ export default function RayScanLocal() {
                         className="w-full font-mono text-lg border-b border-slate-200 focus:border-blue-500 outline-none bg-transparent"
                         placeholder="-"
                       />
-                      {/* Manual Edit Indicator */}
                       <Edit3 className="absolute right-0 top-1 text-slate-200 h-3 w-3 pointer-events-none" />
                     </div>
                   </div>
