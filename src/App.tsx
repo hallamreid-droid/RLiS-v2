@@ -28,6 +28,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
+    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -81,28 +82,24 @@ const createWordDoc = (
   }
 };
 
-// STRICT DECIMAL PARSER: Only keeps numbers with a decimal point
+// STRICT INDEX PARSER: Extracts numbers based on POSITION
 const extractGridValues = (text: string): number[] => {
-  // 1. Remove Page Numbers first
+  // 1. Remove Page Numbers (e.g. "2 of 26", "8/8", "Page 1")
   let cleanText = text.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
   cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
   cleanText = cleanText.replace(/Page\s+\d+/gi, " ");
 
-  // 2. Remove rate units
+  // 2. Remove rate units (e.g. /s, /min) to avoid confusion
   cleanText = cleanText.replace(/\/\s*[sm]/gi, "");
 
-  // 3. Find all numbers
+  // 3. Find all numbers (integers or decimals)
   const numberPattern = /(\d+\.?\d*)/g;
   const matches = cleanText.match(numberPattern);
 
   if (!matches) return [];
 
-  // 4. Filter: Must be a number AND Must have a decimal point (float)
-  // This kills integers like "2024", "1", "8", etc.
-  return matches
-    .filter((str) => str.includes(".")) // KEY FIX: Only keep strings with '.'
-    .map(parseFloat)
-    .filter((n) => !isNaN(n));
+  // 4. Convert to numbers
+  return matches.map(parseFloat).filter((n) => !isNaN(n));
 };
 
 // --- MAIN COMPONENT ---
@@ -113,7 +110,7 @@ type Machine = {
   model: string;
   serial: string;
   type: string;
-  location: string;
+  location: string; // Holds Credential #
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -124,42 +121,42 @@ const DENTAL_STEPS = [
     label: "1. Technique Scan",
     desc: "Order: kVp, Dose, Time, HVL",
     fields: ["kvp", "mR1", "time1", "hvl"],
-    indices: [0, 1, 2, 3],
+    indices: [0, 1, 2, 3], // Map: kVp->0, mR1->1, time1->2, hvl->3
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Order: Dose, Time (Skip kVp)",
+    desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR2", "time2"],
-    indices: [1, 2],
+    indices: [1, 2], // Map: mR2->Index 1 (Dose), time2->Index 2 (Time). Skips Index 0 (kVp).
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Order: Dose, Time",
+    desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR3", "time3"],
     indices: [1, 2],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Order: Dose, Time",
+    desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR4", "time4"],
     indices: [1, 2],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Order: Dose",
+    desc: "Order: Dose (2nd)",
     fields: ["6 foot"],
-    indices: [1],
+    indices: [1], // Map: 6 foot->Index 1 (Dose)
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Order: Dose",
+    desc: "Order: Dose (2nd)",
     fields: ["operator location"],
-    indices: [1],
+    indices: [1], // Map: operator->Index 1 (Dose)
   },
 ];
 
@@ -175,7 +172,7 @@ export default function RayScanLocal() {
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
-  const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
+  const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]); // Debugging
 
   // Force Styles
   useEffect(() => {
@@ -264,6 +261,7 @@ export default function RayScanLocal() {
             model,
             serial,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
+            // location stores Credential # for display
             location: row["Credential #"] || facility,
             data: {},
             isComplete: false,
@@ -279,7 +277,11 @@ export default function RayScanLocal() {
   };
 
   // --- SMART GRID SCAN LOGIC ---
-  const performSmartScan = async (base64Image: string, step: any) => {
+  const performSmartScan = async (
+    base64Image: string,
+    targetFields: string[],
+    indices: number[]
+  ) => {
     if (!apiKey) {
       alert("Set API Key first!");
       return;
@@ -305,16 +307,14 @@ export default function RayScanLocal() {
 
       setLastScannedText(fullText);
 
-      // 1. Extract numbers (DECIMAL ONLY)
       const numbers = extractGridValues(fullText);
       setLastParsedNumbers(numbers);
-      console.log("Found Decimal Numbers:", numbers);
+      console.log("Found Numbers:", numbers);
 
       const updates: Record<string, string> = {};
 
-      // 2. Map numbers using INDICES
-      step.fields.forEach((field: string, i: number) => {
-        const indexToGrab = step.indices[i];
+      targetFields.forEach((field, i) => {
+        const indexToGrab = indices[i];
         if (numbers[indexToGrab] !== undefined) {
           updates[field] = numbers[indexToGrab].toString();
         }
@@ -330,7 +330,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`No valid decimal numbers found. OCR saw:\n${fullText}`);
+        alert(`No numbers found. OCR saw:\n${fullText}`);
       }
     } catch (e) {
       alert("OCR Error");
@@ -341,12 +341,14 @@ export default function RayScanLocal() {
 
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
-    step: any
+    fields: string[],
+    indices: number[]
   ) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => performSmartScan(reader.result as string, step);
+      reader.onloadend = () =>
+        performSmartScan(reader.result as string, fields, indices);
       reader.readAsDataURL(file);
     }
   };
@@ -370,7 +372,8 @@ export default function RayScanLocal() {
       make: machine.make,
       model: machine.model,
       serial: machine.serial,
-      location: machine.location,
+      // Pass 'location' as 'credential' for template
+      credential: machine.location,
       type: machine.type,
       ...machine.data,
     };
@@ -453,8 +456,11 @@ export default function RayScanLocal() {
               className="bg-white p-4 rounded shadow flex justify-between items-center"
             >
               <div>
-                <div className="font-bold">{m.location}</div>
-                <div className="text-xs text-slate-500">{m.make}</div>
+                {/* UPDATED DISPLAY: Location (Credential #) first, Make second */}
+                <div className="font-bold text-lg">{m.location}</div>
+                <div className="text-xs text-slate-500">
+                  {m.make} • {m.serial}
+                </div>
               </div>
               <ChevronRight />
             </div>
@@ -470,7 +476,7 @@ export default function RayScanLocal() {
           <button onClick={() => setView("mobile-list")}>
             <ArrowLeft />
           </button>
-          <div className="font-bold">{activeMachine.make}</div>
+          <div className="font-bold">{activeMachine.location}</div>
         </header>
         <div className="p-4 space-y-6">
           {lastScannedText && (
@@ -506,7 +512,9 @@ export default function RayScanLocal() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleScanClick(e, step)}
+                    onChange={(e) =>
+                      handleScanClick(e, step.fields, step.indices)
+                    }
                     disabled={isScanning}
                   />
                 </label>
@@ -590,9 +598,10 @@ export default function RayScanLocal() {
             key={m.id}
             className="p-3 border-b flex justify-between items-center"
           >
+            {/* UPDATED DASHBOARD VIEW: Location first */}
             <div>
-              <div className="font-bold text-sm">{m.make}</div>
-              <div className="text-xs text-slate-500">{m.serial}</div>
+              <div className="font-bold text-sm">{m.location}</div>
+              <div className="text-xs text-slate-500">{m.make}</div>
             </div>
             {m.isComplete && (
               <CheckCircle className="text-emerald-500" size={16} />
