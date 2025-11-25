@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS ---
+// --- LOGIC FUNCTIONS (Internalized) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -32,6 +32,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
+      // Check if the row exists and has "Inspection Number" in the first few columns
       if (
         rawData[i] &&
         rawData[i].some(
@@ -50,6 +51,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
+    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -106,9 +108,7 @@ const extractGridValues = (text: string): number[] => {
 
 type Machine = {
   id: string;
-  make: string;
-  model: string;
-  serial: string;
+  fullDetails: string; // Replaces separate make/model/serial
   type: string;
   location: string; // Holds Credential #
   data: { [key: string]: string };
@@ -232,36 +232,21 @@ export default function RayScanLocal() {
         })
         .map((row: any, index: number) => {
           const rawString = row["Entity Name"] || "";
-          let make = "Unknown";
-          let model = "Unknown";
-          let serial = "Unknown";
+          let fullDetails = "Unknown Machine";
           let facility = rawString;
 
+          // SIMPLIFIED LOGIC: Just extract the part inside parentheses
+          // Format: "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
-            const machineDetails = parts[1].replace(")", "");
-            const details = machineDetails.split("-");
-
-            if (details.length >= 3) {
-              make = details[0].trim();
-              model = details[1].trim();
-              serial = details[2].trim();
-            } else if (details.length === 2) {
-              make = details[0].trim();
-              model = details[1].trim();
-            } else {
-              make = machineDetails;
-            }
+            fullDetails = parts[1].replace(")", ""); // "THERMO- XL3T 980 - 101788"
           }
 
           return {
             id: `mach_${Date.now()}_${index}`,
-            make,
-            model,
-            serial,
+            fullDetails: fullDetails, // Store the whole string
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            // location stores Credential # for display
             location: row["Credential #"] || facility,
             data: {},
             isComplete: false,
@@ -369,15 +354,12 @@ export default function RayScanLocal() {
       return;
     }
     const data = {
-      make: machine.make,
-      model: machine.model,
-      serial: machine.serial,
-      // Pass 'location' as 'credential' for template
+      details: machine.fullDetails, // Use the full string in the template {details}
       credential: machine.location,
       type: machine.type,
       ...machine.data,
     };
-    createWordDoc(templateFile, data, `Inspection_${machine.serial}.docx`);
+    createWordDoc(templateFile, data, `Inspection_${machine.location}.docx`); // Filename uses Credential #
     setMachines((prev) =>
       prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
     );
@@ -456,11 +438,11 @@ export default function RayScanLocal() {
               className="bg-white p-4 rounded shadow flex justify-between items-center"
             >
               <div>
-                {/* UPDATED DISPLAY: Location (Credential #) first, Make second */}
-                <div className="font-bold text-lg">{m.location}</div>
-                <div className="text-xs text-slate-500">
-                  {m.make} • {m.serial}
+                {/* UPDATED DISPLAY: Credential # on top, Full Details below */}
+                <div className="font-bold text-lg text-blue-900">
+                  {m.location}
                 </div>
+                <div className="text-xs text-slate-500">{m.fullDetails}</div>
               </div>
               <ChevronRight />
             </div>
@@ -472,11 +454,16 @@ export default function RayScanLocal() {
   if (view === "mobile-form" && activeMachine) {
     return (
       <div className="min-h-screen bg-slate-50 pb-24">
-        <header className="bg-white p-4 border-b flex gap-3 items-center sticky top-0 z-10">
-          <button onClick={() => setView("mobile-list")}>
-            <ArrowLeft />
-          </button>
-          <div className="font-bold">{activeMachine.location}</div>
+        <header className="bg-white p-4 border-b sticky top-0 z-10">
+          <div className="flex gap-3 items-center mb-1">
+            <button onClick={() => setView("mobile-list")}>
+              <ArrowLeft />
+            </button>
+            <div className="font-bold text-lg">{activeMachine.location}</div>
+          </div>
+          <div className="text-xs text-slate-500 ml-9">
+            {activeMachine.fullDetails}
+          </div>
         </header>
         <div className="p-4 space-y-6">
           {lastScannedText && (
@@ -601,7 +588,7 @@ export default function RayScanLocal() {
             {/* UPDATED DASHBOARD VIEW: Location first */}
             <div>
               <div className="font-bold text-sm">{m.location}</div>
-              <div className="text-xs text-slate-500">{m.make}</div>
+              <div className="text-xs text-slate-500">{m.fullDetails}</div>
             </div>
             {m.isComplete && (
               <CheckCircle className="text-emerald-500" size={16} />
