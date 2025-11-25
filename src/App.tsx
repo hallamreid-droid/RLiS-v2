@@ -95,20 +95,21 @@ export default function RayScanLocal() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       const arrayBuffer = evt.target?.result;
-      // FIX: Use 'array' type instead of 'binary'
       const wb = XLSX.read(arrayBuffer, { type: "array" });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
 
-      // ALiS Header starts on Row 6 (Index 5) based on your file
-      const data = XLSX.utils.sheet_to_json(ws, { range: 5 });
+      // FIX: Start reading at Row 10 (Index 9) where the actual headers are
+      const data = XLSX.utils.sheet_to_json(ws, { range: 9 });
+
+      console.log("Parsed Data:", data); // Debugging: see what's being read
 
       const newMachines: Machine[] = data
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"]) // Filter empty rows
         .map((row: any, index: number) => {
           // PARSING LOGIC FOR: "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           const rawString = row["Entity Name"] || "";
-          let make = "Unknown"; //
+          let make = "Unknown";
           let model = "Unknown";
           let serial = "Unknown";
           let facility = rawString;
@@ -156,7 +157,6 @@ export default function RayScanLocal() {
         alert(`Success! Parsed ${newMachines.length} machines from ALiS.`);
       }
     };
-    // FIX: Use readAsArrayBuffer (Modern) instead of readAsBinaryString (Deprecated)
     reader.readAsArrayBuffer(file);
   };
 
@@ -262,11 +262,13 @@ export default function RayScanLocal() {
         hvl: machine.data["hvl"] || "---",
       });
 
-      const out = doc.getZip().generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+      const out = doc
+        .getZip()
+        .generate({
+          type: "blob",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        });
       saveAs(out, `Inspection_${machine.serial}.docx`);
       setMachines((prev) =>
         prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
