@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS ---
+// --- LOGIC FUNCTIONS (Internalized) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -354,6 +354,12 @@ export default function RayScanLocal() {
       "registrant name": machine.registrantName, // Facility Name
       date: new Date().toLocaleDateString(), // Today's Date
 
+      // User Entered Presets
+      "tube number": machine.data["tube_num"] || "1",
+      "preset kvp": machine.data["preset_kvp"] || "",
+      "preset mas": machine.data["preset_mas"] || "",
+      "preset time": machine.data["preset_time"] || "",
+
       details: machine.fullDetails, // Fallback
       credential: machine.location, // Fallback
 
@@ -466,7 +472,62 @@ export default function RayScanLocal() {
             {activeMachine.fullDetails}
           </div>
         </header>
+
         <div className="p-4 space-y-6">
+          {/* USER INPUTS SECTION */}
+          <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
+            <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
+              Machine Settings
+            </h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Tube #
+                </label>
+                <input
+                  className="w-full p-2 border rounded text-sm font-bold text-slate-700"
+                  placeholder="1"
+                  value={activeMachine.data["tube_num"] || ""}
+                  onChange={(e) => updateField("tube_num", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Preset kVp
+                </label>
+                <input
+                  className="w-full p-2 border rounded text-sm font-bold text-slate-700"
+                  placeholder="70"
+                  value={activeMachine.data["preset_kvp"] || ""}
+                  onChange={(e) => updateField("preset_kvp", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Preset mAs
+                </label>
+                <input
+                  className="w-full p-2 border rounded text-sm font-bold text-slate-700"
+                  placeholder="10"
+                  value={activeMachine.data["preset_mas"] || ""}
+                  onChange={(e) => updateField("preset_mas", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Preset Time
+                </label>
+                <input
+                  className="w-full p-2 border rounded text-sm font-bold text-slate-700"
+                  placeholder="0.10"
+                  value={activeMachine.data["preset_time"] || ""}
+                  onChange={(e) => updateField("preset_time", e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* OCR Debugging Area */}
           {lastScannedText && (
             <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1">
