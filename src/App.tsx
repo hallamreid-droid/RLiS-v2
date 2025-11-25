@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Internalized) ---
+// --- LOGIC FUNCTIONS ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -28,7 +28,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -82,24 +81,28 @@ const createWordDoc = (
   }
 };
 
-// SMART PARSER: Extracts numbers based on INDEX (Position)
+// STRICT DECIMAL PARSER: Only keeps numbers with a decimal point
 const extractGridValues = (text: string): number[] => {
-  // 1. Remove Page Numbers (e.g. "2 of 26", "8/8", "Page 1")
+  // 1. Remove Page Numbers first
   let cleanText = text.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
   cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
   cleanText = cleanText.replace(/Page\s+\d+/gi, " ");
 
-  // 2. Remove rate units that confuse logic (e.g. /s, /min)
+  // 2. Remove rate units
   cleanText = cleanText.replace(/\/\s*[sm]/gi, "");
 
-  // 3. Find all numbers (integers or decimals)
+  // 3. Find all numbers
   const numberPattern = /(\d+\.?\d*)/g;
   const matches = cleanText.match(numberPattern);
 
   if (!matches) return [];
 
-  // 4. Filter out any remaining obvious non-measurements
-  return matches.map(parseFloat).filter((n) => !isNaN(n));
+  // 4. Filter: Must be a number AND Must have a decimal point (float)
+  // This kills integers like "2024", "1", "8", etc.
+  return matches
+    .filter((str) => str.includes(".")) // KEY FIX: Only keep strings with '.'
+    .map(parseFloat)
+    .filter((n) => !isNaN(n));
 };
 
 // --- MAIN COMPONENT ---
@@ -115,51 +118,46 @@ type Machine = {
   isComplete: boolean;
 };
 
-// Updated Fields for Dental Steps
-// We add an 'indices' array to tell the app WHICH numbers to grab from the list
-// RaySafe Grid Order Assumption: [0: kVp] [1: Dose] [2: Time] [3: HVL]
-// Note: This order assumes Left->Right, Top->Bottom reading. If your RaySafe is different, swap these indices!
 const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Capture kVp, Dose, Time, HVL",
+    desc: "Order: kVp, Dose, Time, HVL",
     fields: ["kvp", "mR1", "time1", "hvl"],
-    indices: [0, 1, 2, 3], // Grab 1st, 2nd, 3rd, 4th numbers
+    indices: [0, 1, 2, 3],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Capture Time, Dose (Skip kVp)",
-    fields: ["time2", "mR2"],
-    indices: [2, 1], // Skip 0 (kVp). Grab 3rd (Time) and 2nd (Dose).
-    // Note: Adjust this if Time is 2nd on your screen!
+    desc: "Order: Dose, Time (Skip kVp)",
+    fields: ["mR2", "time2"],
+    indices: [1, 2],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Capture Time, Dose",
-    fields: ["time3", "mR3"],
-    indices: [2, 1],
+    desc: "Order: Dose, Time",
+    fields: ["mR3", "time3"],
+    indices: [1, 2],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Capture Time, Dose",
-    fields: ["time4", "mR4"],
-    indices: [2, 1],
+    desc: "Order: Dose, Time",
+    fields: ["mR4", "time4"],
+    indices: [1, 2],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Capture Dose only",
+    desc: "Order: Dose",
     fields: ["6 foot"],
-    indices: [1], // Just grab the Dose (2nd number usually)
+    indices: [1],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Capture Dose only",
+    desc: "Order: Dose",
     fields: ["operator location"],
     indices: [1],
   },
@@ -177,6 +175,7 @@ export default function RayScanLocal() {
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
+  const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
 
   // Force Styles
   useEffect(() => {
@@ -306,16 +305,14 @@ export default function RayScanLocal() {
 
       setLastScannedText(fullText);
 
-      // 1. Extract numbers (filtering out page numbers)
+      // 1. Extract numbers (DECIMAL ONLY)
       const numbers = extractGridValues(fullText);
-      console.log("Found Numbers:", numbers);
+      setLastParsedNumbers(numbers);
+      console.log("Found Decimal Numbers:", numbers);
 
       const updates: Record<string, string> = {};
 
-      // 2. Map numbers using INDICES from the config
-      // step.fields = ['time2', 'mR2']
-      // step.indices = [2, 1]  <-- Means grab the 3rd number for Time, 2nd for Dose
-
+      // 2. Map numbers using INDICES
       step.fields.forEach((field: string, i: number) => {
         const indexToGrab = step.indices[i];
         if (numbers[indexToGrab] !== undefined) {
@@ -333,7 +330,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`No numbers found in expected positions. OCR saw:\n${fullText}`);
+        alert(`No valid decimal numbers found. OCR saw:\n${fullText}`);
       }
     } catch (e) {
       alert("OCR Error");
@@ -477,8 +474,11 @@ export default function RayScanLocal() {
         </header>
         <div className="p-4 space-y-6">
           {lastScannedText && (
-            <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 truncate">
-              Last Scan Raw: {lastScannedText}
+            <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
+              <div className="font-bold mb-1">
+                Parsed Decimals: {JSON.stringify(lastParsedNumbers)}
+              </div>
+              <div className="truncate text-slate-400">{lastScannedText}</div>
             </div>
           )}
 
