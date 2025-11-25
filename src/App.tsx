@@ -24,7 +24,7 @@ type Machine = {
   model: string;
   serial: string;
   type: string;
-  location: string;
+  location: string; // We will use Credential # or Facility Name here
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -43,6 +43,17 @@ export default function RayScanLocal() {
     useState<string>("No Template Loaded");
 
   const [isScanning, setIsScanning] = useState(false);
+
+  // --- FORCE STYLING (Fixes white screen issue) ---
+  useEffect(() => {
+    const existingScript = document.getElementById("tailwind-script");
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.tailwindcss.com";
+      script.id = "tailwind-script";
+      document.head.appendChild(script);
+    }
+  }, []);
 
   // --- PERSISTENCE ---
   useEffect(() => {
@@ -76,46 +87,46 @@ export default function RayScanLocal() {
     }
   };
 
+  // --- THE NEW ALiS PARSER ---
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: "binary" });
+      const arrayBuffer = evt.target?.result;
+      // FIX: Use 'array' type instead of 'binary'
+      const wb = XLSX.read(arrayBuffer, { type: "array" });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
 
-      // FIX 1: Start reading at Row 6 (Index 5)
-      // The file shows headers are on the 6th line
+      // ALiS Header starts on Row 6 (Index 5) based on your file
       const data = XLSX.utils.sheet_to_json(ws, { range: 5 });
 
-      // FIX 2: Parse the "Entity Name" string
-      // Format: "FACILITY(MAKE- MODEL - SERIAL)"
       const newMachines: Machine[] = data
-        .filter((row: any) => row["Entity Name"] && row["Inspection Number"]) // Filter blank rows
+        .filter((row: any) => row["Entity Name"] && row["Inspection Number"]) // Filter empty rows
         .map((row: any, index: number) => {
+          // PARSING LOGIC FOR: "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           const rawString = row["Entity Name"] || "";
           let make = "Unknown";
           let model = "Unknown";
           let serial = "Unknown";
           let facility = rawString;
 
-          // Logic to break apart "TESLA(THERMO- XL3 - 123)"
           if (rawString.includes("(") && rawString.includes(")")) {
-            // 1. Extract the part inside parentheses
+            // 1. Split Facility from Machine
             const parts = rawString.split("(");
-            facility = parts[0].trim(); // "TESLA MOTORS INC"
+            facility = parts[0].trim();
 
-            const machineDetails = parts[1].replace(")", ""); // "THERMO- XL3T 980 - 101788"
+            // 2. Clean the machine part: "THERMO- XL3T 980 - 101788)" -> "THERMO- XL3T 980 - 101788"
+            const machineDetails = parts[1].replace(")", "");
 
-            // 2. Split by Dash "-"
+            // 3. Split by Dash "-"
             const details = machineDetails.split("-");
             if (details.length >= 3) {
-              make = details[0].trim(); // "THERMO"
-              model = details[1].trim(); // "XL3T 980"
-              serial = details[2].trim(); // "101788"
+              make = details[0].trim(); // THERMO
+              model = details[1].trim(); // XL3T 980
+              serial = details[2].trim(); // 101788
             } else if (details.length === 2) {
               make = details[0].trim();
               model = details[1].trim();
@@ -129,8 +140,10 @@ export default function RayScanLocal() {
             make: make,
             model: model,
             serial: serial,
-            type: row["Credential Type"] || row["Inspection Form"] || "Unknown", // e.g. "X-RAY FLUORESCENCE"
-            location: row["Credential #"] || facility, // Using Reg Number as identifier
+            // ALiS Column "Credential Type" -> e.g., "X-RAY FLUORESCENCE"
+            type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
+            // Using Credential # as location/ID since Excel doesn't have room numbers
+            location: row["Credential #"] || facility,
             data: {},
             isComplete: false,
           };
@@ -143,9 +156,11 @@ export default function RayScanLocal() {
         alert(`Success! Parsed ${newMachines.length} machines from ALiS.`);
       }
     };
-    reader.readAsBinaryString(file);
+    // FIX: Use readAsArrayBuffer (Modern) instead of readAsBinaryString (Deprecated)
+    reader.readAsArrayBuffer(file);
   };
 
+  // --- OCR LOGIC ---
   const performOCR = async (base64Image: string, field: string) => {
     if (!apiKey) {
       alert("Please set API Key in Settings first!");
@@ -172,6 +187,7 @@ export default function RayScanLocal() {
       const text = data.responses[0]?.fullTextAnnotation?.text || "";
 
       let value = "";
+      // Regex to find numbers near units
       if (field === "kvp")
         value = text.match(/(\d+\.?\d*)\s*(kV|kVp)/i)?.[1] || "";
       else if (field === "time")
@@ -233,6 +249,7 @@ export default function RayScanLocal() {
         linebreaks: true,
       });
 
+      // INJECT DATA INTO WORD DOC
       doc.render({
         make: machine.make,
         model: machine.model,
@@ -245,11 +262,13 @@ export default function RayScanLocal() {
         hvl: machine.data["hvl"] || "---",
       });
 
-      const out = doc.getZip().generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+      const out = doc
+        .getZip()
+        .generate({
+          type: "blob",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        });
       saveAs(out, `Inspection_${machine.serial}.docx`);
       setMachines((prev) =>
         prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
@@ -261,7 +280,7 @@ export default function RayScanLocal() {
   };
 
   const clearAll = () => {
-    if (confirm("Delete all machines?")) {
+    if (window.confirm("Delete all machines?")) {
       setMachines([]);
       localStorage.removeItem("rayScanMachines");
     }
@@ -269,7 +288,9 @@ export default function RayScanLocal() {
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
 
-  // VIEW ROUTER
+  // --- UI ROUTER ---
+
+  // 1. SETTINGS VIEW
   if (view === "settings") {
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -331,6 +352,7 @@ export default function RayScanLocal() {
     );
   }
 
+  // 2. MOBILE LIST VIEW
   if (view === "mobile-list") {
     return (
       <div className="min-h-screen bg-slate-100 font-sans text-slate-900 pb-20">
@@ -360,6 +382,9 @@ export default function RayScanLocal() {
                 <div className="text-xs text-slate-500">
                   {m.make} • {m.type}
                 </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  {m.serial}
+                </div>
               </div>
               <ChevronRight className="text-slate-300" />
             </div>
@@ -369,6 +394,7 @@ export default function RayScanLocal() {
     );
   }
 
+  // 3. MOBILE FORM VIEW
   if (view === "mobile-form" && activeMachine) {
     const fields = ["kvp", "time", "dose", "hvl"];
     return (
@@ -441,7 +467,7 @@ export default function RayScanLocal() {
     );
   }
 
-  // DASHBOARD DEFAULT
+  // 4. DASHBOARD DEFAULT
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 p-4 max-w-lg mx-auto">
       <header className="flex justify-between items-center mb-6">
@@ -456,6 +482,7 @@ export default function RayScanLocal() {
           <Settings size={20} />
         </button>
       </header>
+
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
         <div className="text-4xl font-bold text-blue-600 mb-1">
           {machines.length}
@@ -488,6 +515,7 @@ export default function RayScanLocal() {
           </button>
         </div>
       </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 p-3 border-b border-slate-100 flex justify-between items-center">
           <span className="text-xs font-bold text-slate-500 uppercase">
@@ -514,7 +542,7 @@ export default function RayScanLocal() {
                   <div className="font-bold text-sm">
                     {m.make} {m.model}
                   </div>
-                  <div className="text-xs text-slate-500">{m.serial}</div>
+                  <div className="text-xs text-slate-500">{m.location}</div>
                 </div>
                 {m.isComplete && (
                   <CheckCircle size={16} className="text-emerald-500" />
