@@ -17,7 +17,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Moved inside to avoid import errors) ---
+// --- LOGIC FUNCTIONS (Internalized to fix import errors) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -69,11 +69,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -171,6 +173,11 @@ export default function RayScanLocal() {
       };
       reader.readAsArrayBuffer(file);
     }
+  };
+
+  const clearTemplate = () => {
+    setTemplateFile(null);
+    setTemplateName("No Template Loaded");
   };
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -344,7 +351,7 @@ export default function RayScanLocal() {
           onChange={handleApiKeyChange}
           type="password"
         />
-        <div className="border-2 border-dashed p-6 text-center rounded">
+        <div className="border-2 border-dashed p-6 text-center rounded relative">
           <label className="block w-full h-full cursor-pointer">
             {templateName}
             <input
@@ -354,6 +361,15 @@ export default function RayScanLocal() {
               className="hidden"
             />
           </label>
+          {templateFile && (
+            <button
+              onClick={clearTemplate}
+              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200"
+              title="Remove Template"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
         </div>
       </div>
     );
