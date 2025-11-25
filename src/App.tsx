@@ -108,7 +108,7 @@ export default function RayScanLocal() {
         .map((row: any, index: number) => {
           // PARSING LOGIC FOR: "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           const rawString = row["Entity Name"] || "";
-          let make = "Unknown";
+          let make = "Unknown"; //
           let model = "Unknown";
           let serial = "Unknown";
           let facility = rawString;
