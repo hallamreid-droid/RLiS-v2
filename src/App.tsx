@@ -230,6 +230,7 @@ export default function RayScanLocal() {
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
+            // Keep the full details string intact!
             fullDetails = parts[1].replace(")", "");
           }
 
@@ -344,35 +345,17 @@ export default function RayScanLocal() {
       return;
     }
 
-    // --- SPLIT FULL DETAILS LOGIC ---
-    // fullDetails string format: "MAKE- MODEL - SERIAL"
-    // Example: "THERMO- XL3T 980 - 101788"
-
-    let make = "Unknown";
-    let model = "Unknown";
-    let serial = "Unknown";
-
-    if (machine.fullDetails) {
-      const parts = machine.fullDetails.split("-");
-      if (parts.length >= 3) {
-        make = parts[0].trim();
-        model = parts[1].trim();
-        serial = parts[2].trim();
-      } else if (parts.length === 2) {
-        make = parts[0].trim();
-        model = parts[1].trim();
-      } else {
-        make = machine.fullDetails;
-      }
-    }
-
     const data = {
-      details: machine.fullDetails,
+      // We pass the full string here.
+      // In your Word doc, use {make model serial} to print the whole thing.
+      "make model serial": machine.fullDetails,
+
       credential: machine.location,
       type: machine.type,
-      make: make, // Now available as {make}
-      model: model, // Now available as {model}
-      serial: serial, // Now available as {serial}
+
+      // Keep individual fields available just in case
+      details: machine.fullDetails,
+
       ...machine.data,
     };
 
