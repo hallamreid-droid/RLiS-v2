@@ -32,7 +32,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
-      // Check if the row exists and has "Inspection Number" in the first few columns
       if (
         rawData[i] &&
         rawData[i].some(
@@ -51,7 +50,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
-    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -117,44 +115,53 @@ type Machine = {
   isComplete: boolean;
 };
 
-// Updated Fields for Scan 1 based on your request:
-// Order: kVp (1st), mR (2nd), Time (3rd), HVL (4th)
+// Updated Fields for Dental Steps
+// We add an 'indices' array to tell the app WHICH numbers to grab from the list
+// RaySafe Grid Order Assumption: [0: kVp] [1: Dose] [2: Time] [3: HVL]
+// Note: This order assumes Left->Right, Top->Bottom reading. If your RaySafe is different, swap these indices!
 const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Order: kVp, Dose, Time, HVL",
+    desc: "Capture kVp, Dose, Time, HVL",
     fields: ["kvp", "mR1", "time1", "hvl"],
+    indices: [0, 1, 2, 3], // Grab 1st, 2nd, 3rd, 4th numbers
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Order: Time, Dose",
+    desc: "Capture Time, Dose (Skip kVp)",
     fields: ["time2", "mR2"],
-  }, // Swapped based on typical readout, adjust if needed
+    indices: [2, 1], // Skip 0 (kVp). Grab 3rd (Time) and 2nd (Dose).
+    // Note: Adjust this if Time is 2nd on your screen!
+  },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Order: Time, Dose",
+    desc: "Capture Time, Dose",
     fields: ["time3", "mR3"],
+    indices: [2, 1],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Order: Time, Dose",
+    desc: "Capture Time, Dose",
     fields: ["time4", "mR4"],
+    indices: [2, 1],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Order: Dose",
+    desc: "Capture Dose only",
     fields: ["6 foot"],
+    indices: [1], // Just grab the Dose (2nd number usually)
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Order: Dose",
+    desc: "Capture Dose only",
     fields: ["operator location"],
+    indices: [1],
   },
 ];
 
@@ -273,10 +280,7 @@ export default function RayScanLocal() {
   };
 
   // --- SMART GRID SCAN LOGIC ---
-  const performSmartScan = async (
-    base64Image: string,
-    targetFields: string[]
-  ) => {
+  const performSmartScan = async (base64Image: string, step: any) => {
     if (!apiKey) {
       alert("Set API Key first!");
       return;
@@ -304,16 +308,18 @@ export default function RayScanLocal() {
 
       // 1. Extract numbers (filtering out page numbers)
       const numbers = extractGridValues(fullText);
-
       console.log("Found Numbers:", numbers);
 
       const updates: Record<string, string> = {};
 
-      // STRATEGY: Map numbers to fields sequentially
-      // Scan 1 Config: kVp (1st), mR1 (2nd), time1 (3rd), hvl (4th)
-      targetFields.forEach((field, index) => {
-        if (numbers[index] !== undefined) {
-          updates[field] = numbers[index].toString();
+      // 2. Map numbers using INDICES from the config
+      // step.fields = ['time2', 'mR2']
+      // step.indices = [2, 1]  <-- Means grab the 3rd number for Time, 2nd for Dose
+
+      step.fields.forEach((field: string, i: number) => {
+        const indexToGrab = step.indices[i];
+        if (numbers[indexToGrab] !== undefined) {
+          updates[field] = numbers[indexToGrab].toString();
         }
       });
 
@@ -327,7 +333,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`No numbers found. OCR saw:\n${fullText}`);
+        alert(`No numbers found in expected positions. OCR saw:\n${fullText}`);
       }
     } catch (e) {
       alert("OCR Error");
@@ -338,13 +344,12 @@ export default function RayScanLocal() {
 
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
-    fields: string[]
+    step: any
   ) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () =>
-        performSmartScan(reader.result as string, fields);
+      reader.onloadend = () => performSmartScan(reader.result as string, step);
       reader.readAsDataURL(file);
     }
   };
@@ -501,7 +506,7 @@ export default function RayScanLocal() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleScanClick(e, step.fields)}
+                    onChange={(e) => handleScanClick(e, step)}
                     disabled={isScanning}
                   />
                 </label>
