@@ -28,6 +28,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
+    // Header Hunter
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -104,7 +105,8 @@ type Machine = {
   id: string;
   fullDetails: string;
   type: string;
-  location: string;
+  location: string; // Credential #
+  registrantName: string; // Facility Name
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -230,7 +232,6 @@ export default function RayScanLocal() {
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
-            // Keep the full details string intact!
             fullDetails = parts[1].replace(")", "");
           }
 
@@ -238,7 +239,8 @@ export default function RayScanLocal() {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            location: row["Credential #"] || facility,
+            location: row["Credential #"] || facility, // This is the Credential Number
+            registrantName: facility, // This is the Facility Name
             data: {},
             isComplete: false,
           };
@@ -346,16 +348,16 @@ export default function RayScanLocal() {
     }
 
     const data = {
-      // We pass the full string here.
-      // In your Word doc, use {make model serial} to print the whole thing.
+      // Metadata Fields
       "make model serial": machine.fullDetails,
+      "registration number": machine.location, // Credential #
+      "registrant name": machine.registrantName, // Facility Name
+      date: new Date().toLocaleDateString(), // Today's Date
 
-      credential: machine.location,
+      details: machine.fullDetails, // Fallback
+      credential: machine.location, // Fallback
+
       type: machine.type,
-
-      // Keep individual fields available just in case
-      details: machine.fullDetails,
-
       ...machine.data,
     };
 
