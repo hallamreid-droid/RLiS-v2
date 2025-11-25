@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Internalized) ---
+// --- LOGIC FUNCTIONS ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -28,6 +28,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
+    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -67,11 +68,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -79,21 +82,24 @@ const createWordDoc = (
   }
 };
 
-// LIST PARSER: Extracts numbers in order found
-const extractValuesByOrder = (text: string): string[] => {
-  // 1. Clean text to remove non-numeric chars that might confuse regex (keep decimals)
-  // 2. Find all floating point numbers
+// GRID PARSER: Extracts the first 4 valid numbers found
+const extractGridValues = (text: string): number[] => {
+  // 1. Remove page numbers like "2 of 26" or "8/8"
+  // This regex looks for "digits space of space digits" or "digits slash digits"
+  let cleanText = text.replace(/\b\d+\s+of\s+\d+\b/gi, " ");
+  cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
+
+  // 2. Remove rate units that confuse logic (e.g. /s, /min)
+  cleanText = cleanText.replace(/\/\s*[sm]/gi, "");
+
+  // 3. Find all numbers (integers or decimals)
   const numberPattern = /(\d+\.?\d*)/g;
-  const matches = text.match(numberPattern);
+  const matches = cleanText.match(numberPattern);
 
   if (!matches) return [];
 
-  // Filter out "noise" numbers (e.g. very small integers that might be part of words, or huge years)
-  // RaySafe values usually have decimals or are specific integers.
-  // Let's keep it simple: take all numbers found.
-  // We might want to filter out '0' or '1' if they appear as noise, but RaySafe can read 0.
-
-  return matches;
+  // Convert to numbers for sanity check
+  return matches.map(parseFloat).filter((n) => !isNaN(n));
 };
 
 // --- MAIN COMPONENT ---
@@ -113,37 +119,37 @@ const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Order: kVp, Dose, Time, HVL",
-    fields: ["kvp", "mR1", "time1", "hvl"],
+    desc: "Expected: kVp, Time, Dose, HVL",
+    fields: ["kvp", "time1", "mR1", "hvl"],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Order: Dose, Time",
-    fields: ["mR2", "time2"],
+    desc: "Expected: Time, Dose",
+    fields: ["time2", "mR2"],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Order: Dose, Time",
-    fields: ["mR3", "time3"],
+    desc: "Expected: Time, Dose",
+    fields: ["time3", "mR3"],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Order: Dose, Time",
-    fields: ["mR4", "time4"],
+    desc: "Expected: Time, Dose",
+    fields: ["time4", "mR4"],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Order: Dose",
+    desc: "Expected: Dose",
     fields: ["6 foot"],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Order: Dose",
+    desc: "Expected: Dose",
     fields: ["operator location"],
   },
 ];
@@ -171,6 +177,7 @@ export default function RayScanLocal() {
     }
   }, []);
 
+  // Load Data
   useEffect(() => {
     const savedKey = localStorage.getItem("rayScanApiKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
@@ -261,7 +268,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- LIST-BASED SCAN LOGIC ---
+  // --- SMART GRID SCAN LOGIC ---
   const performSmartScan = async (
     base64Image: string,
     targetFields: string[]
@@ -291,24 +298,16 @@ export default function RayScanLocal() {
 
       setLastScannedText(fullText);
 
-      // 1. Extract all numbers as a flat list
-      // Note: We sort of trust the OCR reads top-to-bottom, left-to-right
-      const allNumbers = extractValuesByOrder(fullText);
+      // 1. Extract numbers (filtering out page numbers)
+      const numbers = extractGridValues(fullText);
 
-      console.log("Found Numbers:", allNumbers);
+      console.log("Found Numbers:", numbers);
 
-      // 2. Map numbers to target fields by index
       const updates: Record<string, string> = {};
 
       targetFields.forEach((field, index) => {
-        if (allNumbers[index]) {
-          // Specific fix for Scan 1 order: RaySafe usually shows kVp, Dose, Time, HVL
-          // But we might need to be flexible. Assuming order:
-          // 1st number found -> targetFields[0] (kVp)
-          // 2nd number found -> targetFields[1] (mR1)
-          // 3rd number found -> targetFields[2] (time1)
-          // 4th number found -> targetFields[3] (hvl)
-          updates[field] = allNumbers[index];
+        if (numbers[index] !== undefined) {
+          updates[field] = numbers[index].toString();
         }
       });
 
