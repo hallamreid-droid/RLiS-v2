@@ -17,7 +17,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Internalized to fix import errors) ---
+// --- LOGIC FUNCTIONS ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -27,11 +27,9 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
-      // Check if the row exists and has "Inspection Number" in the first few columns
       if (
         rawData[i] &&
         rawData[i].some(
@@ -50,7 +48,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
-    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -69,13 +66,11 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc
-      .getZip()
-      .generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -83,30 +78,42 @@ const createWordDoc = (
   }
 };
 
-const parseRaySafeText = (text: string, field: string): string => {
-  // RaySafe Format: "80.48 kVp", "50.34 ms", "179.3 uGy"
+const parseRaySafeText = (
+  text: string,
+  scanType: string
+): Record<string, string> => {
+  // Regex Patterns
+  const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
+  const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)/i;
+  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR)/i;
+  const regexHvl = /(\d+\.?\d*)\s*(mm)/i;
 
-  let regex: RegExp;
+  const results: Record<string, string> = {};
 
-  if (field === "kvp") {
-    // Look for number followed by kV or kVp
-    regex = /(\d+\.?\d*)\s*(kV|kVp)/i;
-  } else if (field === "time") {
-    // Look for number followed by ms, s, sec
-    regex = /(\d+\.?\d*)\s*(ms|s|sec)/i;
-  } else if (field === "dose") {
-    // Look for number followed by mGy, uGy, R, mR, Gy
-    // Note: Google Vision often reads 'µ' as 'u' or 'y' or just 'm'
-    regex = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR)/i;
-  } else if (field === "hvl") {
-    regex = /(\d+\.?\d*)\s*(mm)/i;
-  } else {
-    // Fallback: Just grab the first big number
-    regex = /(\d+\.?\d*)/;
+  // Helper to extract
+  const extract = (regex: RegExp) => {
+    const match = text.match(regex);
+    return match ? match[1] : "";
+  };
+
+  // LOGIC: What to grab based on the scan type
+  if (scanType === "scan1") {
+    results["kvp"] = extract(regexKvp);
+    results["time1"] = extract(regexTime);
+    results["mR1"] = extract(regexDose);
+    results["hvl"] = extract(regexHvl);
+  } else if (["scan2", "scan3", "scan4"].includes(scanType)) {
+    // Extract '2', '3', or '4' from the string
+    const num = scanType.slice(-1);
+    results[`time${num}`] = extract(regexTime);
+    results[`mR${num}`] = extract(regexDose);
+  } else if (scanType === "scan5") {
+    results["6 foot"] = extract(regexDose);
+  } else if (scanType === "scan6") {
+    results["operator location"] = extract(regexDose);
   }
 
-  const match = text.match(regex);
-  return match ? match[1] : "";
+  return results;
 };
 
 // --- MAIN COMPONENT ---
@@ -121,6 +128,19 @@ type Machine = {
   data: { [key: string]: string };
   isComplete: boolean;
 };
+
+const DENTAL_STEPS = [
+  {
+    id: "scan1",
+    label: "1. Technique Scan",
+    desc: "Capture kVp, HVL, Time, Dose",
+  },
+  { id: "scan2", label: "2. Reproducibility", desc: "Capture Time, Dose" },
+  { id: "scan3", label: "3. Reproducibility", desc: "Capture Time, Dose" },
+  { id: "scan4", label: "4. Reproducibility", desc: "Capture Time, Dose" },
+  { id: "scan5", label: "5. Scatter (6ft)", desc: "Capture Dose only" },
+  { id: "scan6", label: "6. Scatter (Operator)", desc: "Capture Dose only" },
+];
 
 export default function RayScanLocal() {
   const [view, setView] = useState<
@@ -186,10 +206,7 @@ export default function RayScanLocal() {
 
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
-        // FILTER 1: Must have basic data columns
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
-        // FILTER 2: Must be a machine row (contains parentheses with details)
-        // This logic specifically targets the ALiS format "FACILITY(MAKE- MODEL - SERIAL)"
         .filter((row: any) => {
           const name = row["Entity Name"] || "";
           return name.includes("(") && name.includes(")");
@@ -201,7 +218,6 @@ export default function RayScanLocal() {
           let serial = "Unknown";
           let facility = rawString;
 
-          // Logic to parse "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
@@ -226,14 +242,13 @@ export default function RayScanLocal() {
             model,
             serial,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            location: row["Credential #"] || facility, // Using Credential # as identifier
+            location: row["Credential #"] || facility,
             data: {},
             isComplete: false,
           };
         });
 
-      if (newMachines.length === 0)
-        alert("No valid machine rows found. Check file format.");
+      if (newMachines.length === 0) alert("No machines found.");
       else {
         setMachines(newMachines);
         alert(`Loaded ${newMachines.length} machines.`);
@@ -241,7 +256,7 @@ export default function RayScanLocal() {
     });
   };
 
-  const performOCR = async (base64Image: string, field: string) => {
+  const performOCR = async (base64Image: string, scanId: string) => {
     if (!apiKey) {
       alert("Set API Key first!");
       return;
@@ -265,11 +280,22 @@ export default function RayScanLocal() {
       const data = await response.json();
       const text = data.responses[0]?.fullTextAnnotation?.text || "";
 
-      // Use the specialized parser for RaySafe units
-      const value = parseRaySafeText(text, field);
+      // The new parser returns an OBJECT of fields (e.g. { kvp: "80", time1: "100" })
+      const extractedValues = parseRaySafeText(text, scanId);
 
-      if (value) updateMachineData(field, value);
-      else alert(`No value found in: ${text}`);
+      // Merge these values into the machine data
+      if (Object.keys(extractedValues).length > 0) {
+        if (activeMachineId) {
+          setMachines((prev) =>
+            prev.map((m) => {
+              if (m.id !== activeMachineId) return m;
+              return { ...m, data: { ...m.data, ...extractedValues } };
+            })
+          );
+        }
+      } else {
+        alert(`No matching values found in: ${text}`);
+      }
     } catch (e) {
       alert("OCR Error");
     } finally {
@@ -277,26 +303,26 @@ export default function RayScanLocal() {
     }
   };
 
-  const handleCameraInput = (
+  const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
-    field: string
+    scanId: string
   ) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => performOCR(reader.result as string, field);
+      reader.onloadend = () => performOCR(reader.result as string, scanId);
       reader.readAsDataURL(file);
     }
   };
 
-  const updateMachineData = (field: string, value: string) => {
+  // Manual Edit Handler
+  const updateField = (key: string, value: string) => {
     if (!activeMachineId) return;
     setMachines((prev) =>
-      prev.map((m) =>
-        m.id === activeMachineId
-          ? { ...m, data: { ...m.data, [field]: value } }
-          : m
-      )
+      prev.map((m) => {
+        if (m.id !== activeMachineId) return m;
+        return { ...m, data: { ...m.data, [key]: value } };
+      })
     );
   };
 
@@ -305,18 +331,13 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
-
-    // Prepare data map for the Word template
     const data = {
       make: machine.make,
       model: machine.model,
       serial: machine.serial,
       location: machine.location,
       type: machine.type,
-      kvp: machine.data["kvp"] || "---",
-      time: machine.data["time"] || "---",
-      dose: machine.data["dose"] || "---",
-      hvl: machine.data["hvl"] || "---",
+      ...machine.data, // Spreads all captured fields
     };
     createWordDoc(templateFile, data, `Inspection_${machine.serial}.docx`);
     setMachines((prev) =>
@@ -364,8 +385,7 @@ export default function RayScanLocal() {
           {templateFile && (
             <button
               onClick={clearTemplate}
-              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200"
-              title="Remove Template"
+              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full"
             >
               <Trash2 size={16} />
             </button>
@@ -408,52 +428,83 @@ export default function RayScanLocal() {
     );
 
   if (view === "mobile-form" && activeMachine) {
-    const fields = ["kvp", "time", "dose", "hvl"];
     return (
       <div className="min-h-screen bg-slate-50 pb-24">
-        <header className="bg-white p-4 border-b flex gap-3 items-center">
+        <header className="bg-white p-4 border-b flex gap-3 items-center sticky top-0 z-10">
           <button onClick={() => setView("mobile-list")}>
             <ArrowLeft />
           </button>
           <div className="font-bold">{activeMachine.make}</div>
         </header>
-        <div className="p-4 space-y-4">
-          {fields.map((f) => (
-            <div key={f} className="bg-white p-4 rounded border shadow-sm">
-              <div className="flex justify-between mb-2">
-                <span className="font-bold uppercase text-xs">{f}</span>
-                <label className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold cursor-pointer flex gap-1">
-                  {isScanning ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Camera size={12} />
-                  )}{" "}
-                  Scan
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => handleCameraInput(e, f)}
-                    disabled={isScanning}
-                  />
-                </label>
+        <div className="p-4 space-y-6">
+          {DENTAL_STEPS.map((step) => {
+            // Determine which keys belong to this step for rendering inputs
+            let stepKeys: string[] = [];
+            if (step.id === "scan1") stepKeys = ["kvp", "hvl", "time1", "mR1"];
+            else if (step.id === "scan2") stepKeys = ["time2", "mR2"];
+            else if (step.id === "scan3") stepKeys = ["time3", "mR3"];
+            else if (step.id === "scan4") stepKeys = ["time4", "mR4"];
+            else if (step.id === "scan5") stepKeys = ["6 foot"];
+            else if (step.id === "scan6") stepKeys = ["operator location"];
+
+            return (
+              <div
+                key={step.id}
+                className="bg-white p-4 rounded border shadow-sm"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-bold text-sm text-blue-900">
+                      {step.label}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {step.desc}
+                    </div>
+                  </div>
+                  <label className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold cursor-pointer flex gap-1 items-center shadow-sm active:scale-95 transition-transform">
+                    {isScanning ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Camera size={14} />
+                    )}
+                    Scan
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => handleScanClick(e, step.id)}
+                      disabled={isScanning}
+                    />
+                  </label>
+                </div>
+
+                {/* Render Inputs for Manual Edit */}
+                <div className="grid grid-cols-2 gap-3">
+                  {stepKeys.map((k) => (
+                    <div key={k}>
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">
+                        {k}
+                      </label>
+                      <input
+                        value={activeMachine.data[k] || ""}
+                        onChange={(e) => updateField(k, e.target.value)}
+                        className="w-full font-mono text-lg border-b border-slate-200 focus:border-blue-500 outline-none bg-transparent"
+                        placeholder="-"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-              <input
-                value={activeMachine.data[f] || ""}
-                onChange={(e) => updateMachineData(f, e.target.value)}
-                className="w-full text-2xl font-mono border-b"
-                placeholder="-"
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="fixed bottom-0 w-full p-4 bg-white border-t">
           <button
             onClick={() => generateDoc(activeMachine)}
             className="w-full py-3 bg-emerald-600 text-white font-bold rounded shadow flex justify-center gap-2"
           >
-            <Download /> Save
+            <Download /> Save Report
           </button>
         </div>
       </div>
