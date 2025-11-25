@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Trash2,
   UploadCloud,
+  Edit3,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -80,44 +81,27 @@ const createWordDoc = (
   }
 };
 
-const parseRaySafeText = (
-  text: string,
-  scanType: string
-): Record<string, string> => {
-  // Updated Regex Patterns
-  const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
-  const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)/i;
-
-  // Updated Dose: Includes mGr, uGr, µGr for Gray units
-  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)/i;
-
-  // Updated HVL: Includes "HVL" keyword or "mm Al"
-  const regexHvl = /(\d+\.?\d*)\s*(mm|mm Al|HVL)/i;
-
+// Improved Parser that extracts ALL known values from a block of text
+const extractAllValues = (text: string): Record<string, string> => {
   const results: Record<string, string> = {};
 
-  // Helper to extract
-  const extract = (regex: RegExp) => {
-    const match = text.match(regex);
-    return match ? match[1] : "";
-  };
+  // Regex Patterns
+  const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
+  const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)/i;
+  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)/i;
+  const regexHvl = /(\d+\.?\d*)\s*(mm|mm Al|HVL)/i;
 
-  // LOGIC: What to grab based on the scan type
-  if (scanType === "scan1") {
-    results["kvp"] = extract(regexKvp);
-    results["time1"] = extract(regexTime);
-    results["mR1"] = extract(regexDose);
-    results["hvl"] = extract(regexHvl);
-  } else if (["scan2", "scan3", "scan4"].includes(scanType)) {
-    // Extract '2', '3', or '4' from the string
-    const num = scanType.slice(-1);
-    results[`time${num}`] = extract(regexTime);
-    results[`mR${num}`] = extract(regexDose);
-  } else if (scanType === "scan5") {
-    results["6 foot"] = extract(regexDose);
-  } else if (scanType === "scan6") {
-    results["operator location"] = extract(regexDose);
-  }
+  const matchKvp = text.match(regexKvp);
+  if (matchKvp) results["kvp"] = matchKvp[1];
+
+  const matchTime = text.match(regexTime);
+  if (matchTime) results["time"] = matchTime[1];
+
+  const matchDose = text.match(regexDose);
+  if (matchDose) results["dose"] = matchDose[1];
+
+  const matchHvl = text.match(regexHvl);
+  if (matchHvl) results["hvl"] = matchHvl[1];
 
   return results;
 };
@@ -139,13 +123,39 @@ const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Capture kVp, HVL, Time, Dose",
+    desc: "Capture All (kVp, HVL, Time, Dose)",
+    fields: ["kvp", "hvl", "time1", "mR1"],
   },
-  { id: "scan2", label: "2. Reproducibility", desc: "Capture Time, Dose" },
-  { id: "scan3", label: "3. Reproducibility", desc: "Capture Time, Dose" },
-  { id: "scan4", label: "4. Reproducibility", desc: "Capture Time, Dose" },
-  { id: "scan5", label: "5. Scatter (6ft)", desc: "Capture Dose only" },
-  { id: "scan6", label: "6. Scatter (Operator)", desc: "Capture Dose only" },
+  {
+    id: "scan2",
+    label: "2. Reproducibility",
+    desc: "Capture Time, Dose",
+    fields: ["time2", "mR2"],
+  },
+  {
+    id: "scan3",
+    label: "3. Reproducibility",
+    desc: "Capture Time, Dose",
+    fields: ["time3", "mR3"],
+  },
+  {
+    id: "scan4",
+    label: "4. Reproducibility",
+    desc: "Capture Time, Dose",
+    fields: ["time4", "mR4"],
+  },
+  {
+    id: "scan5",
+    label: "5. Scatter (6ft)",
+    desc: "Capture Dose only",
+    fields: ["6 foot"],
+  },
+  {
+    id: "scan6",
+    label: "6. Scatter (Operator)",
+    desc: "Capture Dose only",
+    fields: ["operator location"],
+  },
 ];
 
 export default function RayScanLocal() {
@@ -159,6 +169,7 @@ export default function RayScanLocal() {
   const [templateName, setTemplateName] =
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
+  const [lastScannedText, setLastScannedText] = useState<string>(""); // To show the user what OCR saw
 
   // Force Styles
   useEffect(() => {
@@ -262,7 +273,11 @@ export default function RayScanLocal() {
     });
   };
 
-  const performOCR = async (base64Image: string, scanId: string) => {
+  // --- NEW SMART SCAN LOGIC ---
+  const performSmartScan = async (
+    base64Image: string,
+    targetFields: string[]
+  ) => {
     if (!apiKey) {
       alert("Set API Key first!");
       return;
@@ -284,23 +299,47 @@ export default function RayScanLocal() {
         }
       );
       const data = await response.json();
-      const text = data.responses[0]?.fullTextAnnotation?.text || "";
+      const fullText = data.responses[0]?.fullTextAnnotation?.text || "";
 
-      // The new parser returns an OBJECT of fields (e.g. { kvp: "80", time1: "100" })
-      const extractedValues = parseRaySafeText(text, scanId);
+      setLastScannedText(fullText); // Show user what we found
 
-      // Merge these values into the machine data
-      if (Object.keys(extractedValues).length > 0) {
+      // 1. Extract everything we can find
+      const extracted = extractAllValues(fullText);
+
+      // 2. Map extracted values to the specific fields needed for this step
+      const updates: Record<string, string> = {};
+
+      targetFields.forEach((field) => {
+        // If the target field is 'kvp', look for our extracted 'kvp'
+        if (field === "kvp" && extracted.kvp) updates[field] = extracted.kvp;
+        if (field === "hvl" && extracted.hvl) updates[field] = extracted.hvl;
+
+        // If target is 'time1', 'time2', etc., use the extracted 'time'
+        if (field.includes("time") && extracted.time)
+          updates[field] = extracted.time;
+
+        // If target is 'mR1', '6 foot', etc., use extracted 'dose'
+        if (
+          (field.includes("mR") ||
+            field === "6 foot" ||
+            field === "operator location") &&
+          extracted.dose
+        ) {
+          updates[field] = extracted.dose;
+        }
+      });
+
+      if (Object.keys(updates).length > 0) {
         if (activeMachineId) {
           setMachines((prev) =>
             prev.map((m) => {
               if (m.id !== activeMachineId) return m;
-              return { ...m, data: { ...m.data, ...extractedValues } };
+              return { ...m, data: { ...m.data, ...updates } };
             })
           );
         }
       } else {
-        alert(`No matching values found in: ${text}`);
+        alert(`No matching values found. OCR saw:\n${fullText}`);
       }
     } catch (e) {
       alert("OCR Error");
@@ -311,17 +350,17 @@ export default function RayScanLocal() {
 
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
-    scanId: string
+    fields: string[]
   ) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => performOCR(reader.result as string, scanId);
+      reader.onloadend = () =>
+        performSmartScan(reader.result as string, fields);
       reader.readAsDataURL(file);
     }
   };
 
-  // Manual Edit Handler
   const updateField = (key: string, value: string) => {
     if (!activeMachineId) return;
     setMachines((prev) =>
@@ -444,67 +483,64 @@ export default function RayScanLocal() {
           <div className="font-bold">{activeMachine.make}</div>
         </header>
         <div className="p-4 space-y-6">
-          {DENTAL_STEPS.map((step) => {
-            // Determine which keys belong to this step for rendering inputs
-            let stepKeys: string[] = [];
-            if (step.id === "scan1") stepKeys = ["kvp", "hvl", "time1", "mR1"];
-            else if (step.id === "scan2") stepKeys = ["time2", "mR2"];
-            else if (step.id === "scan3") stepKeys = ["time3", "mR3"];
-            else if (step.id === "scan4") stepKeys = ["time4", "mR4"];
-            else if (step.id === "scan5") stepKeys = ["6 foot"];
-            else if (step.id === "scan6") stepKeys = ["operator location"];
+          {/* OCR Debugging Area */}
+          {lastScannedText && (
+            <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 truncate">
+              Last Scan: {lastScannedText}
+            </div>
+          )}
 
-            return (
-              <div
-                key={step.id}
-                className="bg-white p-4 rounded border shadow-sm"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <div className="font-bold text-sm text-blue-900">
-                      {step.label}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {step.desc}
-                    </div>
+          {DENTAL_STEPS.map((step) => (
+            <div
+              key={step.id}
+              className="bg-white p-4 rounded border shadow-sm"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <div className="font-bold text-sm text-blue-900">
+                    {step.label}
                   </div>
-                  <label className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold cursor-pointer flex gap-1 items-center shadow-sm active:scale-95 transition-transform">
-                    {isScanning ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Camera size={14} />
-                    )}
-                    Scan
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) => handleScanClick(e, step.id)}
-                      disabled={isScanning}
-                    />
-                  </label>
+                  <div className="text-[10px] text-slate-400">{step.desc}</div>
                 </div>
+                <label className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold cursor-pointer flex gap-1 items-center shadow-sm active:scale-95 transition-transform">
+                  {isScanning ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Camera size={14} />
+                  )}
+                  Scan
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => handleScanClick(e, step.fields)}
+                    disabled={isScanning}
+                  />
+                </label>
+              </div>
 
-                {/* Render Inputs for Manual Edit */}
-                <div className="grid grid-cols-2 gap-3">
-                  {stepKeys.map((k) => (
-                    <div key={k}>
-                      <label className="text-[9px] font-bold text-slate-400 uppercase">
-                        {k}
-                      </label>
+              <div className="grid grid-cols-2 gap-3">
+                {step.fields.map((k) => (
+                  <div key={k}>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">
+                      {k}
+                    </label>
+                    <div className="relative">
                       <input
                         value={activeMachine.data[k] || ""}
                         onChange={(e) => updateField(k, e.target.value)}
                         className="w-full font-mono text-lg border-b border-slate-200 focus:border-blue-500 outline-none bg-transparent"
                         placeholder="-"
                       />
+                      {/* Manual Edit Indicator */}
+                      <Edit3 className="absolute right-0 top-1 text-slate-200 h-3 w-3 pointer-events-none" />
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
         <div className="fixed bottom-0 w-full p-4 bg-white border-t">
           <button
