@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Internalized) ---
+// --- LOGIC FUNCTIONS (Internalized to avoid import errors) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -32,7 +32,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
-      // Check if row exists and has "Inspection Number"
       if (
         rawData[i] &&
         rawData[i].some(
@@ -70,11 +69,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -82,27 +83,34 @@ const createWordDoc = (
   }
 };
 
-// SMART PARSER: Extracts ALL values at once
+// SMART PARSER: Refined for RaySafe Grid
 const extractAllValues = (text: string): Record<string, string> => {
   const results: Record<string, string> = {};
 
-  // Regex Patterns
-  const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
-  const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)/i;
-  // Expanded Dose Regex for Gray units
-  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)/i;
-  const regexHvl = /(\d+\.?\d*)\s*(mm|mm Al|HVL)/i;
+  // Pre-clean: Remove "Rate" units that confuse the dose parser
+  // We remove anything like "mGy/s" or "R/min" to avoid false positives for dose
+  const cleanText = text.replace(
+    /\b\d+(\.\d+)?\s*(mGy\/s|R\/s|R\/min|Gy\/s|Gr\/s)\b/gi,
+    " "
+  );
 
-  const matchKvp = text.match(regexKvp);
+  // Regex Patterns
+  // Adjusted to be more robust for RaySafe screens
+  const regexKvp = /(\d+\.?\d*)\s*(kV|kVp)/i;
+  const regexTime = /(\d+\.?\d*)\s*(ms|s|sec)\b/i;
+  const regexDose = /(\d+\.?\d*)\s*(mGy|uGy|µGy|Gy|R|mR|mGr|uGr|µGr|Gr)\b/i;
+  const regexHvl = /(\d+\.?\d*)\s*(mm\s*Al|HVL|mm)/i;
+
+  const matchKvp = cleanText.match(regexKvp);
   if (matchKvp) results["kvp"] = matchKvp[1];
 
-  const matchTime = text.match(regexTime);
+  const matchTime = cleanText.match(regexTime);
   if (matchTime) results["time"] = matchTime[1];
 
-  const matchDose = text.match(regexDose);
+  const matchDose = cleanText.match(regexDose);
   if (matchDose) results["dose"] = matchDose[1];
 
-  const matchHvl = text.match(regexHvl);
+  const matchHvl = cleanText.match(regexHvl);
   if (matchHvl) results["hvl"] = matchHvl[1];
 
   return results;
@@ -228,18 +236,19 @@ export default function RayScanLocal() {
         // FILTER 1: Must have basic data columns
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
         // FILTER 2: Must be a machine row (contains parentheses with details)
+        // This skips the "TESLA MOTORS INC" header-like row
         .filter((row: any) => {
           const name = row["Entity Name"] || "";
           return name.includes("(") && name.includes(")");
         })
         .map((row: any, index: number) => {
+          // ALiS Logic
           const rawString = row["Entity Name"] || "";
           let make = "Unknown";
           let model = "Unknown";
           let serial = "Unknown";
           let facility = rawString;
 
-          // Logic to parse "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
@@ -270,8 +279,7 @@ export default function RayScanLocal() {
           };
         });
 
-      if (newMachines.length === 0)
-        alert("No valid machine rows found. Check file format.");
+      if (newMachines.length === 0) alert("No machines found.");
       else {
         setMachines(newMachines);
         alert(`Loaded ${newMachines.length} machines.`);
