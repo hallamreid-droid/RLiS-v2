@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS ---
+// --- LOGIC FUNCTIONS (Internalized) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -32,6 +32,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
+      // Check if the row exists and has "Inspection Number" in the first few columns
       if (
         rawData[i] &&
         rawData[i].some(
@@ -50,6 +51,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
+    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -82,12 +84,12 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER: Extracts the first 4 valid numbers found
+// SMART PARSER: Extracts numbers based on INDEX (Position)
 const extractGridValues = (text: string): number[] => {
-  // 1. Remove page numbers like "2 of 26" or "8/8"
-  // This regex looks for "digits space of space digits" or "digits slash digits"
-  let cleanText = text.replace(/\b\d+\s+of\s+\d+\b/gi, " ");
+  // 1. Remove Page Numbers (e.g. "2 of 26", "8/8", "Page 1")
+  let cleanText = text.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
   cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
+  cleanText = cleanText.replace(/Page\s+\d+/gi, " ");
 
   // 2. Remove rate units that confuse logic (e.g. /s, /min)
   cleanText = cleanText.replace(/\/\s*[sm]/gi, "");
@@ -98,7 +100,7 @@ const extractGridValues = (text: string): number[] => {
 
   if (!matches) return [];
 
-  // Convert to numbers for sanity check
+  // 4. Filter out any remaining obvious non-measurements
   return matches.map(parseFloat).filter((n) => !isNaN(n));
 };
 
@@ -115,41 +117,43 @@ type Machine = {
   isComplete: boolean;
 };
 
+// Updated Fields for Scan 1 based on your request:
+// Order: kVp (1st), mR (2nd), Time (3rd), HVL (4th)
 const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Expected: kVp, Time, Dose, HVL",
-    fields: ["kvp", "time1", "mR1", "hvl"],
+    desc: "Order: kVp, Dose, Time, HVL",
+    fields: ["kvp", "mR1", "time1", "hvl"],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Expected: Time, Dose",
+    desc: "Order: Time, Dose",
     fields: ["time2", "mR2"],
-  },
+  }, // Swapped based on typical readout, adjust if needed
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Expected: Time, Dose",
+    desc: "Order: Time, Dose",
     fields: ["time3", "mR3"],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Expected: Time, Dose",
+    desc: "Order: Time, Dose",
     fields: ["time4", "mR4"],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Expected: Dose",
+    desc: "Order: Dose",
     fields: ["6 foot"],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Expected: Dose",
+    desc: "Order: Dose",
     fields: ["operator location"],
   },
 ];
@@ -305,6 +309,8 @@ export default function RayScanLocal() {
 
       const updates: Record<string, string> = {};
 
+      // STRATEGY: Map numbers to fields sequentially
+      // Scan 1 Config: kVp (1st), mR1 (2nd), time1 (3rd), hvl (4th)
       targetFields.forEach((field, index) => {
         if (numbers[index] !== undefined) {
           updates[field] = numbers[index].toString();
