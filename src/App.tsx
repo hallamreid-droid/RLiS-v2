@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS (Internalized) ---
+// --- LOGIC FUNCTIONS ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -28,11 +28,9 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter: Find the row with "Inspection Number"
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
-      // Check if the row exists and has "Inspection Number" in the first few columns
       if (
         rawData[i] &&
         rawData[i].some(
@@ -51,7 +49,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
       return;
     }
 
-    // Parse data starting from the header row
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -84,33 +81,30 @@ const createWordDoc = (
   }
 };
 
-// STRICT INDEX PARSER: Extracts numbers based on POSITION
+// STRICT INDEX PARSER
 const extractGridValues = (text: string): number[] => {
-  // 1. Remove Page Numbers (e.g. "2 of 26", "8/8", "Page 1")
   let cleanText = text.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
   cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
   cleanText = cleanText.replace(/Page\s+\d+/gi, " ");
-
-  // 2. Remove rate units (e.g. /s, /min) to avoid confusion
   cleanText = cleanText.replace(/\/\s*[sm]/gi, "");
 
-  // 3. Find all numbers (integers or decimals)
   const numberPattern = /(\d+\.?\d*)/g;
   const matches = cleanText.match(numberPattern);
 
   if (!matches) return [];
-
-  // 4. Convert to numbers
-  return matches.map(parseFloat).filter((n) => !isNaN(n));
+  return matches
+    .filter((str) => str.includes("."))
+    .map(parseFloat)
+    .filter((n) => !isNaN(n));
 };
 
 // --- MAIN COMPONENT ---
 
 type Machine = {
   id: string;
-  fullDetails: string; // Replaces separate make/model/serial
+  fullDetails: string;
   type: string;
-  location: string; // Holds Credential #
+  location: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -121,14 +115,14 @@ const DENTAL_STEPS = [
     label: "1. Technique Scan",
     desc: "Order: kVp, Dose, Time, HVL",
     fields: ["kvp", "mR1", "time1", "hvl"],
-    indices: [0, 1, 2, 3], // Map: kVp->0, mR1->1, time1->2, hvl->3
+    indices: [0, 1, 2, 3],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR2", "time2"],
-    indices: [1, 2], // Map: mR2->Index 1 (Dose), time2->Index 2 (Time). Skips Index 0 (kVp).
+    indices: [1, 2],
   },
   {
     id: "scan3",
@@ -149,14 +143,14 @@ const DENTAL_STEPS = [
     label: "5. Scatter (6ft)",
     desc: "Order: Dose (2nd)",
     fields: ["6 foot"],
-    indices: [1], // Map: 6 foot->Index 1 (Dose)
+    indices: [1],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
     desc: "Order: Dose (2nd)",
     fields: ["operator location"],
-    indices: [1], // Map: operator->Index 1 (Dose)
+    indices: [1],
   },
 ];
 
@@ -172,9 +166,8 @@ export default function RayScanLocal() {
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
-  const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]); // Debugging
+  const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
 
-  // Force Styles
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -184,7 +177,6 @@ export default function RayScanLocal() {
     }
   }, []);
 
-  // Load Data
   useEffect(() => {
     const savedKey = localStorage.getItem("rayScanApiKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
@@ -235,17 +227,15 @@ export default function RayScanLocal() {
           let fullDetails = "Unknown Machine";
           let facility = rawString;
 
-          // SIMPLIFIED LOGIC: Just extract the part inside parentheses
-          // Format: "TESLA MOTORS INC(THERMO- XL3T 980 - 101788)"
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
-            fullDetails = parts[1].replace(")", ""); // "THERMO- XL3T 980 - 101788"
+            fullDetails = parts[1].replace(")", "");
           }
 
           return {
             id: `mach_${Date.now()}_${index}`,
-            fullDetails: fullDetails, // Store the whole string
+            fullDetails: fullDetails,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
             location: row["Credential #"] || facility,
             data: {},
@@ -261,7 +251,6 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- SMART GRID SCAN LOGIC ---
   const performSmartScan = async (
     base64Image: string,
     targetFields: string[],
@@ -294,7 +283,6 @@ export default function RayScanLocal() {
 
       const numbers = extractGridValues(fullText);
       setLastParsedNumbers(numbers);
-      console.log("Found Numbers:", numbers);
 
       const updates: Record<string, string> = {};
 
@@ -315,7 +303,9 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`No numbers found. OCR saw:\n${fullText}`);
+        alert(
+          `No decimal numbers found at expected positions.\nIndices: [${indices}]\nFound: ${numbers}`
+        );
       }
     } catch (e) {
       alert("OCR Error");
@@ -353,13 +343,40 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
+
+    // --- SPLIT FULL DETAILS LOGIC ---
+    // fullDetails string format: "MAKE- MODEL - SERIAL"
+    // Example: "THERMO- XL3T 980 - 101788"
+
+    let make = "Unknown";
+    let model = "Unknown";
+    let serial = "Unknown";
+
+    if (machine.fullDetails) {
+      const parts = machine.fullDetails.split("-");
+      if (parts.length >= 3) {
+        make = parts[0].trim();
+        model = parts[1].trim();
+        serial = parts[2].trim();
+      } else if (parts.length === 2) {
+        make = parts[0].trim();
+        model = parts[1].trim();
+      } else {
+        make = machine.fullDetails;
+      }
+    }
+
     const data = {
-      details: machine.fullDetails, // Use the full string in the template {details}
+      details: machine.fullDetails,
       credential: machine.location,
       type: machine.type,
+      make: make, // Now available as {make}
+      model: model, // Now available as {model}
+      serial: serial, // Now available as {serial}
       ...machine.data,
     };
-    createWordDoc(templateFile, data, `Inspection_${machine.location}.docx`); // Filename uses Credential #
+
+    createWordDoc(templateFile, data, `Inspection_${machine.location}.docx`);
     setMachines((prev) =>
       prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
     );
@@ -438,7 +455,6 @@ export default function RayScanLocal() {
               className="bg-white p-4 rounded shadow flex justify-between items-center"
             >
               <div>
-                {/* UPDATED DISPLAY: Credential # on top, Full Details below */}
                 <div className="font-bold text-lg text-blue-900">
                   {m.location}
                 </div>
@@ -585,7 +601,6 @@ export default function RayScanLocal() {
             key={m.id}
             className="p-3 border-b flex justify-between items-center"
           >
-            {/* UPDATED DASHBOARD VIEW: Location first */}
             <div>
               <div className="font-bold text-sm">{m.location}</div>
               <div className="text-xs text-slate-500">{m.fullDetails}</div>
