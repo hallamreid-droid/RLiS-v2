@@ -262,13 +262,11 @@ export default function RayScanLocal() {
         hvl: machine.data["hvl"] || "---",
       });
 
-      const out = doc
-        .getZip()
-        .generate({
-          type: "blob",
-          mimeType:
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
+      const out = doc.getZip().generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
       saveAs(out, `Inspection_${machine.serial}.docx`);
       setMachines((prev) =>
         prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
