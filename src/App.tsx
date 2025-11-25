@@ -86,21 +86,62 @@ export default function RayScanLocal() {
       const wb = XLSX.read(bstr, { type: "binary" });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
 
-      const newMachines: Machine[] = data.map((row: any, index: number) => ({
-        id: `mach_${Date.now()}_${index}`,
-        make: row["Make"] || row["Manufacturer"] || "Unknown",
-        model: row["Model"] || "Unknown",
-        serial: row["Serial"] || row["Serial Number"] || "N/A",
-        type: row["Type"] || "Radiographic",
-        location: row["Location"] || `Room ${index + 1}`,
-        data: {},
-        isComplete: false,
-      }));
+      // FIX 1: Start reading at Row 6 (Index 5)
+      // The file shows headers are on the 6th line
+      const data = XLSX.utils.sheet_to_json(ws, { range: 5 });
 
-      setMachines(newMachines);
-      alert(`Loaded ${newMachines.length} machines. Ready to inspect.`);
+      // FIX 2: Parse the "Entity Name" string
+      // Format: "FACILITY(MAKE- MODEL - SERIAL)"
+      const newMachines: Machine[] = data
+        .filter((row: any) => row["Entity Name"] && row["Inspection Number"]) // Filter blank rows
+        .map((row: any, index: number) => {
+          const rawString = row["Entity Name"] || "";
+          let make = "Unknown";
+          let model = "Unknown";
+          let serial = "Unknown";
+          let facility = rawString;
+
+          // Logic to break apart "TESLA(THERMO- XL3 - 123)"
+          if (rawString.includes("(") && rawString.includes(")")) {
+            // 1. Extract the part inside parentheses
+            const parts = rawString.split("(");
+            facility = parts[0].trim(); // "TESLA MOTORS INC"
+
+            const machineDetails = parts[1].replace(")", ""); // "THERMO- XL3T 980 - 101788"
+
+            // 2. Split by Dash "-"
+            const details = machineDetails.split("-");
+            if (details.length >= 3) {
+              make = details[0].trim(); // "THERMO"
+              model = details[1].trim(); // "XL3T 980"
+              serial = details[2].trim(); // "101788"
+            } else if (details.length === 2) {
+              make = details[0].trim();
+              model = details[1].trim();
+            } else {
+              make = machineDetails;
+            }
+          }
+
+          return {
+            id: `mach_${Date.now()}_${index}`,
+            make: make,
+            model: model,
+            serial: serial,
+            type: row["Credential Type"] || row["Inspection Form"] || "Unknown", // e.g. "X-RAY FLUORESCENCE"
+            location: row["Credential #"] || facility, // Using Reg Number as identifier
+            data: {},
+            isComplete: false,
+          };
+        });
+
+      if (newMachines.length === 0) {
+        alert("No machines found! Check if the file format changed.");
+      } else {
+        setMachines(newMachines);
+        alert(`Success! Parsed ${newMachines.length} machines from ALiS.`);
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -204,13 +245,11 @@ export default function RayScanLocal() {
         hvl: machine.data["hvl"] || "---",
       });
 
-      const out = doc
-        .getZip()
-        .generate({
-          type: "blob",
-          mimeType:
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
+      const out = doc.getZip().generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
       saveAs(out, `Inspection_${machine.serial}.docx`);
       setMachines((prev) =>
         prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
