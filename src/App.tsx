@@ -28,7 +28,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -82,43 +81,14 @@ const createWordDoc = (
   }
 };
 
-// ROBUST PARSER: Filters out rates and specific unwanted units
-const extractGridValues = (text: string): number[] => {
-  // 1. Filter out unwanted patterns BEFORE looking for numbers
-  let cleanText = text;
-
-  // Remove Page Numbers (e.g. "2 of 26", "8/8")
-  cleanText = cleanText.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
-  cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
-
-  // Remove Rate/Pulse values (e.g. "12.0 pulses/s", "1.415 mGy/s")
-  // This regex finds a number followed by specific rate units and removes the whole thing
-  cleanText = cleanText.replace(
-    /(\d+\.?\d*)\s*(pulses\/s|pps|mGy\/s|uGy\/s|R\/s|R\/min|Gy\/s|Gr\/s)/gi,
-    " "
-  );
-
-  // 2. Find remaining numbers
-  const numberPattern = /(\d+\.?\d*)/g;
-  const matches = cleanText.match(numberPattern);
-
-  if (!matches) return [];
-
-  // 3. Filter: Must be a decimal number (RaySafe main values are usually decimals)
-  return matches
-    .filter((str) => str.includes("."))
-    .map(parseFloat)
-    .filter((n) => !isNaN(n));
-};
-
 // --- MAIN COMPONENT ---
 
 type Machine = {
   id: string;
   fullDetails: string;
   type: string;
-  location: string; // Credential #
-  registrantName: string; // Facility Name
+  location: string;
+  registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -251,8 +221,8 @@ export default function RayScanLocal() {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            location: row["Credential #"] || facility, // This is the Credential Number
-            registrantName: facility, // This is the Facility Name
+            location: row["Credential #"] || facility,
+            registrantName: facility,
             data: {},
             isComplete: false,
           };
@@ -266,6 +236,7 @@ export default function RayScanLocal() {
     });
   };
 
+  // --- SPATIAL & DECIMAL-AWARE OCR LOGIC ---
   const performSmartScan = async (
     base64Image: string,
     targetFields: string[],
@@ -292,20 +263,54 @@ export default function RayScanLocal() {
         }
       );
       const data = await response.json();
-      const fullText = data.responses[0]?.fullTextAnnotation?.text || "";
 
-      setLastScannedText(fullText);
+      // Get individual text blocks with coordinates
+      const annotations = data.responses[0]?.textAnnotations || [];
 
-      // STRICT DECIMAL FILTERING + RATE UNIT REMOVAL
-      const numbers = extractGridValues(fullText);
-      setLastParsedNumbers(numbers);
+      if (annotations.length === 0) {
+        alert("No text found.");
+        setIsScanning(false);
+        return;
+      }
+
+      // 1. FILTER OUT BAD BLOCKS
+      // Remove anything that looks like a rate unit ("12.0/s") or date ("11/25")
+      // Keep only blocks that contain a decimal number
+      const validBlocks = annotations.slice(1).filter((ann: any) => {
+        const txt = ann.description;
+        if (txt.includes("/s") || txt.includes("/min")) return false; // Ignore rates
+        if (txt.includes("/")) return false; // Ignore dates/page numbers
+        return /\d+\.\d+/.test(txt); // MUST have a decimal number
+      });
+
+      // 2. SPATIAL SORT (Y-Priority)
+      // Sort primarily by Y (Top to Bottom), secondarily by X (Left to Right)
+      // We use a 20px tolerance for Y to group items on the "same line"
+      validBlocks.sort((a: any, b: any) => {
+        const yDiff =
+          a.boundingPoly.vertices[0].y - b.boundingPoly.vertices[0].y;
+        if (Math.abs(yDiff) > 20) return yDiff; // Significantly different lines
+        return a.boundingPoly.vertices[0].x - b.boundingPoly.vertices[0].x; // Same line, sort L->R
+      });
+
+      // 3. EXTRACT VALUES
+      const sortedNumbers = validBlocks
+        .map((ann: any) => {
+          const match = ann.description.match(/(\d+\.?\d*)/);
+          return match ? parseFloat(match[0]) : NaN;
+        })
+        .filter((n: number) => !isNaN(n));
+
+      setLastParsedNumbers(sortedNumbers);
+      setLastScannedText(sortedNumbers.join(", "));
 
       const updates: Record<string, string> = {};
 
+      // 4. MAP TO FIELDS BY INDEX
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
-        if (numbers[indexToGrab] !== undefined) {
-          updates[field] = numbers[indexToGrab].toString();
+        if (sortedNumbers[indexToGrab] !== undefined) {
+          updates[field] = sortedNumbers[indexToGrab].toString();
         }
       });
 
@@ -320,11 +325,13 @@ export default function RayScanLocal() {
         }
       } else {
         alert(
-          `No decimal numbers found at expected positions.\nIndices: [${indices}]\nFound: ${numbers}`
+          `No valid decimals found in expected positions.\nIndices: [${indices}]\nFound: ${sortedNumbers.join(
+            ", "
+          )}`
         );
       }
     } catch (e) {
-      alert("OCR Error");
+      alert("OCR Error: " + e);
     } finally {
       setIsScanning(false);
     }
@@ -361,21 +368,19 @@ export default function RayScanLocal() {
     }
 
     const data = {
-      // Metadata Fields
-      inspector: "RH", // Always RH
+      inspector: "RH",
       "make model serial": machine.fullDetails,
-      "registration number": machine.location, // Credential #
-      "registrant name": machine.registrantName, // Facility Name
-      date: new Date().toLocaleDateString(), // Today's Date
+      "registration number": machine.location,
+      "registrant name": machine.registrantName,
+      date: new Date().toLocaleDateString(),
 
-      // User Entered Presets
       "tube number": machine.data["tube_num"] || "1",
       "preset kvp": machine.data["preset_kvp"] || "",
       "preset mas": machine.data["preset_mas"] || "",
       "preset time": machine.data["preset_time"] || "",
 
-      details: machine.fullDetails, // Fallback
-      credential: machine.location, // Fallback
+      details: machine.fullDetails,
+      credential: machine.location,
 
       type: machine.type,
       ...machine.data,
