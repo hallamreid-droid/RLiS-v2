@@ -18,7 +18,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- LOGIC FUNCTIONS ---
+// --- LOGIC FUNCTIONS (Internalized) ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
@@ -28,6 +28,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
+    // Header Hunter
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -67,16 +68,47 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
     alert("Error generating document. Check template tags.");
   }
+};
+
+// ROBUST PARSER: Filters out rates and specific unwanted units
+const extractGridValues = (text: string): number[] => {
+  // 1. Filter out unwanted patterns BEFORE looking for numbers
+  let cleanText = text;
+
+  // Remove Page Numbers (e.g. "2 of 26", "8/8")
+  cleanText = cleanText.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
+  cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
+
+  // Remove Rate/Pulse values (e.g. "12.0 pulses/s", "1.415 mGy/s")
+  // This regex finds a number followed by specific rate units and removes the whole thing
+  cleanText = cleanText.replace(
+    /(\d+\.?\d*)\s*(pulses\/s|pps|mGy\/s|uGy\/s|R\/s|R\/min|Gy\/s|Gr\/s)/gi,
+    " "
+  );
+
+  // 2. Find remaining numbers
+  const numberPattern = /(\d+\.?\d*)/g;
+  const matches = cleanText.match(numberPattern);
+
+  if (!matches) return [];
+
+  // 3. Filter: Must be a decimal number (RaySafe main values are usually decimals)
+  return matches
+    .filter((str) => str.includes("."))
+    .map(parseFloat)
+    .filter((n) => !isNaN(n));
 };
 
 // --- MAIN COMPONENT ---
@@ -85,8 +117,8 @@ type Machine = {
   id: string;
   fullDetails: string;
   type: string;
-  location: string;
-  registrantName: string;
+  location: string; // Credential #
+  registrantName: string; // Facility Name
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -219,8 +251,8 @@ export default function RayScanLocal() {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            location: row["Credential #"] || facility,
-            registrantName: facility,
+            location: row["Credential #"] || facility, // This is the Credential Number
+            registrantName: facility, // This is the Facility Name
             data: {},
             isComplete: false,
           };
@@ -234,7 +266,6 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- SPATIAL OCR LOGIC ---
   const performSmartScan = async (
     base64Image: string,
     targetFields: string[],
@@ -261,51 +292,20 @@ export default function RayScanLocal() {
         }
       );
       const data = await response.json();
+      const fullText = data.responses[0]?.fullTextAnnotation?.text || "";
 
-      // Get ALL text annotations (blocks of text with coordinates)
-      const annotations = data.responses[0]?.textAnnotations || [];
+      setLastScannedText(fullText);
 
-      if (annotations.length === 0) {
-        alert("No text found.");
-        setIsScanning(false);
-        return;
-      }
-
-      // Filter: Keep only numbers with decimals
-      // Exclude first element (annotations[0] is the full text summary)
-      const numberBlocks = annotations.slice(1).filter((ann: any) => {
-        const txt = ann.description;
-        // Must contain a digit and a decimal point. No dates.
-        return /\d/.test(txt) && txt.includes(".") && !txt.includes("/");
-      });
-
-      // SORT: Top-to-Bottom, then Left-to-Right
-      // Y-coordinate is primary sort key. X-coordinate is secondary.
-      // We use a "fuzziness" factor of 20px for Y: if two items are within 20px vertically, consider them on same line.
-      numberBlocks.sort((a: any, b: any) => {
-        const yDiff =
-          a.boundingPoly.vertices[0].y - b.boundingPoly.vertices[0].y;
-        if (Math.abs(yDiff) > 20) return yDiff; // Different lines
-        return a.boundingPoly.vertices[0].x - b.boundingPoly.vertices[0].x; // Same line, sort L->R
-      });
-
-      // Extract the actual strings
-      const sortedNumbers = numberBlocks
-        .map((ann: any) => {
-          const match = ann.description.match(/(\d+\.?\d*)/);
-          return match ? parseFloat(match[0]) : NaN;
-        })
-        .filter((n: number) => !isNaN(n));
-
-      setLastParsedNumbers(sortedNumbers);
-      setLastScannedText(sortedNumbers.join(", ")); // Show sorted list
+      // STRICT DECIMAL FILTERING + RATE UNIT REMOVAL
+      const numbers = extractGridValues(fullText);
+      setLastParsedNumbers(numbers);
 
       const updates: Record<string, string> = {};
 
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
-        if (sortedNumbers[indexToGrab] !== undefined) {
-          updates[field] = sortedNumbers[indexToGrab].toString();
+        if (numbers[indexToGrab] !== undefined) {
+          updates[field] = numbers[indexToGrab].toString();
         }
       });
 
@@ -319,10 +319,12 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`No decimals found. OCR Sorted:\n${sortedNumbers.join(", ")}`);
+        alert(
+          `No decimal numbers found at expected positions.\nIndices: [${indices}]\nFound: ${numbers}`
+        );
       }
     } catch (e) {
-      alert("OCR Error: " + e);
+      alert("OCR Error");
     } finally {
       setIsScanning(false);
     }
@@ -359,19 +361,21 @@ export default function RayScanLocal() {
     }
 
     const data = {
-      inspector: "RH",
+      // Metadata Fields
+      inspector: "RH", // Always RH
       "make model serial": machine.fullDetails,
-      "registration number": machine.location,
-      "registrant name": machine.registrantName,
-      date: new Date().toLocaleDateString(),
+      "registration number": machine.location, // Credential #
+      "registrant name": machine.registrantName, // Facility Name
+      date: new Date().toLocaleDateString(), // Today's Date
 
+      // User Entered Presets
       "tube number": machine.data["tube_num"] || "1",
       "preset kvp": machine.data["preset_kvp"] || "",
       "preset mas": machine.data["preset_mas"] || "",
       "preset time": machine.data["preset_time"] || "",
 
-      details: machine.fullDetails,
-      credential: machine.location,
+      details: machine.fullDetails, // Fallback
+      credential: machine.location, // Fallback
 
       type: machine.type,
       ...machine.data,
@@ -540,10 +544,10 @@ export default function RayScanLocal() {
           {/* OCR Debugging Area */}
           {lastScannedText && (
             <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
-              <div className="font-bold mb-1">Detected Decimals:</div>
-              <div className="truncate text-slate-400">
-                {lastParsedNumbers.join(", ")}
+              <div className="font-bold mb-1">
+                Parsed Decimals: {JSON.stringify(lastParsedNumbers)}
               </div>
+              <div className="truncate text-slate-400">{lastScannedText}</div>
             </div>
           )}
 
