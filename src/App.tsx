@@ -280,7 +280,7 @@ export default function RayScanLocal() {
     setIsScanning(true);
 
     try {
-      // 1. Prepare Payload
+      // 1. SEND REQUEST
       const imageContent = base64Image.split(",")[1];
       const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
@@ -298,47 +298,45 @@ export default function RayScanLocal() {
 
       if (result.message) throw new Error(result.message);
 
-      // 2. TARGETED PARSING for 'google_vision_ocr'
-      // Workflows usually return an array (batch processing), so we take the first item.
+      // 2. PARSE THE SPECIFIC JSON STRUCTURE YOU PROVIDED
+      // The API returns an array, so we take the first item [0]
       const outputRoot = Array.isArray(result) ? result[0] : result;
 
-      // Access your specific node name
-      const ocrNode = outputRoot.google_vision_ocr;
+      // Access the specific key seen in your JSON dump
+      const ocrRawData = outputRoot.output_google_vision_ocr;
 
-      if (!ocrNode) {
-        console.error("Roboflow Response Keys:", Object.keys(outputRoot));
-        throw new Error("Key 'google_vision_ocr' not found in response.");
+      if (!ocrRawData || !Array.isArray(ocrRawData)) {
+        console.error("Full Response:", result);
+        throw new Error(
+          "Key 'output_google_vision_ocr' missing or not an array."
+        );
       }
 
-      // The structure inside the node is usually { predictions: [ ... ] } or just [ ... ]
-      // We handle both cases to be safe.
-      const rawPredictions = ocrNode.predictions || ocrNode;
+      // 3. MAP DEEPLY NESTED COORDINATES
+      // In your JSON, x/y are inside: item -> predictions -> predictions[0] -> x/y
+      const textBlocks = ocrRawData.map((item: any) => {
+        // Safety check to get the first prediction box for location
+        const locationData = item.predictions?.predictions?.[0] || {
+          x: 0,
+          y: 0,
+        };
 
-      if (!Array.isArray(rawPredictions) || rawPredictions.length === 0) {
-        setLastScannedText("No text detected.");
-        alert("Roboflow saw the image but found no text.");
-        return;
-      }
+        return {
+          text: item.text || "", // The top-level text field (e.g., "2.80\nmm Al")
+          x: locationData.x,
+          y: locationData.y,
+        };
+      });
 
-      // 3. NORMALIZE DATA
-      // Map the Google Vision structure into a flat list of {text, x, y}
-      const textBlocks = rawPredictions.map((item: any) => ({
-        text: item.text || "",
-        // Some versions of the block nest x/y, others have it at top level
-        x: item.x || item.center?.x || 0,
-        y: item.y || item.center?.y || 0,
-      }));
-
-      // 4. SORT & EXTRACT (Your original logic)
+      // 4. SORT & EXTRACT (Standard Logic)
       const sortedNumbers = extractSortedValues(textBlocks);
 
-      // Update UI for debugging
+      // Update UI
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
       // 5. UPDATE STATE
       const updates: Record<string, string> = {};
-
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
         if (sortedNumbers[indexToGrab] !== undefined) {
