@@ -21,7 +21,9 @@ import { saveAs } from "file-saver";
 
 // --- CONFIG ---
 const ROBOFLOW_WORKFLOW_URL =
-  "https://detect.roboflow.com/infer/workflows/rlis/find-kvps-mrs-times-and-hvls";
+  "https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls";
+// HARDCODED API KEY per your request
+const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -86,30 +88,22 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER
+// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
 const extractSortedValues = (textBlocks: any[]): number[] => {
-  // textBlocks is array of { text: "...", x: ..., y: ... }
-
-  // 1. Filter for valid decimal numbers
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
-    // Exclude rate units, dates, page numbers
     if (txt.includes("/s") || txt.includes("/min")) return false;
     if (txt.includes("/")) return false;
     if (txt.includes("of")) return false;
-    // Must be a decimal number
     return /\d+\.\d+/.test(txt);
   });
 
-  // 2. Sort Spatially (Y-Priority)
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    // Tolerance for "same line" grouping
-    if (Math.abs(yDiff) > 30) return yDiff;
+    if (Math.abs(yDiff) > 20) return yDiff;
     return a.x - b.x;
   });
 
-  // 3. Extract Numbers
   return validBlocks
     .map((block) => {
       const match = block.text.match(/(\d+\.?\d*)/);
@@ -179,7 +173,7 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-  const [apiKey, setApiKey] = useState(""); // Roboflow API Key
+  const [apiKey, setApiKey] = useState(ROBOFLOW_API_KEY);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -199,6 +193,8 @@ export default function RayScanLocal() {
     const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedKey) setApiKey(savedKey);
+    else setApiKey(ROBOFLOW_API_KEY); // Default to hardcoded
+
     if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
 
@@ -282,68 +278,94 @@ export default function RayScanLocal() {
     }
     setIsScanning(true);
     try {
+      // Remove header
       const imageContent = base64Image.split(",")[1];
 
-      const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
+      // Use form-data for image upload to workflow endpoint as per docs logic
+      // However, for simplicity and since we have base64, let's try the JSON body method
+      // but to the workflow endpoint this time.
 
-      const response = await fetch(endpoint, {
+      const response = await fetch(ROBOFLOW_WORKFLOW_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // NOTE: For workflows, sometimes API key is query param, sometimes header.
+          // We will try query param first as it's safer for CORS usually.
+        },
         body: JSON.stringify({
           inputs: {
             image: { type: "base64", value: imageContent },
           },
+          api_key: apiKey, // Pass key in body or query param
         }),
       });
 
-      const result = await response.json();
+      // If that fails, try adding key to URL:
+      // const response = await fetch(`${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`, ...);
 
-      if (result.message) throw new Error(result.message);
+      if (!response.ok) {
+        // If JSON body failed, try the FormData approach which mimics cURL -F
+        // But we need to convert base64 back to blob
+        const byteCharacters = atob(imageContent);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: "image/jpeg" });
 
-      // PARSE ROBOFLOW RESPONSE
-      // Based on your snippet: [ { "output_google_vision_ocr": [ { "text": "...", "predictions": ... } ] } ]
+        const formData = new FormData();
+        formData.append("image", blob, "scan.jpg");
+
+        // Retry with FormData and URL query param for key
+        const response2 = await fetch(
+          `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        if (!response2.ok) {
+          const errText = await response2.text();
+          throw new Error(`API Error: ${errText}`);
+        }
+
+        var result = await response2.json();
+      } else {
+        var result = await response.json();
+      }
+
+      // PARSE RESPONSE (Array or Object)
+      const resultArray = Array.isArray(result) ? result : [result];
       let textBlocks: any[] = [];
 
-      const resultArray = Array.isArray(result) ? result : [result];
-      const ocrResult = resultArray.find(
-        (r: any) => r.output_google_vision_ocr
-      );
+      // Find OCR data
+      // Based on your JSON: output_google_vision_ocr is at top level of array item
+      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
 
-      if (ocrResult && ocrResult.output_google_vision_ocr) {
-        // The array inside "output_google_vision_ocr" contains objects with "text" and "predictions" (box info)
-        textBlocks = ocrResult.output_google_vision_ocr
-          .map((item: any) => {
-            // item.text = "2.80\nmm Al..."
-            // item.predictions.predictions[0] = box info
-
-            // Get the first prediction box for coordinates (usually 1 box per text block in Vision API)
-            const box = item.predictions?.predictions?.[0];
-
-            if (box) {
-              return {
-                text: item.text,
-                x: box.x,
-                y: box.y,
-              };
-            }
-            return null;
-          })
-          .filter((b: any) => b !== null);
+      if (ocrData && ocrData.output_google_vision_ocr) {
+        textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
+          const preds = item.predictions?.predictions || [];
+          return preds.map((pred: any) => ({
+            text: item.text,
+            x: pred.x,
+            y: pred.y,
+          }));
+        });
       }
 
       if (textBlocks.length === 0) {
-        setLastScannedText("No text found in Roboflow response.");
-        alert("Roboflow returned no OCR data. Check debug log.");
+        setLastScannedText("No text found.");
         console.log("Full Response:", result);
+        alert("Roboflow returned no OCR data. Check debug log.");
         return;
       }
 
-      // 2. EXTRACT & SORT
       const sortedNumbers = extractSortedValues(textBlocks);
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
-      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -406,7 +428,6 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
-
     const data = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
@@ -585,53 +606,50 @@ export default function RayScanLocal() {
 
         <div className="p-4 space-y-6">
           {/* USER INPUTS SECTION */}
-          <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Edit3 className="text-blue-600 h-4 w-4" />
-              <h3 className="font-bold text-blue-800 text-sm uppercase tracking-wide">
-                Machine Settings
-              </h3>
-            </div>
+          <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
+            <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
+              Machine Settings
+            </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Tube #
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="1"
                   value={activeMachine.data["tube_num"] || ""}
                   onChange={(e) => updateField("tube_num", e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Preset kVp
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="70"
                   value={activeMachine.data["preset_kvp"] || ""}
                   onChange={(e) => updateField("preset_kvp", e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Preset mAs
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="10"
                   value={activeMachine.data["preset_mas"] || ""}
                   onChange={(e) => updateField("preset_mas", e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Preset Time
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="0.10"
                   value={activeMachine.data["preset_time"] || ""}
                   onChange={(e) => updateField("preset_time", e.target.value)}
