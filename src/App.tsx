@@ -268,6 +268,39 @@ export default function RayScanLocal() {
   };
 
   // --- ROBOFLOW WORKFLOW API CALL ---
+  // --- HELPER: Recursively find the array containing text data ---
+  const findTextData = (obj: any): any[] | null => {
+    if (!obj || typeof obj !== "object") return null;
+
+    // 1. If this object is an array, check if it holds text data
+    if (Array.isArray(obj)) {
+      const firstItem = obj[0];
+      // Check for standard Roboflow OCR format (items have 'text' or 'class')
+      if (firstItem && typeof firstItem === "object") {
+        if ("text" in firstItem) return obj;
+        if (firstItem.predictions && Array.isArray(firstItem.predictions))
+          return obj; // Google Vision wrapper
+      }
+      // If it's just a wrapper array (like the root response), dig into its items
+      for (const item of obj) {
+        const found = findTextData(item);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    // 2. If it's an object, search all its keys
+    // We prioritize keys that look like OCR data
+    const keys = Object.keys(obj);
+    for (const key of keys) {
+      // Direct recursion
+      const found = findTextData(obj[key]);
+      if (found) return found;
+    }
+
+    return null;
+  };
+
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -280,7 +313,6 @@ export default function RayScanLocal() {
     setIsScanning(true);
 
     try {
-      // 1. SEND REQUEST
       const imageContent = base64Image.split(",")[1];
       const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
@@ -295,47 +327,60 @@ export default function RayScanLocal() {
       });
 
       const result = await response.json();
+      console.log("🔴 LIVE API RESPONSE:", result); // Check console if it still fails
 
       if (result.message) throw new Error(result.message);
 
-      // 2. PARSE THE SPECIFIC JSON STRUCTURE YOU PROVIDED
-      // The API returns an array, so we take the first item [0]
-      const outputRoot = Array.isArray(result) ? result[0] : result;
+      // --- SMART FINDER ---
+      // Instead of asking for 'output_google_vision_ocr', we hunt for the data.
+      const rawTextData = findTextData(result);
 
-      // Access the specific key seen in your JSON dump
-      const ocrRawData = outputRoot.output_google_vision_ocr;
+      if (!rawTextData) {
+        // If we still can't find it, show the user what keys ARE there
+        const rootKeys = Array.isArray(result)
+          ? result.map((i) => Object.keys(i)).flat()
+          : Object.keys(result);
 
-      if (!ocrRawData || !Array.isArray(ocrRawData)) {
-        console.error("Full Response:", result);
         throw new Error(
-          "Key 'output_google_vision_ocr' missing or not an array."
+          `Could not find OCR data in response.\nAvailable keys: ${JSON.stringify(
+            rootKeys
+          )}`
         );
       }
 
-      // 3. MAP DEEPLY NESTED COORDINATES
-      // In your JSON, x/y are inside: item -> predictions -> predictions[0] -> x/y
-      const textBlocks = ocrRawData.map((item: any) => {
-        // Safety check to get the first prediction box for location
-        const locationData = item.predictions?.predictions?.[0] || {
-          x: 0,
-          y: 0,
-        };
+      // --- NORMALIZE DATA ---
+      // Handle the nested structure (Google Vision usually nests x/y inside 'predictions')
+      const textBlocks = rawTextData.map((item: any) => {
+        // 1. Try to find location at top level
+        let x = item.x;
+        let y = item.y;
+
+        // 2. If not found, dig into 'predictions' array (Common in Google Vision output)
+        if (x === undefined && item.predictions?.predictions?.[0]) {
+          x = item.predictions.predictions[0].x;
+          y = item.predictions.predictions[0].y;
+        }
+
+        // 3. Fallback for center coordinates
+        if (x === undefined && item.x === undefined && item.center) {
+          x = item.center.x;
+          y = item.center.y;
+        }
 
         return {
-          text: item.text || "", // The top-level text field (e.g., "2.80\nmm Al")
-          x: locationData.x,
-          y: locationData.y,
+          text: item.text || "",
+          x: x || 0,
+          y: y || 0,
         };
       });
 
-      // 4. SORT & EXTRACT (Standard Logic)
+      // --- SORT & EXTRACT ---
       const sortedNumbers = extractSortedValues(textBlocks);
 
-      // Update UI
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
-      // 5. UPDATE STATE
+      // --- UPDATE STATE ---
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -356,7 +401,7 @@ export default function RayScanLocal() {
         }
       } else {
         alert(
-          `No valid decimals found.\nIndices: [${indices}]\nFound: ${sortedNumbers.join(
+          `Scan complete but no valid numbers found matching criteria.\nFound text: ${sortedNumbers.join(
             ", "
           )}`
         );
