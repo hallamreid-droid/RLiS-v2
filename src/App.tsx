@@ -20,9 +20,8 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-const ROBOFLOW_WORKSPACE = "rlis";
-const ROBOFLOW_WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
-const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh"; // Hardcoded Private Key
+const ROBOFLOW_WORKFLOW_URL =
+  "https://detect.roboflow.com/infer/workflows/rlis/find-kvps-mrs-times-and-hvls";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -87,22 +86,30 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
+// GRID PARSER
 const extractSortedValues = (textBlocks: any[]): number[] => {
+  // textBlocks is array of { text: "...", x: ..., y: ... }
+
+  // 1. Filter for valid decimal numbers
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
+    // Exclude rate units, dates, page numbers
     if (txt.includes("/s") || txt.includes("/min")) return false;
     if (txt.includes("/")) return false;
     if (txt.includes("of")) return false;
+    // Must be a decimal number
     return /\d+\.\d+/.test(txt);
   });
 
+  // 2. Sort Spatially (Y-Priority)
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
+    // Tolerance for "same line" grouping
     if (Math.abs(yDiff) > 30) return yDiff;
     return a.x - b.x;
   });
 
+  // 3. Extract Numbers
   return validBlocks
     .map((block) => {
       const match = block.text.match(/(\d+\.?\d*)/);
@@ -172,6 +179,7 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
+  const [apiKey, setApiKey] = useState(""); // Roboflow API Key
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -188,14 +196,20 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-    // Load previous machines if any
+    const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedKey) setApiKey(savedKey);
     if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
 
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
+
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value);
+    localStorage.setItem("rayScanRoboflowKey", e.target.value);
+  };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -262,12 +276,15 @@ export default function RayScanLocal() {
     targetFields: string[],
     indices: number[]
   ) => {
+    if (!apiKey) {
+      alert("Set Roboflow API Key first!");
+      return;
+    }
     setIsScanning(true);
     try {
       const imageContent = base64Image.split(",")[1];
 
-      // Endpoint for Hosted Workflows with Hardcoded Key
-      const endpoint = `https://detect.roboflow.com/infer/workflows/${ROBOFLOW_WORKSPACE}/${ROBOFLOW_WORKFLOW_ID}?api_key=${ROBOFLOW_API_KEY}`;
+      const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -284,19 +301,34 @@ export default function RayScanLocal() {
       if (result.message) throw new Error(result.message);
 
       // PARSE ROBOFLOW RESPONSE
+      // Based on your snippet: [ { "output_google_vision_ocr": [ { "text": "...", "predictions": ... } ] } ]
       let textBlocks: any[] = [];
-      const resultArray = Array.isArray(result) ? result : [result];
-      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
 
-      if (ocrData && ocrData.output_google_vision_ocr) {
-        textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
-          const preds = item.predictions?.predictions || [];
-          return preds.map((pred: any) => ({
-            text: item.text,
-            x: pred.x,
-            y: pred.y,
-          }));
-        });
+      const resultArray = Array.isArray(result) ? result : [result];
+      const ocrResult = resultArray.find(
+        (r: any) => r.output_google_vision_ocr
+      );
+
+      if (ocrResult && ocrResult.output_google_vision_ocr) {
+        // The array inside "output_google_vision_ocr" contains objects with "text" and "predictions" (box info)
+        textBlocks = ocrResult.output_google_vision_ocr
+          .map((item: any) => {
+            // item.text = "2.80\nmm Al..."
+            // item.predictions.predictions[0] = box info
+
+            // Get the first prediction box for coordinates (usually 1 box per text block in Vision API)
+            const box = item.predictions?.predictions?.[0];
+
+            if (box) {
+              return {
+                text: item.text,
+                x: box.x,
+                y: box.y,
+              };
+            }
+            return null;
+          })
+          .filter((b: any) => b !== null);
       }
 
       if (textBlocks.length === 0) {
@@ -306,10 +338,12 @@ export default function RayScanLocal() {
         return;
       }
 
+      // 2. EXTRACT & SORT
       const sortedNumbers = extractSortedValues(textBlocks);
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
+      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -415,9 +449,20 @@ export default function RayScanLocal() {
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-4">
-          <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
-            <strong>API Key Loaded:</strong> Roboflow key is hardcoded and ready
-            to use.
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
+              Roboflow API Key
+            </label>
+            <input
+              className="w-full border p-3 rounded-lg font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
+              type="password"
+              value={apiKey}
+              onChange={handleApiKeyChange}
+              placeholder="rf_..."
+            />
+            <p className="text-xs text-slate-400 mt-2">
+              Required for OCR scanning.
+            </p>
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
@@ -662,7 +707,6 @@ export default function RayScanLocal() {
                         className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
                         placeholder="-"
                       />
-                      <Edit3 className="absolute right-0 top-1 text-slate-200 h-3 w-3 pointer-events-none" />
                     </div>
                   </div>
                 ))}
