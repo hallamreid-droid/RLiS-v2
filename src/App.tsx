@@ -19,8 +19,7 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// Your specific Roboflow model/workflow ID
-const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls";
+const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls/1";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -85,13 +84,13 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
-const extractSortedValues = (ocrResults: any[]): number[] => {
-  // ocrResults expected format: Array of objects with { text: "...", x: ..., y: ... }
+// GRID PARSER: Extracts numbers based on POSITION
+const extractGridValues = (textBlocks: any[]): number[] => {
+  // textBlocks is array of { text: "...", x: ..., y: ... }
 
   // 1. Filter for valid decimal numbers
-  const validBlocks = ocrResults.filter((block) => {
-    const txt = block.text;
+  const validBlocks = textBlocks.filter((block) => {
+    let txt = block.text;
     // Exclude rate units, dates, page numbers
     if (txt.includes("/s") || txt.includes("/min")) return false;
     if (txt.includes("/")) return false;
@@ -179,7 +178,7 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(""); // Roboflow API Key
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -189,7 +188,6 @@ export default function RayScanLocal() {
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
 
-  // Force Styles
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -197,11 +195,7 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-  }, []);
-
-  // Load Data
-  useEffect(() => {
-    const savedKey = localStorage.getItem("rayScanApiKey"); // Roboflow Key
+    const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedKey) setApiKey(savedKey);
     if (savedMachines) setMachines(JSON.parse(savedMachines));
@@ -213,7 +207,7 @@ export default function RayScanLocal() {
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
-    localStorage.setItem("rayScanApiKey", e.target.value);
+    localStorage.setItem("rayScanRoboflowKey", e.target.value);
   };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -275,7 +269,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- ROBOFLOW WORKFLOW CALL ---
+  // --- ROBOFLOW API CALL ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -287,14 +281,9 @@ export default function RayScanLocal() {
     }
     setIsScanning(true);
     try {
-      const imageContent = base64Image.split(",")[1];
+      const imageContent = base64Image.split(",")[1]; // Raw base64
 
-      // Note: Using the Roboflow "infer" endpoint for Workflows
-      // The URL usually looks like: https://detect.roboflow.com/infer/workflows/{workspace}/{workflow_id}
-      // OR simple model endpoint: https://detect.roboflow.com/{model}/{version}
-      // Since you provided a model ID "find-kvps-mrs-times-and-hvls/1", we will use the standard detection endpoint
-      // BUT we check if it returns the 'output_google_vision_ocr' structure you shared.
-
+      // Roboflow Inference Endpoint
       const endpoint = `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
@@ -303,50 +292,35 @@ export default function RayScanLocal() {
         body: imageContent,
       });
 
-      const data = await response.json();
+      const result = await response.json();
 
-      // PARSE ROBOFLOW RESPONSE (Handling the OCR structure you shared)
+      if (result.error) throw new Error(result.error.message);
+
+      // PARSE ROBOFLOW RESPONSE
+      // Looking for "output_google_vision_ocr" inside the response array
       let textBlocks: any[] = [];
+      const resultArray = Array.isArray(result) ? result : [result];
+      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
 
-      // Case 1: Response is an array (Workflows often return arrays)
-      if (Array.isArray(data) && data.length > 0) {
-        // Look for "output_google_vision_ocr"
-        if (data[0].output_google_vision_ocr) {
-          // Flatten the predictions inside
-          // Each item in output_google_vision_ocr array has a 'predictions' object with coordinates
-          textBlocks = data[0].output_google_vision_ocr
-            .map((item: any) => {
-              // We need x, y, and text
-              // The structure shown in your snippet: item.text is the string.
-              // item.predictions.predictions[0] seems to have x, y.
-              const pred = item.predictions?.predictions?.[0];
-              if (pred) {
-                return {
-                  text: item.text,
-                  x: pred.x,
-                  y: pred.y,
-                };
-              }
-              return null;
-            })
-            .filter((b: any) => b !== null);
-        }
-      }
-      // Case 2: Standard Object Detection response (predictions array)
-      else if (data.predictions) {
-        // If it's just boxes without text, this path won't work well for values.
-        // But if your model does OCR, predictions might have 'text'.
-        textBlocks = data.predictions.map((p: any) => ({
-          text: p.class, // Fallback: maybe class name is the text?
-          x: p.x,
-          y: p.y,
-        }));
+      if (ocrData && ocrData.output_google_vision_ocr) {
+        // Flatten predictions: extract text, x, y
+        textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
+          // item.text is the string. item.predictions.predictions[0] has coords.
+          // Sometimes predictions array might be empty or structured differently.
+          // We handle the structure shown in your snippet.
+          const preds = item.predictions?.predictions || [];
+          return preds.map((pred: any) => ({
+            text: item.text, // The text string (e.g. "2.80")
+            x: pred.x,
+            y: pred.y,
+          }));
+        });
       }
 
       if (textBlocks.length === 0) {
         setLastScannedText("No text found in Roboflow response.");
         alert(
-          "Roboflow returned no OCR data. Check if your model includes an OCR step."
+          "Roboflow returned no OCR data. Ensure your model includes the OCR step."
         );
         return;
       }
@@ -368,10 +342,11 @@ export default function RayScanLocal() {
       if (Object.keys(updates).length > 0) {
         if (activeMachineId) {
           setMachines((prev) =>
-            prev.map((m) => {
-              if (m.id !== activeMachineId) return m;
-              return { ...m, data: { ...m.data, ...updates } };
-            })
+            prev.map((m) =>
+              m.id === activeMachineId
+                ? { ...m, data: { ...m.data, ...updates } }
+                : m
+            )
           );
         }
       } else {
@@ -405,10 +380,11 @@ export default function RayScanLocal() {
   const updateField = (key: string, value: string) => {
     if (!activeMachineId) return;
     setMachines((prev) =>
-      prev.map((m) => {
-        if (m.id !== activeMachineId) return m;
-        return { ...m, data: { ...m.data, [key]: value } };
-      })
+      prev.map((m) =>
+        m.id === activeMachineId
+          ? { ...m, data: { ...m.data, [key]: value } }
+          : m
+      )
     );
   };
 
@@ -417,7 +393,6 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
-
     const data = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
@@ -440,15 +415,13 @@ export default function RayScanLocal() {
   };
 
   const clearAll = () => {
-    if (window.confirm("Delete all machines?")) {
+    if (window.confirm("Delete all?")) {
       setMachines([]);
       localStorage.removeItem("rayScanMachines");
     }
   };
-
   const activeMachine = machines.find((m) => m.id === activeMachineId);
 
-  // --- UI ---
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -479,8 +452,7 @@ export default function RayScanLocal() {
           {templateFile && (
             <button
               onClick={clearTemplate}
-              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200"
-              title="Remove Template"
+              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full"
             >
               <Trash2 size={16} />
             </button>
@@ -594,7 +566,7 @@ export default function RayScanLocal() {
           {lastScannedText && (
             <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1">
-                Parsed Decimals: {JSON.stringify(lastParsedNumbers)}
+                Detected: {JSON.stringify(lastParsedNumbers)}
               </div>
               <div className="truncate text-slate-400">{lastScannedText}</div>
             </div>
@@ -616,7 +588,7 @@ export default function RayScanLocal() {
                   {isScanning ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <Camera size={14} />
+                    <ScanLine size={14} />
                   )}{" "}
                   Scan
                   <input
