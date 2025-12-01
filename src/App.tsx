@@ -20,12 +20,8 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// Workflow endpoint based on your Roboflow instructions
-// Endpoint: https://infer.roboflow.com/{workspace}/{workflow_id}
-// Or serverless: https://serverless.roboflow.com/{workflow_id}
-// Based on your prompt: https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls
-const ROBOFLOW_WORKFLOW_URL =
-  "https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls";
+const ROBOFLOW_WORKSPACE = "rlis";
+const ROBOFLOW_WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -92,8 +88,6 @@ const createWordDoc = (
 
 // GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
 const extractSortedValues = (textBlocks: any[]): number[] => {
-  // textBlocks is array of { text: "...", x: ..., y: ... }
-
   // 1. Filter for valid decimal numbers
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
@@ -106,12 +100,9 @@ const extractSortedValues = (textBlocks: any[]): number[] => {
   });
 
   // 2. Sort Spatially (Y-Priority)
-  // Y-coordinate primary (Row), X-coordinate secondary (Column)
-  // Use 20px tolerance for Y to group "same line" items
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    // If Y difference is small (< 30px), consider them on same line
-    if (Math.abs(yDiff) > 20) return yDiff;
+    if (Math.abs(yDiff) > 30) return yDiff;
     return a.x - b.x;
   });
 
@@ -148,7 +139,6 @@ const DENTAL_STEPS = [
     id: "scan2",
     label: "2. Reproducibility",
     desc: "Capture Dose, Time",
-    // Reproducibility often skips the first value (kVp)
     indices: [1, 2],
     fields: ["mR2", "time2"],
   },
@@ -291,14 +281,8 @@ export default function RayScanLocal() {
     try {
       const imageContent = base64Image.split(",")[1];
 
-      // Use the serverless workflow endpoint you provided
-      // Add API Key as query param
-      const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
-
-      // Note: For file upload via fetch in browser, we often need FormData if endpoint expects multipart/form-data
-      // Your instructions say: -F 'image=@/path/to/your/image.jpg' which implies multipart form data.
-      // BUT, Roboflow also usually accepts base64 in JSON body for inference endpoints.
-      // Let's try standard JSON body first (easiest for base64). If that fails, we switch to FormData.
+      // Correct Workflow Endpoint
+      const endpoint = `https://detect.roboflow.com/infer/workflows/${ROBOFLOW_WORKSPACE}/${ROBOFLOW_WORKFLOW_ID}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -310,25 +294,6 @@ export default function RayScanLocal() {
         }),
       });
 
-      // If JSON body fails, uncomment this block to try FormData (binary upload)
-      /*
-      const formData = new FormData();
-      // Convert base64 to blob
-      const byteCharacters = atob(imageContent);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], {type: 'image/jpeg'});
-      formData.append('image', blob, 'scan.jpg');
-      
-      const response = await fetch(endpoint, {
-         method: 'POST',
-         body: formData
-      });
-      */
-
       const result = await response.json();
 
       if (result.message) throw new Error(result.message);
@@ -336,19 +301,28 @@ export default function RayScanLocal() {
       // PARSE ROBOFLOW RESPONSE
       let textBlocks: any[] = [];
 
-      // Workflow response is usually an array (batch) or object.
       const resultArray = Array.isArray(result) ? result : [result];
 
-      // Look for "output_google_vision_ocr" (from your previous logs)
-      // It might be at the top level of the result object in the array
-      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
+      // Look for "output_google_vision_ocr" or nested outputs
+      let ocrData = null;
+
+      // Check if result itself has the key (common for some workflows)
+      if (result.output_google_vision_ocr) {
+        ocrData = result;
+      }
+      // Check if it's inside 'outputs' array
+      else if (result.outputs && result.outputs.length > 0) {
+        const out = result.outputs.find((o: any) => o.output_google_vision_ocr);
+        if (out) ocrData = out;
+      }
+      // Check inside first array element
+      else if (resultArray[0]?.output_google_vision_ocr) {
+        ocrData = resultArray[0];
+      }
 
       if (ocrData && ocrData.output_google_vision_ocr) {
         // Flatten predictions: extract text, x, y
-        // The structure is: output_google_vision_ocr[].predictions.predictions[]
         textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
-          // item.text is the string.
-          // item.predictions.predictions is an array of bounding boxes for that text
           const preds = item.predictions?.predictions || [];
           return preds.map((pred: any) => ({
             text: item.text,
@@ -611,53 +585,50 @@ export default function RayScanLocal() {
 
         <div className="p-4 space-y-6">
           {/* USER INPUTS SECTION */}
-          <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Edit3 className="text-blue-600 h-4 w-4" />
-              <h3 className="font-bold text-blue-800 text-sm uppercase tracking-wide">
-                Machine Settings
-              </h3>
-            </div>
+          <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
+            <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
+              Machine Settings
+            </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Tube #
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="1"
                   value={activeMachine.data["tube_num"] || ""}
                   onChange={(e) => updateField("tube_num", e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Preset kVp
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="70"
                   value={activeMachine.data["preset_kvp"] || ""}
                   onChange={(e) => updateField("preset_kvp", e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Preset mAs
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="10"
                   value={activeMachine.data["preset_mas"] || ""}
                   onChange={(e) => updateField("preset_mas", e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
                   Preset Time
                 </label>
                 <input
-                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2 border rounded text-sm font-bold"
                   placeholder="0.10"
                   value={activeMachine.data["preset_time"] || ""}
                   onChange={(e) => updateField("preset_time", e.target.value)}
@@ -684,30 +655,22 @@ export default function RayScanLocal() {
           {DENTAL_STEPS.map((step) => (
             <div
               key={step.id}
-              className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
+              className="bg-white p-4 rounded border shadow-sm"
             >
-              <div className="flex justify-between items-start mb-4">
+              <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="font-bold text-sm text-blue-900">
                     {step.label}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    {step.desc}
-                  </div>
+                  <div className="text-[10px] text-slate-400">{step.desc}</div>
                 </div>
-                <label
-                  className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                    isScanning
-                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
-                  }`}
-                >
+                <label className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold cursor-pointer flex gap-1 items-center shadow-sm active:scale-95 transition-transform">
                   {isScanning ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
                     <Camera size={14} />
-                  )}
-                  {isScanning ? " scanning..." : "Scan"}
+                  )}{" "}
+                  Scan
                   <input
                     type="file"
                     accept="image/*"
@@ -720,19 +683,20 @@ export default function RayScanLocal() {
                   />
                 </label>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 {step.fields.map((k) => (
                   <div key={k}>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">
                       {k}
                     </label>
                     <div className="relative">
                       <input
                         value={activeMachine.data[k] || ""}
                         onChange={(e) => updateField(k, e.target.value)}
-                        className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
+                        className="w-full font-mono text-lg border-b outline-none bg-transparent"
                         placeholder="-"
                       />
+                      <Edit3 className="absolute right-0 top-1 text-slate-200 h-3 w-3 pointer-events-none" />
                     </div>
                   </div>
                 ))}
@@ -740,12 +704,12 @@ export default function RayScanLocal() {
             </div>
           ))}
         </div>
-        <div className="fixed bottom-0 w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+        <div className="fixed bottom-0 w-full p-4 bg-white border-t">
           <button
             onClick={() => generateDoc(activeMachine)}
-            className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg flex justify-center gap-2 active:scale-95 transition-transform"
+            className="w-full py-3 bg-emerald-600 text-white font-bold rounded shadow flex justify-center gap-2"
           >
-            <Download className="h-5 w-5" /> Save Report
+            <Download /> Save Report
           </button>
         </div>
       </div>
@@ -754,32 +718,21 @@ export default function RayScanLocal() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans">
-      <header className="flex justify-between items-center mb-8">
+      <header className="flex justify-between mb-6">
         <div className="flex gap-2 items-center">
-          <div className="bg-blue-600 p-2 rounded-lg">
-            <ScanLine className="text-white h-6 w-6" />
-          </div>
-          <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
+          <ScanLine className="text-blue-600" />
+          <h1 className="text-xl font-bold">RayScan</h1>
         </div>
-        <button
-          onClick={() => setView("settings")}
-          className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
-        >
-          <Settings className="text-slate-600 h-5 w-5" />
+        <button onClick={() => setView("settings")}>
+          <Settings />
         </button>
       </header>
-      <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
-        <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
+      <div className="bg-white p-6 rounded shadow text-center mb-4">
+        <div className="text-4xl font-bold text-blue-600 mb-4">
           {machines.length}
         </div>
-        <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
-          Machines Loaded
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
-            <div className="flex justify-center mb-2">
-              <FileSpreadsheet size={20} className="text-emerald-600" />
-            </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="bg-slate-100 p-3 rounded cursor-pointer font-bold text-sm">
             Import Excel
             <input
               type="file"
@@ -790,64 +743,33 @@ export default function RayScanLocal() {
           </label>
           <button
             onClick={() => setView("mobile-list")}
-            disabled={machines.length === 0}
-            className="bg-blue-600 text-white py-4 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-blue-200"
+            className="bg-blue-600 text-white p-3 rounded font-bold text-sm"
           >
-            <div className="flex justify-center mb-2">
-              <Camera size={20} />
-            </div>
             Start Scan
           </button>
         </div>
       </div>
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Machine List
-          </span>
-          {machines.length > 0 && (
-            <button
-              onClick={clearAll}
-              className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+      <div className="bg-white rounded shadow overflow-hidden">
+        <div className="p-3 bg-slate-50 border-b flex justify-between font-bold text-xs uppercase">
+          <span>Machines</span>
+          <button onClick={clearAll}>
+            <Trash2 size={14} className="text-red-500" />
+          </button>
         </div>
-        {machines.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">
-            No machines loaded.
-            <br />
-            Import an ALiS Excel file to begin.
+        {machines.map((m) => (
+          <div
+            key={m.id}
+            className="p-3 border-b flex justify-between items-center"
+          >
+            <div>
+              <div className="font-bold text-sm">{m.location}</div>
+              <div className="text-xs text-slate-500">{m.fullDetails}</div>
+            </div>
+            {m.isComplete && (
+              <CheckCircle className="text-emerald-500" size={16} />
+            )}
           </div>
-        ) : (
-          <div className="max-h-96 overflow-y-auto">
-            {machines.map((m) => (
-              <div
-                key={m.id}
-                className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors"
-              >
-                <div>
-                  <div className="font-bold text-sm text-slate-800">
-                    {m.location}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {m.fullDetails}
-                  </div>
-                </div>
-                {m.isComplete ? (
-                  <div className="bg-emerald-100 p-1.5 rounded-full">
-                    <CheckCircle className="text-emerald-600 h-4 w-4" />
-                  </div>
-                ) : (
-                  <div className="bg-slate-100 p-1.5 rounded-full">
-                    <ChevronRight className="text-slate-400 h-4 w-4" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        ))}
       </div>
     </div>
   );
