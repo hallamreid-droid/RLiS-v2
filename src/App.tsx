@@ -19,8 +19,9 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// Your specific Roboflow model ID
-const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls/1";
+// Your specific Roboflow workflow ID
+const ROBOFLOW_WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
+const ROBOFLOW_WORKSPACE = "rlis";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -32,7 +33,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter: Find "Inspection Number" row
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -92,7 +92,7 @@ const extractSortedValues = (textBlocks: any[]): number[] => {
 
   // 1. Filter for valid decimal numbers
   const validBlocks = textBlocks.filter((block) => {
-    let txt = block.text;
+    const txt = block.text;
     // Exclude rate units, dates, page numbers
     if (txt.includes("/s") || txt.includes("/min")) return false;
     if (txt.includes("/")) return false;
@@ -106,8 +106,8 @@ const extractSortedValues = (textBlocks: any[]): number[] => {
   // Use 20px tolerance for Y to group "same line" items
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    // If Y difference is small (< 30px), consider them on same line
-    if (Math.abs(yDiff) > 30) return yDiff;
+    // If Y difference is small (< 20px), consider them on same line
+    if (Math.abs(yDiff) > 20) return yDiff;
     return a.x - b.x;
   });
 
@@ -132,7 +132,6 @@ type Machine = {
   isComplete: boolean;
 };
 
-// DENTAL STEPS
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -279,7 +278,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- ROBOFLOW API CALL ---
+  // --- ROBOFLOW WORKFLOW API CALL ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -293,32 +292,45 @@ export default function RayScanLocal() {
     try {
       const imageContent = base64Image.split(",")[1];
 
-      // Use 'infer' endpoint for workflow/model
-      const endpoint = `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${apiKey}`;
+      // Workflow Inference Endpoint
+      const endpoint = `https://detect.roboflow.com/infer/workflows/${ROBOFLOW_WORKSPACE}/${ROBOFLOW_WORKFLOW_ID}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: imageContent,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: {
+            image: { type: "base64", value: imageContent },
+          },
+        }),
       });
 
       const result = await response.json();
 
-      if (result.error) throw new Error(result.error.message);
+      if (result.message) throw new Error(result.message);
 
       // PARSE ROBOFLOW RESPONSE
+      // Looking for "output_google_vision_ocr" which your workflow provides
       let textBlocks: any[] = [];
 
-      // Handle array response (workflow) vs object response (model)
-      const resultArray = Array.isArray(result) ? result : [result];
-
-      // Look for "output_google_vision_ocr" which your model includes
-      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
+      // The workflow response might be an object with outputs, or an array
+      // We check if 'outputs' exists (standard workflow response) or if it's flat
+      let ocrData = null;
+      if (
+        result.outputs &&
+        result.outputs[0] &&
+        result.outputs[0].output_google_vision_ocr
+      ) {
+        ocrData = result.outputs[0];
+      } else if (result.output_google_vision_ocr) {
+        ocrData = result;
+      } else if (Array.isArray(result)) {
+        ocrData = result.find((r: any) => r.output_google_vision_ocr);
+      }
 
       if (ocrData && ocrData.output_google_vision_ocr) {
         // Flatten predictions: extract text, x, y
         textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
-          // item.text is the string. item.predictions.predictions[0] has coords.
           const preds = item.predictions?.predictions || [];
           return preds.map((pred: any) => ({
             text: item.text,
@@ -326,6 +338,20 @@ export default function RayScanLocal() {
             y: pred.y,
           }));
         });
+      } else {
+        // Fallback: Check standard predictions if OCR block missing
+        console.warn(
+          "No 'output_google_vision_ocr' block found. Checking predictions..."
+        );
+        if (result.predictions) {
+          // This path is usually for object detection (boxes), not OCR text
+          // Unless your model class names ARE the text (unlikely)
+          textBlocks = result.predictions.map((p: any) => ({
+            text: p.class,
+            x: p.x,
+            y: p.y,
+          }));
+        }
       }
 
       if (textBlocks.length === 0) {
@@ -403,26 +429,21 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
-
     const data = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
       "registration number": machine.location,
       "registrant name": machine.registrantName,
       date: new Date().toLocaleDateString(),
-
       "tube number": machine.data["tube_num"] || "1",
       "preset kvp": machine.data["preset_kvp"] || "",
       "preset mas": machine.data["preset_mas"] || "",
       "preset time": machine.data["preset_time"] || "",
-
-      details: machine.fullDetails, // Fallback
-      credential: machine.location, // Fallback
-
+      details: machine.fullDetails,
+      credential: machine.location,
       type: machine.type,
       ...machine.data,
     };
-
     createWordDoc(templateFile, data, `Inspection_${machine.location}.docx`);
     setMachines((prev) =>
       prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
@@ -448,7 +469,7 @@ export default function RayScanLocal() {
         >
           <ArrowLeft /> Back
         </button>
-        <h1 className="text-2xl font-bold mb-4">Settings</h1>
+        <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-4">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
             <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
@@ -743,7 +764,6 @@ export default function RayScanLocal() {
           <Settings className="text-slate-600 h-5 w-5" />
         </button>
       </header>
-
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
         <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
           {machines.length}
@@ -751,7 +771,6 @@ export default function RayScanLocal() {
         <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
           Machines Loaded
         </div>
-
         <div className="grid grid-cols-2 gap-3">
           <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
             <div className="flex justify-center mb-2">
@@ -777,7 +796,6 @@ export default function RayScanLocal() {
           </button>
         </div>
       </div>
-
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -792,7 +810,6 @@ export default function RayScanLocal() {
             </button>
           )}
         </div>
-
         {machines.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">
             No machines loaded.
