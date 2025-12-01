@@ -19,8 +19,8 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// Your specific Roboflow model
-const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls/1";
+// Your specific Roboflow model/workflow ID
+const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -85,36 +85,37 @@ const createWordDoc = (
   }
 };
 
-// --- HYBRID SCANNER UTILS ---
+// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
+const extractSortedValues = (ocrResults: any[]): number[] => {
+  // ocrResults expected format: Array of objects with { text: "...", x: ..., y: ... }
 
-// Check if the center of the text block is inside the Roboflow box
-const isInside = (
-  textPoly: any,
-  box: any,
-  imgWidth: number,
-  imgHeight: number
-) => {
-  // Google Vision returns vertices [tl, tr, br, bl]
-  const vertices = textPoly.vertices;
+  // 1. Filter for valid decimal numbers
+  const validBlocks = ocrResults.filter((block) => {
+    const txt = block.text;
+    // Exclude rate units, dates, page numbers
+    if (txt.includes("/s") || txt.includes("/min")) return false;
+    if (txt.includes("/")) return false;
+    if (txt.includes("of")) return false;
+    // Must be a decimal number
+    return /\d+\.\d+/.test(txt);
+  });
 
-  // Calculate center of text
-  // Note: Vision API coordinates are absolute pixels
-  const tx = (vertices[0].x + vertices[2].x) / 2;
-  const ty = (vertices[0].y + vertices[2].y) / 2;
+  // 2. Sort Spatially
+  // Y-coordinate primary (Row), X-coordinate secondary (Column)
+  validBlocks.sort((a, b) => {
+    const yDiff = a.y - b.y;
+    // If Y difference is small (< 20px), consider them on same line
+    if (Math.abs(yDiff) > 20) return yDiff;
+    return a.x - b.x;
+  });
 
-  // Roboflow returns x, y (center), width, height
-  // BUT: If you sent the image to Roboflow, it usually returns PIXEL coordinates if image dims are known,
-  // or normalized coordinates (0-1) if not?
-  // The Inference API typically returns pixel coordinates relative to the image sent.
-  // Let's assume pixel coordinates.
-
-  const minX = box.x - box.width / 2;
-  const maxX = box.x + box.width / 2;
-  const minY = box.y - box.height / 2;
-  const maxY = box.y + box.height / 2;
-
-  // Simple intersection check
-  return tx >= minX && tx <= maxX && ty >= minY && ty <= maxY;
+  // 3. Extract Numbers
+  return validBlocks
+    .map((block) => {
+      const match = block.text.match(/(\d+\.?\d*)/);
+      return match ? parseFloat(match[0]) : NaN;
+    })
+    .filter((n) => !isNaN(n));
 };
 
 // --- MAIN COMPONENT ---
@@ -129,58 +130,48 @@ type Machine = {
   isComplete: boolean;
 };
 
-// DENTAL MAPPINGS
-// roboClass: The class name you used in Roboflow (e.g., "kvp", "dose", "time")
 const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Capture All",
-    mappings: [
-      { field: "kvp", roboClass: "kvp" }, // Assumes you labeled a box "kvp"
-      { field: "mR1", roboClass: "dose" },
-      { field: "time1", roboClass: "time" },
-      { field: "hvl", roboClass: "hvl" },
-    ],
+    desc: "Order: kVp, Dose, Time, HVL",
+    fields: ["kvp", "mR1", "time1", "hvl"],
+    indices: [0, 1, 2, 3],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Capture Dose, Time",
-    mappings: [
-      { field: "mR2", roboClass: "dose" },
-      { field: "time2", roboClass: "time" },
-    ],
+    desc: "Order: Dose (2nd), Time (3rd)",
+    fields: ["mR2", "time2"],
+    indices: [1, 2],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Capture Dose, Time",
-    mappings: [
-      { field: "mR3", roboClass: "dose" },
-      { field: "time3", roboClass: "time" },
-    ],
+    desc: "Order: Dose (2nd), Time (3rd)",
+    fields: ["mR3", "time3"],
+    indices: [1, 2],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Capture Dose, Time",
-    mappings: [
-      { field: "mR4", roboClass: "dose" },
-      { field: "time4", roboClass: "time" },
-    ],
+    desc: "Order: Dose (2nd), Time (3rd)",
+    fields: ["mR4", "time4"],
+    indices: [1, 2],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Capture Dose",
-    mappings: [{ field: "6 foot", roboClass: "dose" }],
+    desc: "Order: Dose (2nd)",
+    fields: ["6 foot"],
+    indices: [1],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Capture Dose",
-    mappings: [{ field: "operator location", roboClass: "dose" }],
+    desc: "Order: Dose (2nd)",
+    fields: ["operator location"],
+    indices: [1],
   },
 ];
 
@@ -188,17 +179,17 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-  const [googleKey, setGoogleKey] = useState("");
-  const [roboflowKey, setRoboflowKey] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
   const [templateName, setTemplateName] =
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
-  const [debugLog, setDebugLog] = useState<string>("");
+  const [lastScannedText, setLastScannedText] = useState<string>("");
+  const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
 
-  // Setup
+  // Force Styles
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -206,22 +197,23 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-    const sG = localStorage.getItem("rs_google");
-    const sR = localStorage.getItem("rs_roboflow");
-    const sM = localStorage.getItem("rs_machines");
-    if (sG) setGoogleKey(sG);
-    if (sR) setRoboflowKey(sR);
-    if (sM) setMachines(JSON.parse(sM));
+  }, []);
+
+  // Load Data
+  useEffect(() => {
+    const savedKey = localStorage.getItem("rayScanApiKey"); // Roboflow Key
+    const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedKey) setApiKey(savedKey);
+    if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("rs_machines", JSON.stringify(machines));
+    localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
-  const saveKeys = () => {
-    localStorage.setItem("rs_google", googleKey);
-    localStorage.setItem("rs_roboflow", roboflowKey);
-    alert("Keys Saved!");
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value);
+    localStorage.setItem("rayScanApiKey", e.target.value);
   };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -236,14 +228,16 @@ export default function RayScanLocal() {
       reader.readAsArrayBuffer(file);
     }
   };
+
   const clearTemplate = () => {
     setTemplateFile(null);
-    setTemplateName("No Template");
+    setTemplateName("No Template Loaded");
   };
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
@@ -253,122 +247,138 @@ export default function RayScanLocal() {
         })
         .map((row: any, index: number) => {
           const rawString = row["Entity Name"] || "";
-          let fullDetails = "Unknown";
+          let fullDetails = "Unknown Machine";
           let facility = rawString;
-          if (rawString.includes("(")) {
+
+          if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
             fullDetails = parts[1].replace(")", "");
           }
+
           return {
             id: `mach_${Date.now()}_${index}`,
-            fullDetails,
-            type: row["Credential Type"] || "Unknown",
+            fullDetails: fullDetails,
+            type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
             location: row["Credential #"] || facility,
             registrantName: facility,
             data: {},
             isComplete: false,
           };
         });
-      setMachines(newMachines);
+
+      if (newMachines.length === 0) alert("No machines found.");
+      else {
+        setMachines(newMachines);
+        alert(`Loaded ${newMachines.length} machines.`);
+      }
     });
   };
 
-  // --- HYBRID SCANNER ---
-  const performHybridScan = async (
+  // --- ROBOFLOW WORKFLOW CALL ---
+  const performRoboflowScan = async (
     base64Image: string,
-    mappings: { field: string; roboClass: string }[]
+    targetFields: string[],
+    indices: number[]
   ) => {
-    if (!googleKey || !roboflowKey) {
-      alert("Missing API Keys! Check Settings.");
+    if (!apiKey) {
+      alert("Set Roboflow API Key first!");
       return;
     }
     setIsScanning(true);
-    setDebugLog("Starting Hybrid Scan...");
-
     try {
       const imageContent = base64Image.split(",")[1];
 
-      // 1. Google Vision (Reader)
-      const googleRes = await fetch(
-        `https://vision.googleapis.com/v1/images:annotate?key=${googleKey}`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: imageContent },
-                features: [{ type: "TEXT_DETECTION" }],
-              },
-            ],
-          }),
+      // Note: Using the Roboflow "infer" endpoint for Workflows
+      // The URL usually looks like: https://detect.roboflow.com/infer/workflows/{workspace}/{workflow_id}
+      // OR simple model endpoint: https://detect.roboflow.com/{model}/{version}
+      // Since you provided a model ID "find-kvps-mrs-times-and-hvls/1", we will use the standard detection endpoint
+      // BUT we check if it returns the 'output_google_vision_ocr' structure you shared.
+
+      const endpoint = `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${apiKey}`;
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: imageContent,
+      });
+
+      const data = await response.json();
+
+      // PARSE ROBOFLOW RESPONSE (Handling the OCR structure you shared)
+      let textBlocks: any[] = [];
+
+      // Case 1: Response is an array (Workflows often return arrays)
+      if (Array.isArray(data) && data.length > 0) {
+        // Look for "output_google_vision_ocr"
+        if (data[0].output_google_vision_ocr) {
+          // Flatten the predictions inside
+          // Each item in output_google_vision_ocr array has a 'predictions' object with coordinates
+          textBlocks = data[0].output_google_vision_ocr
+            .map((item: any) => {
+              // We need x, y, and text
+              // The structure shown in your snippet: item.text is the string.
+              // item.predictions.predictions[0] seems to have x, y.
+              const pred = item.predictions?.predictions?.[0];
+              if (pred) {
+                return {
+                  text: item.text,
+                  x: pred.x,
+                  y: pred.y,
+                };
+              }
+              return null;
+            })
+            .filter((b: any) => b !== null);
         }
-      );
-      const googleData = await googleRes.json();
-      // [0] is full text, [1..n] are blocks
-      const allText = googleData.responses?.[0]?.textAnnotations || [];
+      }
+      // Case 2: Standard Object Detection response (predictions array)
+      else if (data.predictions) {
+        // If it's just boxes without text, this path won't work well for values.
+        // But if your model does OCR, predictions might have 'text'.
+        textBlocks = data.predictions.map((p: any) => ({
+          text: p.class, // Fallback: maybe class name is the text?
+          x: p.x,
+          y: p.y,
+        }));
+      }
 
-      if (allText.length === 0) throw new Error("Google Vision found no text.");
+      if (textBlocks.length === 0) {
+        setLastScannedText("No text found in Roboflow response.");
+        alert(
+          "Roboflow returned no OCR data. Check if your model includes an OCR step."
+        );
+        return;
+      }
 
-      // 2. Roboflow (Mapper)
-      const roboflowRes = await fetch(
-        `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${roboflowKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: imageContent,
-        }
-      );
-      const roboflowData = await roboflowRes.json();
-      const predictions = roboflowData.predictions || [];
+      // 2. EXTRACT & SORT
+      const sortedNumbers = extractSortedValues(textBlocks);
+      setLastParsedNumbers(sortedNumbers);
+      setLastScannedText(sortedNumbers.join(", "));
 
-      if (predictions.length === 0) throw new Error("Roboflow found no boxes.");
-
-      setDebugLog(
-        `Found ${allText.length} text blocks & ${predictions.length} boxes.`
-      );
-
-      // 3. Match Logic
+      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
-
-      mappings.forEach(({ field, roboClass }) => {
-        // Find the BEST Roboflow box for this class (highest confidence)
-        const box = predictions
-          .filter((p: any) => p.class === roboClass)
-          .sort((a: any, b: any) => b.confidence - a.confidence)[0];
-
-        if (box) {
-          // Find text block INSIDE this box
-          // We iterate through Google's blocks (skip 0)
-          const matchingText = allText
-            .slice(1)
-            .find((textBlock: any) =>
-              isInside(textBlock.boundingPoly, box, 0, 0)
-            );
-
-          if (matchingText) {
-            // Clean the text: keep decimals
-            const num = matchingText.description.match(/(\d+\.?\d*)/);
-            if (num) updates[field] = num[0];
-          }
+      targetFields.forEach((field, i) => {
+        const indexToGrab = indices[i];
+        if (sortedNumbers[indexToGrab] !== undefined) {
+          updates[field] = sortedNumbers[indexToGrab].toString();
         }
       });
 
-      // Apply updates
-      if (Object.keys(updates).length > 0 && activeMachineId) {
-        setMachines((prev) =>
-          prev.map((m) =>
-            m.id === activeMachineId
-              ? { ...m, data: { ...m.data, ...updates } }
-              : m
-          )
-        );
-        setDebugLog(`Mapped: ${JSON.stringify(updates)}`);
+      if (Object.keys(updates).length > 0) {
+        if (activeMachineId) {
+          setMachines((prev) =>
+            prev.map((m) => {
+              if (m.id !== activeMachineId) return m;
+              return { ...m, data: { ...m.data, ...updates } };
+            })
+          );
+        }
       } else {
-        // Fallback: Display what we found if matching failed
-        const classesFound = predictions.map((p: any) => p.class).join(", ");
         alert(
-          `Model found boxes: [${classesFound}], but text did not overlap perfectly.\nTry getting closer.`
+          `No valid decimals found.\nIndices: [${indices}]\nFound: ${sortedNumbers.join(
+            ", "
+          )}`
         );
       }
     } catch (e: any) {
@@ -380,13 +390,14 @@ export default function RayScanLocal() {
 
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
-    mappings: any[]
+    fields: string[],
+    indices: number[]
   ) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () =>
-        performHybridScan(reader.result as string, mappings);
+        performRoboflowScan(reader.result as string, fields, indices);
       reader.readAsDataURL(file);
     }
   };
@@ -394,11 +405,10 @@ export default function RayScanLocal() {
   const updateField = (key: string, value: string) => {
     if (!activeMachineId) return;
     setMachines((prev) =>
-      prev.map((m) =>
-        m.id === activeMachineId
-          ? { ...m, data: { ...m.data, [key]: value } }
-          : m
-      )
+      prev.map((m) => {
+        if (m.id !== activeMachineId) return m;
+        return { ...m, data: { ...m.data, [key]: value } };
+      })
     );
   };
 
@@ -407,6 +417,7 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
+
     const data = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
@@ -429,71 +440,51 @@ export default function RayScanLocal() {
   };
 
   const clearAll = () => {
-    if (window.confirm("Delete all?")) {
+    if (window.confirm("Delete all machines?")) {
       setMachines([]);
-      localStorage.removeItem("rs_machines");
+      localStorage.removeItem("rayScanMachines");
     }
   };
+
   const activeMachine = machines.find((m) => m.id === activeMachineId);
 
+  // --- UI ---
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
-        <button onClick={() => setView("dashboard")} className="mb-6 font-bold">
+        <button
+          onClick={() => setView("dashboard")}
+          className="mb-6 flex gap-2 font-bold"
+        >
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4">Settings</h1>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
-              Google Vision Key
-            </label>
+        <input
+          className="w-full border p-3 mb-4 rounded"
+          placeholder="Roboflow API Key"
+          value={apiKey}
+          onChange={handleApiKeyChange}
+          type="password"
+        />
+        <div className="border-2 border-dashed p-6 text-center rounded relative">
+          <label className="block w-full h-full cursor-pointer">
+            {templateName}
             <input
-              className="w-full border p-3 rounded bg-white"
-              type="password"
-              value={googleKey}
-              onChange={(e) => setGoogleKey(e.target.value)}
-              placeholder="AIzaSy..."
+              type="file"
+              accept=".docx"
+              onChange={handleTemplateUpload}
+              className="hidden"
             />
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
-              Roboflow API Key
-            </label>
-            <input
-              className="w-full border p-3 rounded bg-white"
-              type="password"
-              value={roboflowKey}
-              onChange={(e) => setRoboflowKey(e.target.value)}
-              placeholder="rf_..."
-            />
-          </div>
-          <button
-            onClick={saveKeys}
-            className="bg-blue-600 text-white px-4 py-2 rounded font-bold w-full"
-          >
-            Save Keys
-          </button>
-
-          <div className="border-2 border-dashed p-6 text-center rounded relative bg-white mt-6">
-            <label className="block w-full h-full cursor-pointer">
-              {templateName}
-              <input
-                type="file"
-                accept=".docx"
-                onChange={handleTemplateUpload}
-                className="hidden"
-              />
-            </label>
-            {templateFile && (
-              <button
-                onClick={clearTemplate}
-                className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full"
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
-          </div>
+          </label>
+          {templateFile && (
+            <button
+              onClick={clearTemplate}
+              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200"
+              title="Remove Template"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -600,9 +591,12 @@ export default function RayScanLocal() {
             </div>
           </div>
 
-          {debugLog && (
-            <div className="bg-slate-900 text-green-400 p-2 text-[10px] font-mono overflow-x-auto whitespace-nowrap rounded mb-4">
-              {debugLog}
+          {lastScannedText && (
+            <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
+              <div className="font-bold mb-1">
+                Parsed Decimals: {JSON.stringify(lastParsedNumbers)}
+              </div>
+              <div className="truncate text-slate-400">{lastScannedText}</div>
             </div>
           )}
 
@@ -622,7 +616,7 @@ export default function RayScanLocal() {
                   {isScanning ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <ScanLine size={14} />
+                    <Camera size={14} />
                   )}{" "}
                   Scan
                   <input
@@ -630,21 +624,23 @@ export default function RayScanLocal() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(e) => handleScanClick(e, step.mappings)}
+                    onChange={(e) =>
+                      handleScanClick(e, step.fields, step.indices)
+                    }
                     disabled={isScanning}
                   />
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                {step.mappings.map((m) => (
-                  <div key={m.field}>
+                {step.fields.map((k) => (
+                  <div key={k}>
                     <label className="text-[9px] font-bold text-slate-400 uppercase">
-                      {m.field} ({m.roboClass})
+                      {k}
                     </label>
                     <div className="relative">
                       <input
-                        value={activeMachine.data[m.field] || ""}
-                        onChange={(e) => updateField(m.field, e.target.value)}
+                        value={activeMachine.data[k] || ""}
+                        onChange={(e) => updateField(k, e.target.value)}
                         className="w-full font-mono text-lg border-b outline-none bg-transparent"
                         placeholder="-"
                       />
