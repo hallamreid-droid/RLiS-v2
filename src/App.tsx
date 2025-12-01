@@ -20,10 +20,11 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// Exact endpoint from your Roboflow docs
-const ROBOFLOW_ENDPOINT =
-  "https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls";
+// Hardcoded API Key
 const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
+// Base URL for the workflow
+const WORKFLOW_URL =
+  "https://detect.roboflow.com/infer/workflows/rlis/find-kvps-mrs-times-and-hvls";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -88,7 +89,7 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER
+// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
 const extractSortedValues = (textBlocks: any[]): number[] => {
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
@@ -100,7 +101,7 @@ const extractSortedValues = (textBlocks: any[]): number[] => {
 
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > 30) return yDiff;
+    if (Math.abs(yDiff) > 20) return yDiff;
     return a.x - b.x;
   });
 
@@ -173,6 +174,7 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
+  const [apiKey, setApiKey] = useState(ROBOFLOW_API_KEY);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -189,13 +191,22 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
+    const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedKey) setApiKey(savedKey);
+    else setApiKey(ROBOFLOW_API_KEY);
+
     if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
 
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
+
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value);
+    localStorage.setItem("rayScanRoboflowKey", e.target.value);
+  };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -258,29 +269,30 @@ export default function RayScanLocal() {
 
   // --- ROBOFLOW WORKFLOW API CALL (Fixed Auth) ---
   const performRoboflowScan = async (
-    file: File,
+    base64Image: string,
     targetFields: string[],
     indices: number[]
   ) => {
+    if (!apiKey) {
+      alert("Set Roboflow API Key first!");
+      return;
+    }
     setIsScanning(true);
     try {
-      // Use FormData to mimic cURL -F "image=@file"
-      // This is the standard way to upload files to Roboflow inference API
-      const formData = new FormData();
-      formData.append("image", file);
+      // Remove header
+      const imageContent = base64Image.split(",")[1];
 
-      // Note: Some Roboflow endpoints might block CORS from browsers.
-      // If this fails with a Network Error, it's CORS.
-      // But typically, serverless.roboflow.com allows it if the key is valid.
+      // Construct URL with API Key query param to bypass header issues
+      const endpoint = `${WORKFLOW_URL}?api_key=${apiKey}`;
 
-      const response = await fetch(ROBOFLOW_ENDPOINT, {
+      const response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          // Authorization header as per your provided docs
-          Authorization: `Bearer ${ROBOFLOW_API_KEY}`,
-          // Do NOT set Content-Type here; fetch sets it automatically for FormData (multipart/form-data boundary)
-        },
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: {
+            image: { type: "base64", value: imageContent },
+          },
+        }),
       });
 
       if (!response.ok) {
@@ -294,21 +306,10 @@ export default function RayScanLocal() {
       let textBlocks: any[] = [];
 
       const resultArray = Array.isArray(result) ? result : [result];
-
-      // Search for the OCR data block
-      // Check root level, 'outputs' array, or array items
-      let ocrData = null;
-
-      if (result.output_google_vision_ocr) ocrData = result;
-      else if (result.outputs && result.outputs[0]?.output_google_vision_ocr)
-        ocrData = result.outputs[0];
-      else if (resultArray[0]?.output_google_vision_ocr)
-        ocrData = resultArray[0];
+      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
 
       if (ocrData && ocrData.output_google_vision_ocr) {
-        // Flatten predictions
         textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
-          // item.text is the string. item.predictions.predictions[0] has coords.
           const preds = item.predictions?.predictions || [];
           return preds.map((pred: any) => ({
             text: item.text,
@@ -325,12 +326,10 @@ export default function RayScanLocal() {
         return;
       }
 
-      // 2. EXTRACT & SORT
       const sortedNumbers = extractSortedValues(textBlocks);
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
-      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -370,8 +369,10 @@ export default function RayScanLocal() {
   ) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Pass the raw FILE object to the scan function for FormData
-      performRoboflowScan(file, fields, indices);
+      const reader = new FileReader();
+      reader.onloadend = () =>
+        performRoboflowScan(reader.result as string, fields, indices);
+      reader.readAsDataURL(file);
     }
   };
 
