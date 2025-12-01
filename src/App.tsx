@@ -21,37 +21,92 @@ import { saveAs } from "file-saver";
 const WORKSPACE_NAME = "rlis";
 const WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
 const ROBOFLOW_WORKFLOW_URL = `https://serverless.roboflow.com/infer/workflows/${WORKSPACE_NAME}/${WORKFLOW_ID}`;
-const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh"; // Hardcoded per request
+const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. Recursive finder for text data in Roboflow response
-const findTextData = (obj: any): any[] | null => {
+// 1. Recursive finder to extract specific keys (for Text AND Predictions)
+const findKeyInJSON = (obj: any, keyToFind: string): any => {
   if (!obj || typeof obj !== "object") return null;
+  if (keyToFind in obj) return obj[keyToFind];
 
   if (Array.isArray(obj)) {
-    if (obj.length > 0 && typeof obj[0] === "object") {
-      // Check for Standard Roboflow OCR
-      if ("text" in obj[0]) return obj;
-      // Check for Google Vision Wrapper
-      if (obj[0].predictions && Array.isArray(obj[0].predictions)) return obj;
-    }
     for (const item of obj) {
-      const found = findTextData(item);
+      const found = findKeyInJSON(item, keyToFind);
       if (found) return found;
     }
-    return null;
-  }
-
-  const keys = Object.keys(obj);
-  for (const key of keys) {
-    const found = findTextData(obj[key]);
-    if (found) return found;
+  } else {
+    for (const k of Object.keys(obj)) {
+      const found = findKeyInJSON(obj[k], keyToFind);
+      if (found) return found;
+    }
   }
   return null;
 };
 
-// 2. Excel Parser
+// 2. GEOMETRY: Check if a text point is inside a labelled box
+const isTextInsideBox = (text: { x: number; y: number }, box: any) => {
+  // Roboflow boxes are usually x/y (center) + width/height
+  const boxLeft = box.x - box.width / 2;
+  const boxRight = box.x + box.width / 2;
+  const boxTop = box.y - box.height / 2;
+  const boxBottom = box.y + box.height / 2;
+
+  return (
+    text.x >= boxLeft &&
+    text.x <= boxRight &&
+    text.y >= boxTop &&
+    text.y <= boxBottom
+  );
+};
+
+// 3. INTELLIGENT SORTER: Matches OCR Text to Roboflow Classes
+const extractValuesByClass = (
+  textBlocks: any[],
+  predictions: any[]
+): number[] => {
+  // We want an array in this specific order: [kvp, mR, time, hvl]
+  // This matches your dental indices: 0=kVp, 1=mR, 2=Time, 3=HVL
+  const resultSlots = [NaN, NaN, NaN, NaN];
+
+  // Map Roboflow Labels to our result slots
+  const CLASS_MAP: { [key: string]: number } = {
+    kvp: 0,
+    kv: 0,
+    mr: 1,
+    dose: 1,
+    ugy: 1,
+    time: 2,
+    ms: 2,
+    s: 2,
+    hvl: 3,
+  };
+
+  // Loop through every labeled box Roboflow found
+  predictions.forEach((pred) => {
+    const label = pred.class?.toLowerCase();
+    const slotIndex = CLASS_MAP[label];
+
+    // If this is a label we care about
+    if (slotIndex !== undefined) {
+      // Find the text block that sits INSIDE this box
+      const match = textBlocks.find((tb) => isTextInsideBox(tb, pred));
+
+      if (match) {
+        const cleanNumber = parseFloat(
+          match.text.match(/(\d+\.?\d*)/)?.[0] || "NaN"
+        );
+        if (!isNaN(cleanNumber)) {
+          resultSlots[slotIndex] = cleanNumber;
+        }
+      }
+    }
+  });
+
+  return resultSlots;
+};
+
+// 4. Excel Parser
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -87,7 +142,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
-// 3. Word Doc Generator
+// 5. Word Doc Generator
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -110,30 +165,6 @@ const createWordDoc = (
     console.error(error);
     alert("Error generating document. Check template tags.");
   }
-};
-
-// 4. Grid Parser (Sorts text blocks)
-const extractSortedValues = (textBlocks: any[]): number[] => {
-  const validBlocks = textBlocks.filter((block) => {
-    let txt = block.text;
-    if (txt.includes("/s") || txt.includes("/min")) return false;
-    if (txt.includes("/")) return false;
-    if (txt.includes("of")) return false;
-    return /\d+\.\d+/.test(txt);
-  });
-
-  validBlocks.sort((a, b) => {
-    const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > 30) return yDiff;
-    return a.x - b.x;
-  });
-
-  return validBlocks
-    .map((block) => {
-      const match = block.text.match(/(\d+\.?\d*)/);
-      return match ? parseFloat(match[0]) : NaN;
-    })
-    .filter((n) => !isNaN(n));
 };
 
 // --- TYPES ---
@@ -281,6 +312,7 @@ export default function RayScanLocal() {
     });
   };
 
+  // --- REWRITTEN ROBOFLOW LOGIC ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -315,45 +347,57 @@ export default function RayScanLocal() {
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      const rawTextData = findTextData(result);
+      // 1. GET OCR TEXT (The Numbers)
+      const rawOcr =
+        findKeyInJSON(result, "text") ||
+        findKeyInJSON(result, "output_google_vision_ocr");
+      // 2. GET PREDICTIONS (The Labeled Boxes: "kvp", "time", etc.)
+      const rawPreds = findKeyInJSON(result, "predictions");
 
-      if (!rawTextData) {
-        throw new Error(
-          `Success, but no text found.\nKeys received: ${Object.keys(
-            result
-          ).join(", ")}`
-        );
+      if (!rawOcr || !Array.isArray(rawOcr)) {
+        throw new Error("No OCR text found. Check workflow output.");
       }
 
-      const textBlocks = rawTextData.map((item: any) => {
-        let x = item.x;
-        let y = item.y;
-        let text = item.text || "";
+      // Normalize Text Blocks (x,y, text)
+      const textBlocks = rawOcr.map((item: any) => {
+        let x = item.x,
+          y = item.y,
+          text = item.text || "";
 
+        // Handle Google Vision nested format
         if (x === undefined && item.predictions?.predictions?.[0]) {
           x = item.predictions.predictions[0].x;
           y = item.predictions.predictions[0].y;
           if (!text) text = item.predictions.predictions[0].class || "";
         }
-
+        // Handle Center format
         if (x === undefined && item.center) {
           x = item.center.x;
           y = item.center.y;
         }
-
         return { text, x: x || 0, y: y || 0 };
       });
 
-      const sortedNumbers = extractSortedValues(textBlocks);
+      // Normalize Predictions (x,y, width, height, class)
+      const predictionBlocks = Array.isArray(rawPreds) ? rawPreds.flat() : [];
 
-      setLastParsedNumbers(sortedNumbers);
-      setLastScannedText(sortedNumbers.join(", "));
+      // 3. INTELLIGENT MATCHING
+      // This maps text INSIDE the boxes to the correct slots
+      const finalNumbers = extractValuesByClass(textBlocks, predictionBlocks);
 
+      setLastParsedNumbers(finalNumbers);
+      setLastScannedText(
+        finalNumbers.map((n) => (isNaN(n) ? "-" : n)).join(", ")
+      );
+
+      // 4. MAP TO FIELDS
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
-        const indexToGrab = indices[i];
-        if (sortedNumbers[indexToGrab] !== undefined) {
-          updates[field] = sortedNumbers[indexToGrab].toString();
+        const indexToGrab = indices[i]; // 0=kVp, 1=mR, 2=Time, 3=HVL
+        const val = finalNumbers[indexToGrab];
+
+        if (val !== undefined && !isNaN(val)) {
+          updates[field] = val.toString();
         }
       });
 
@@ -368,7 +412,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(`Scan complete. Found numbers: ${sortedNumbers.join(", ")}`);
+        alert("Scan complete, but no numbers found in the expected boxes.");
       }
     } catch (e: any) {
       console.error(e);
