@@ -25,8 +25,8 @@ const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. ARRAY FINDER (THE FIX): Finds the list containing the data we need
-// Unlike the previous version, this ensures we get the ARRAY of items, not just a value.
+// 1. ARRAY FINDER (THE FIX): Finds the LIST containing the data we need
+// Unlike the previous version, this ensures we get the ARRAY of items.
 const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
   if (!obj || typeof obj !== "object") return null;
 
@@ -364,24 +364,46 @@ export default function RayScanLocal() {
         );
       }
 
-      // 2. NORMALIZE TEXT BLOCKS
+      // 2. NORMALIZE TEXT BLOCKS (CRITICAL: ADD OFFSETS)
       const textBlocks = rawOcr.map((item: any) => {
-        let x = item.x,
-          y = item.y,
-          text = item.text || "";
+        let x = item.x;
+        let y = item.y;
+        let text = item.text || "";
+        let offsetX = 0;
+        let offsetY = 0;
 
-        // Google Vision nesting support
-        if (x === undefined && item.predictions?.predictions?.[0]) {
-          x = item.predictions.predictions[0].x;
-          y = item.predictions.predictions[0].y;
-          if (!text) text = item.predictions.predictions[0].class || "";
+        // Check for Google Vision / Nested structure
+        const innerPred = item.predictions?.predictions?.[0];
+
+        if (innerPred) {
+          // Use the inner coordinates if available
+          if (innerPred.x) x = innerPred.x;
+          if (innerPred.y) y = innerPred.y;
+
+          // CRITICAL FIX: Check for Parent Origin (The Crop Offset)
+          if (innerPred.parent_origin) {
+            offsetX = innerPred.parent_origin.offset_x || 0;
+            offsetY = innerPred.parent_origin.offset_y || 0;
+          } else if (item.predictions?.parent_origin) {
+            // Sometimes it is one level up
+            offsetX = item.predictions.parent_origin.offset_x || 0;
+            offsetY = item.predictions.parent_origin.offset_y || 0;
+          }
+
+          if (!text) text = innerPred.class || "";
         }
-        // Center support
+
+        // Handle Center format fallback
         if (x === undefined && item.center) {
           x = item.center.x;
           y = item.center.y;
         }
-        return { text, x: x || 0, y: y || 0 };
+
+        // Apply Offset to convert "Crop Coordinates" to "Global Coordinates"
+        const finalX = (x || 0) + offsetX;
+        const finalY = (y || 0) + offsetY;
+
+        return { text, x: finalX, y: finalY };
       });
 
       // 3. NORMALIZE PREDICTIONS (BOXES)
