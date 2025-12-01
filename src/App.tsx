@@ -25,28 +25,35 @@ const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. Recursive finder to extract specific keys (for Text AND Predictions)
-const findKeyInJSON = (obj: any, keyToFind: string): any => {
+// 1. ARRAY FINDER (THE FIX): Finds the list containing the data we need
+// Unlike the previous version, this ensures we get the ARRAY of items, not just a value.
+const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
   if (!obj || typeof obj !== "object") return null;
-  if (keyToFind in obj) return obj[keyToFind];
 
   if (Array.isArray(obj)) {
+    // A. Check if THIS array is the one we want (does the first item have the key?)
+    if (obj.length > 0 && typeof obj[0] === "object" && keyToFind in obj[0]) {
+      return obj;
+    }
+    // B. If not, search inside the items recursively
     for (const item of obj) {
-      const found = findKeyInJSON(item, keyToFind);
+      const found = findArrayWithKey(item, keyToFind);
       if (found) return found;
     }
-  } else {
-    for (const k of Object.keys(obj)) {
-      const found = findKeyInJSON(obj[k], keyToFind);
-      if (found) return found;
-    }
+    return null;
+  }
+
+  // C. Search inside object keys
+  for (const k of Object.keys(obj)) {
+    const found = findArrayWithKey(obj[k], keyToFind);
+    if (found) return found;
   }
   return null;
 };
 
-// 2. GEOMETRY: Check if a text point is inside a labelled box
+// 2. GEOMETRY: Check if text is inside a labeled box
 const isTextInsideBox = (text: { x: number; y: number }, box: any) => {
-  // Roboflow boxes are usually x/y (center) + width/height
+  // Roboflow boxes are x/y (center) + width/height
   const boxLeft = box.x - box.width / 2;
   const boxRight = box.x + box.width / 2;
   const boxTop = box.y - box.height / 2;
@@ -60,14 +67,12 @@ const isTextInsideBox = (text: { x: number; y: number }, box: any) => {
   );
 };
 
-// 3. INTELLIGENT SORTER: Matches OCR Text to Roboflow Classes
+// 3. MATCHER: Maps OCR Text to specific Classes based on location
 const extractValuesByClass = (
   textBlocks: any[],
   predictions: any[]
 ): number[] => {
-  // We want an array in this specific order: [kvp, mR, time, hvl]
-  // This matches your dental indices: 0=kVp, 1=mR, 2=Time, 3=HVL
-  const resultSlots = [NaN, NaN, NaN, NaN];
+  const resultSlots = [NaN, NaN, NaN, NaN]; // Order: [kVp, mR, Time, HVL]
 
   // Map Roboflow Labels to our result slots
   const CLASS_MAP: { [key: string]: number } = {
@@ -83,17 +88,16 @@ const extractValuesByClass = (
     hvl: 3,
   };
 
-  // Loop through every labeled box Roboflow found
   predictions.forEach((pred) => {
     const label = pred.class?.toLowerCase();
     const slotIndex = CLASS_MAP[label];
 
-    // If this is a label we care about
     if (slotIndex !== undefined) {
       // Find the text block that sits INSIDE this box
       const match = textBlocks.find((tb) => isTextInsideBox(tb, pred));
 
       if (match) {
+        // Regex to find numbers, handling decimals
         const cleanNumber = parseFloat(
           match.text.match(/(\d+\.?\d*)/)?.[0] || "NaN"
         );
@@ -313,7 +317,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- REWRITTEN ROBOFLOW LOGIC ---
+  // --- UPDATED ROBOFLOW SCAN LOGIC ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -348,30 +352,31 @@ export default function RayScanLocal() {
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // 1. GET OCR TEXT (The Numbers)
-      const rawOcr =
-        findKeyInJSON(result, "text") ||
-        findKeyInJSON(result, "output_google_vision_ocr");
-      // 2. GET PREDICTIONS (The Labeled Boxes: "kvp", "time", etc.)
-      const rawPreds = findKeyInJSON(result, "predictions");
+      // 1. FIND THE DATA ARRAYS
+      // findArrayWithKey returns the actual array of objects
+      const rawOcr = findArrayWithKey(result, "text");
+      const rawPreds = findArrayWithKey(result, "class");
 
-      if (!rawOcr || !Array.isArray(rawOcr)) {
-        throw new Error("No OCR text found. Check workflow output.");
+      if (!rawOcr) {
+        console.error("Missing OCR Data. Full Response:", result);
+        throw new Error(
+          "Scan successful, but no text blocks found in response."
+        );
       }
 
-      // Normalize Text Blocks (x,y, text)
+      // 2. NORMALIZE TEXT BLOCKS
       const textBlocks = rawOcr.map((item: any) => {
         let x = item.x,
           y = item.y,
           text = item.text || "";
 
-        // Handle Google Vision nested format
+        // Google Vision nesting support
         if (x === undefined && item.predictions?.predictions?.[0]) {
           x = item.predictions.predictions[0].x;
           y = item.predictions.predictions[0].y;
           if (!text) text = item.predictions.predictions[0].class || "";
         }
-        // Handle Center format
+        // Center support
         if (x === undefined && item.center) {
           x = item.center.x;
           y = item.center.y;
@@ -379,11 +384,11 @@ export default function RayScanLocal() {
         return { text, x: x || 0, y: y || 0 };
       });
 
-      // Normalize Predictions (x,y, width, height, class)
-      const predictionBlocks = Array.isArray(rawPreds) ? rawPreds.flat() : [];
+      // 3. NORMALIZE PREDICTIONS (BOXES)
+      const predictionBlocks = rawPreds || [];
 
-      // 3. INTELLIGENT MATCHING
-      // This maps text INSIDE the boxes to the correct slots
+      // 4. PERFORM MATCHING
+      // This maps the text numbers to the fields [kVp, mR, Time, HVL]
       const finalNumbers = extractValuesByClass(textBlocks, predictionBlocks);
 
       setLastParsedNumbers(finalNumbers);
@@ -391,10 +396,10 @@ export default function RayScanLocal() {
         finalNumbers.map((n) => (isNaN(n) ? "-" : n)).join(", ")
       );
 
-      // 4. MAP TO FIELDS
+      // 5. UPDATE STATE
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
-        const indexToGrab = indices[i]; // 0=kVp, 1=mR, 2=Time, 3=HVL
+        const indexToGrab = indices[i];
         const val = finalNumbers[indexToGrab];
 
         if (val !== undefined && !isNaN(val)) {
@@ -413,7 +418,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert("Scan complete, but no numbers found in the expected boxes.");
+        alert("Scan complete. No matching numbers found in boxes.");
       }
     } catch (e: any) {
       console.error(e);
