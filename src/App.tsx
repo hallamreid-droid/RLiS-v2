@@ -18,6 +18,10 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
+// --- CONFIG ---
+// Your specific Roboflow model ID
+const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls/1";
+
 // --- LOGIC FUNCTIONS ---
 
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
@@ -28,7 +32,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter
+    // Header Hunter: Find "Inspection Number" row
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -82,20 +86,37 @@ const createWordDoc = (
   }
 };
 
-// STRICT INDEX PARSER
-const extractGridValues = (text: string): number[] => {
-  let cleanText = text.replace(/\b\d+\s+(of|af)\s+\d+\b/gi, " ");
-  cleanText = cleanText.replace(/\b\d+\/\d+\b/gi, " ");
-  cleanText = cleanText.replace(/Page\s+\d+/gi, " ");
-  cleanText = cleanText.replace(/\/\s*[sm]/gi, "");
+// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
+const extractSortedValues = (textBlocks: any[]): number[] => {
+  // textBlocks is array of { text: "...", x: ..., y: ... }
 
-  const numberPattern = /(\d+\.?\d*)/g;
-  const matches = cleanText.match(numberPattern);
+  // 1. Filter for valid decimal numbers
+  const validBlocks = textBlocks.filter((block) => {
+    let txt = block.text;
+    // Exclude rate units, dates, page numbers
+    if (txt.includes("/s") || txt.includes("/min")) return false;
+    if (txt.includes("/")) return false;
+    if (txt.includes("of")) return false;
+    // Must be a decimal number
+    return /\d+\.\d+/.test(txt);
+  });
 
-  if (!matches) return [];
-  return matches
-    .filter((str) => str.includes("."))
-    .map(parseFloat)
+  // 2. Sort Spatially (Y-Priority)
+  // Y-coordinate primary (Row), X-coordinate secondary (Column)
+  // Use 20px tolerance for Y to group "same line" items
+  validBlocks.sort((a, b) => {
+    const yDiff = a.y - b.y;
+    // If Y difference is small (< 30px), consider them on same line
+    if (Math.abs(yDiff) > 30) return yDiff;
+    return a.x - b.x;
+  });
+
+  // 3. Extract Numbers
+  return validBlocks
+    .map((block) => {
+      const match = block.text.match(/(\d+\.?\d*)/);
+      return match ? parseFloat(match[0]) : NaN;
+    })
     .filter((n) => !isNaN(n));
 };
 
@@ -105,54 +126,56 @@ type Machine = {
   id: string;
   fullDetails: string;
   type: string;
-  location: string; // Credential #
-  registrantName: string; // Facility Name
+  location: string;
+  registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
 
+// DENTAL STEPS
 const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
     desc: "Order: kVp, Dose, Time, HVL",
-    fields: ["kvp", "mR1", "time1", "hvl"],
     indices: [0, 1, 2, 3],
+    fields: ["kvp", "mR1", "time1", "hvl"],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Order: Dose (2nd), Time (3rd)",
-    fields: ["mR2", "time2"],
+    desc: "Capture Dose, Time",
+    // Reproducibility often skips the first value (kVp)
     indices: [1, 2],
+    fields: ["mR2", "time2"],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Order: Dose (2nd), Time (3rd)",
-    fields: ["mR3", "time3"],
+    desc: "Capture Dose, Time",
     indices: [1, 2],
+    fields: ["mR3", "time3"],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Order: Dose (2nd), Time (3rd)",
-    fields: ["mR4", "time4"],
+    desc: "Capture Dose, Time",
     indices: [1, 2],
+    fields: ["mR4", "time4"],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Order: Dose (2nd)",
-    fields: ["6 foot"],
+    desc: "Capture Dose",
     indices: [1],
+    fields: ["6 foot"],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Order: Dose (2nd)",
-    fields: ["operator location"],
+    desc: "Capture Dose",
     indices: [1],
+    fields: ["operator location"],
   },
 ];
 
@@ -160,7 +183,7 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(""); // Roboflow API Key
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -170,6 +193,7 @@ export default function RayScanLocal() {
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
 
+  // Force Styles
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -179,8 +203,9 @@ export default function RayScanLocal() {
     }
   }, []);
 
+  // Load Data
   useEffect(() => {
-    const savedKey = localStorage.getItem("rayScanApiKey");
+    const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedKey) setApiKey(savedKey);
     if (savedMachines) setMachines(JSON.parse(savedMachines));
@@ -192,7 +217,7 @@ export default function RayScanLocal() {
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
-    localStorage.setItem("rayScanApiKey", e.target.value);
+    localStorage.setItem("rayScanRoboflowKey", e.target.value);
   };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,8 +264,8 @@ export default function RayScanLocal() {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
             type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
-            location: row["Credential #"] || facility, // This is the Credential Number
-            registrantName: facility, // This is the Facility Name
+            location: row["Credential #"] || facility,
+            registrantName: facility,
             data: {},
             isComplete: false,
           };
@@ -254,64 +279,95 @@ export default function RayScanLocal() {
     });
   };
 
-  const performSmartScan = async (
+  // --- ROBOFLOW API CALL ---
+  const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
     indices: number[]
   ) => {
     if (!apiKey) {
-      alert("Set API Key first!");
+      alert("Set Roboflow API Key first!");
       return;
     }
     setIsScanning(true);
     try {
-      const response = await fetch(
-        `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: base64Image.split(",")[1] },
-                features: [{ type: "TEXT_DETECTION" }],
-              },
-            ],
-          }),
-        }
-      );
-      const data = await response.json();
-      const fullText = data.responses[0]?.fullTextAnnotation?.text || "";
+      const imageContent = base64Image.split(",")[1];
 
-      setLastScannedText(fullText);
+      // Use 'infer' endpoint for workflow/model
+      const endpoint = `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${apiKey}`;
 
-      const numbers = extractGridValues(fullText);
-      setLastParsedNumbers(numbers);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: imageContent,
+      });
 
+      const result = await response.json();
+
+      if (result.error) throw new Error(result.error.message);
+
+      // PARSE ROBOFLOW RESPONSE
+      let textBlocks: any[] = [];
+
+      // Handle array response (workflow) vs object response (model)
+      const resultArray = Array.isArray(result) ? result : [result];
+
+      // Look for "output_google_vision_ocr" which your model includes
+      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
+
+      if (ocrData && ocrData.output_google_vision_ocr) {
+        // Flatten predictions: extract text, x, y
+        textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
+          // item.text is the string. item.predictions.predictions[0] has coords.
+          const preds = item.predictions?.predictions || [];
+          return preds.map((pred: any) => ({
+            text: item.text,
+            x: pred.x,
+            y: pred.y,
+          }));
+        });
+      }
+
+      if (textBlocks.length === 0) {
+        setLastScannedText("No text found in Roboflow response.");
+        alert("Roboflow returned no OCR data. Check debug log.");
+        console.log("Full Response:", result);
+        return;
+      }
+
+      // 2. EXTRACT & SORT
+      const sortedNumbers = extractSortedValues(textBlocks);
+      setLastParsedNumbers(sortedNumbers);
+      setLastScannedText(sortedNumbers.join(", "));
+
+      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
-
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
-        if (numbers[indexToGrab] !== undefined) {
-          updates[field] = numbers[indexToGrab].toString();
+        if (sortedNumbers[indexToGrab] !== undefined) {
+          updates[field] = sortedNumbers[indexToGrab].toString();
         }
       });
 
       if (Object.keys(updates).length > 0) {
         if (activeMachineId) {
           setMachines((prev) =>
-            prev.map((m) => {
-              if (m.id !== activeMachineId) return m;
-              return { ...m, data: { ...m.data, ...updates } };
-            })
+            prev.map((m) =>
+              m.id === activeMachineId
+                ? { ...m, data: { ...m.data, ...updates } }
+                : m
+            )
           );
         }
       } else {
         alert(
-          `No decimal numbers found at expected positions.\nIndices: [${indices}]\nFound: ${numbers}`
+          `No valid decimals found.\nIndices: [${indices}]\nFound: ${sortedNumbers.join(
+            ", "
+          )}`
         );
       }
-    } catch (e) {
-      alert("OCR Error");
+    } catch (e: any) {
+      alert("Scan Error: " + e.message);
     } finally {
       setIsScanning(false);
     }
@@ -326,7 +382,7 @@ export default function RayScanLocal() {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () =>
-        performSmartScan(reader.result as string, fields, indices);
+        performRoboflowScan(reader.result as string, fields, indices);
       reader.readAsDataURL(file);
     }
   };
@@ -334,10 +390,11 @@ export default function RayScanLocal() {
   const updateField = (key: string, value: string) => {
     if (!activeMachineId) return;
     setMachines((prev) =>
-      prev.map((m) => {
-        if (m.id !== activeMachineId) return m;
-        return { ...m, data: { ...m.data, [key]: value } };
-      })
+      prev.map((m) =>
+        m.id === activeMachineId
+          ? { ...m, data: { ...m.data, [key]: value } }
+          : m
+      )
     );
   };
 
@@ -348,14 +405,12 @@ export default function RayScanLocal() {
     }
 
     const data = {
-      // Metadata Fields
-      inspector: "RH", // Always RH
+      inspector: "RH",
       "make model serial": machine.fullDetails,
-      "registration number": machine.location, // Credential #
-      "registrant name": machine.registrantName, // Facility Name
-      date: new Date().toLocaleDateString(), // Today's Date
+      "registration number": machine.location,
+      "registrant name": machine.registrantName,
+      date: new Date().toLocaleDateString(),
 
-      // User Entered Presets
       "tube number": machine.data["tube_num"] || "1",
       "preset kvp": machine.data["preset_kvp"] || "",
       "preset mas": machine.data["preset_mas"] || "",
@@ -389,32 +444,57 @@ export default function RayScanLocal() {
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
         <button
           onClick={() => setView("dashboard")}
-          className="mb-6 flex gap-2 font-bold text-slate-600 hover:text-blue-600 transition-colors active:scale-95"
+          className="mb-6 flex gap-2 font-bold text-slate-600 active:scale-95 transition-transform"
         >
           <ArrowLeft /> Back
         </button>
-        <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
+        <h1 className="text-2xl font-bold mb-4">Settings</h1>
         <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
-              Google Vision API Key
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
+              Roboflow API Key
             </label>
             <input
-              className="w-full border p-3 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-              placeholder="AIzaSy..."
+              className="w-full border p-3 rounded-lg font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
+              type="password"
               value={apiKey}
               onChange={handleApiKeyChange}
-              type="password"
+              placeholder="rf_..."
             />
+            <p className="text-xs text-slate-400 mt-2">
+              Required for OCR scanning.
+            </p>
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors">
-            <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-2">
-              <UploadCloud className="text-blue-400 h-8 w-8" />
-              <span className="font-bold text-slate-600">{templateName}</span>
-              <span className="text-xs text-slate-400">
-                Tap to upload .docx template
-              </span>
+            <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
+              {templateFile ? (
+                <>
+                  <div className="h-12 w-12 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
+                    <CheckCircle size={24} />
+                  </div>
+                  <div>
+                    <p className="text-emerald-800 font-bold text-lg">
+                      {templateName}
+                    </p>
+                    <p className="text-emerald-600 text-sm">Template Loaded</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
+                    <FileSpreadsheet size={24} />
+                  </div>
+                  <div>
+                    <p className="text-slate-600 font-bold">
+                      Tap to Upload Template
+                    </p>
+                    <p className="text-slate-400 text-sm">
+                      Supports .docx files only
+                    </p>
+                  </div>
+                </>
+              )}
               <input
                 type="file"
                 accept=".docx"
@@ -427,7 +507,7 @@ export default function RayScanLocal() {
                 onClick={clearTemplate}
                 className="absolute top-2 right-2 p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 active:scale-90 transition-all shadow-sm"
               >
-                <Trash2 size={16} />
+                <Trash2 size={18} />
               </button>
             )}
           </div>
@@ -591,14 +671,11 @@ export default function RayScanLocal() {
                   </div>
                 </div>
                 <label
-                  className={`
-                  px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all
-                  ${
+                  className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
                     isScanning
                       ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                       : "bg-blue-600 text-white hover:bg-blue-700"
-                  }
-                `}
+                  }`}
                 >
                   {isScanning ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -618,7 +695,6 @@ export default function RayScanLocal() {
                   />
                 </label>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 {step.fields.map((k) => (
                   <div key={k}>
