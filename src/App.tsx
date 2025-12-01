@@ -12,7 +12,6 @@ import {
   Trash2,
   UploadCloud,
   Edit3,
-  Crosshair,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -20,10 +19,106 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// This is your specific model. Ensure the version number (/1) is correct.
+// Your specific Roboflow model
 const ROBOFLOW_MODEL_ID = "find-kvps-mrs-times-and-hvls/1";
 
-// --- TYPES ---
+// --- LOGIC FUNCTIONS ---
+
+const parseExcel = (file: File, callback: (data: any[]) => void) => {
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const arrayBuffer = evt.target?.result;
+    const wb = XLSX.read(arrayBuffer, { type: "array" });
+    const wsname = wb.SheetNames[0];
+    const ws = wb.Sheets[wsname];
+
+    const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+    let headerRowIndex = -1;
+    for (let i = 0; i < Math.min(20, rawData.length); i++) {
+      if (
+        rawData[i] &&
+        rawData[i].some(
+          (cell: any) => cell && cell.toString().includes("Inspection Number")
+        )
+      ) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    if (headerRowIndex === -1) {
+      alert(
+        "Could not find header row 'Inspection Number'. Check Excel format."
+      );
+      return;
+    }
+
+    const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
+    callback(data);
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+const createWordDoc = (
+  templateBuffer: ArrayBuffer,
+  data: any,
+  filename: string
+) => {
+  try {
+    const zip = new PizZip(templateBuffer);
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+    });
+    doc.render(data);
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+    saveAs(out, filename);
+  } catch (error) {
+    console.error(error);
+    alert("Error generating document. Check template tags.");
+  }
+};
+
+// --- HYBRID SCANNER UTILS ---
+
+// Check if the center of the text block is inside the Roboflow box
+const isInside = (
+  textPoly: any,
+  box: any,
+  imgWidth: number,
+  imgHeight: number
+) => {
+  // Google Vision returns vertices [tl, tr, br, bl]
+  const vertices = textPoly.vertices;
+
+  // Calculate center of text
+  // Note: Vision API coordinates are absolute pixels
+  const tx = (vertices[0].x + vertices[2].x) / 2;
+  const ty = (vertices[0].y + vertices[2].y) / 2;
+
+  // Roboflow returns x, y (center), width, height
+  // BUT: If you sent the image to Roboflow, it usually returns PIXEL coordinates if image dims are known,
+  // or normalized coordinates (0-1) if not?
+  // The Inference API typically returns pixel coordinates relative to the image sent.
+  // Let's assume pixel coordinates.
+
+  const minX = box.x - box.width / 2;
+  const maxX = box.x + box.width / 2;
+  const minY = box.y - box.height / 2;
+  const maxY = box.y + box.height / 2;
+
+  // Simple intersection check
+  return tx >= minX && tx <= maxX && ty >= minY && ty <= maxY;
+};
+
+// --- MAIN COMPONENT ---
+
 type Machine = {
   id: string;
   fullDetails: string;
@@ -34,15 +129,15 @@ type Machine = {
   isComplete: boolean;
 };
 
-// We define what Roboflow class corresponds to which app field
-// Adjust 'roboClass' to match exactly what you labeled in Roboflow (e.g. "kvp", "time", "dose")
+// DENTAL MAPPINGS
+// roboClass: The class name you used in Roboflow (e.g., "kvp", "dose", "time")
 const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Capture kVp, Dose, Time, HVL",
+    desc: "Capture All",
     mappings: [
-      { field: "kvp", roboClass: "kvp" },
+      { field: "kvp", roboClass: "kvp" }, // Assumes you labeled a box "kvp"
       { field: "mR1", roboClass: "dose" },
       { field: "time1", roboClass: "time" },
       { field: "hvl", roboClass: "hvl" },
@@ -88,91 +183,6 @@ const DENTAL_STEPS = [
     mappings: [{ field: "operator location", roboClass: "dose" }],
   },
 ];
-
-// --- LOGIC FUNCTIONS ---
-
-const parseExcel = (file: File, callback: (data: any[]) => void) => {
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    const arrayBuffer = evt.target?.result;
-    const wb = XLSX.read(arrayBuffer, { type: "array" });
-    const wsname = wb.SheetNames[0];
-    const ws = wb.Sheets[wsname];
-    const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-    let headerRowIndex = -1;
-    for (let i = 0; i < Math.min(20, rawData.length); i++) {
-      if (
-        rawData[i] &&
-        rawData[i].some(
-          (cell: any) => cell && cell.toString().includes("Inspection Number")
-        )
-      ) {
-        headerRowIndex = i;
-        break;
-      }
-    }
-    if (headerRowIndex === -1) {
-      alert("Header not found.");
-      return;
-    }
-    const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
-    callback(data);
-  };
-  reader.readAsArrayBuffer(file);
-};
-
-const createWordDoc = (
-  templateBuffer: ArrayBuffer,
-  data: any,
-  filename: string
-) => {
-  try {
-    const zip = new PizZip(templateBuffer);
-    const doc = new Docxtemplater(zip, {
-      paragraphLoop: true,
-      linebreaks: true,
-    });
-    doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
-    saveAs(out, filename);
-  } catch (error) {
-    console.error(error);
-    alert("Error generating doc.");
-  }
-};
-
-// --- HYBRID SCANNER LOGIC ---
-// Intersection Utility: Check if Text Center is inside Roboflow Box
-const isInside = (
-  textPoly: any,
-  box: any,
-  imgWidth: number,
-  imgHeight: number
-) => {
-  // Roboflow returns x, y (center) and width, height relative to image size
-  // We need to convert to absolute coordinates to match Google Vision if sizes differ,
-  // but typically Roboflow returns simple pixel vals if image size known, or relative.
-  // Standard Roboflow JSON usually returns center-x, center-y, width, height in pixels (if image dims sent) or relative.
-  // Let's assume simple pixel overlap.
-
-  // Google Vision Text Center
-  const vertices = textPoly.vertices;
-  // Simple center calculation
-  const tx = (vertices[0].x + vertices[2].x) / 2;
-  const ty = (vertices[0].y + vertices[2].y) / 2;
-
-  // Roboflow Box (x,y is center)
-  const minX = box.x - box.width / 2;
-  const maxX = box.x + box.width / 2;
-  const minY = box.y - box.height / 2;
-  const maxY = box.y + box.height / 2;
-
-  return tx >= minX && tx <= maxX && ty >= minY && ty <= maxY;
-};
 
 export default function RayScanLocal() {
   const [view, setView] = useState<
@@ -264,7 +274,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- HYBRID SCANNER FUNCTION ---
+  // --- HYBRID SCANNER ---
   const performHybridScan = async (
     base64Image: string,
     mappings: { field: string; roboClass: string }[]
@@ -279,7 +289,7 @@ export default function RayScanLocal() {
     try {
       const imageContent = base64Image.split(",")[1];
 
-      // 1. Call Google Vision (The Reader)
+      // 1. Google Vision (Reader)
       const googleRes = await fetch(
         `https://vision.googleapis.com/v1/images:annotate?key=${googleKey}`,
         {
@@ -295,11 +305,12 @@ export default function RayScanLocal() {
         }
       );
       const googleData = await googleRes.json();
-      const allText = googleData.responses[0]?.textAnnotations || [];
+      // [0] is full text, [1..n] are blocks
+      const allText = googleData.responses?.[0]?.textAnnotations || [];
 
       if (allText.length === 0) throw new Error("Google Vision found no text.");
 
-      // 2. Call Roboflow (The Mapper)
+      // 2. Roboflow (Mapper)
       const roboflowRes = await fetch(
         `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${roboflowKey}`,
         {
@@ -321,15 +332,14 @@ export default function RayScanLocal() {
       const updates: Record<string, string> = {};
 
       mappings.forEach(({ field, roboClass }) => {
-        // Find the Roboflow box for this class (e.g. "kvp")
-        // If multiple boxes exist for same class (rare), take highest confidence
+        // Find the BEST Roboflow box for this class (highest confidence)
         const box = predictions
           .filter((p: any) => p.class === roboClass)
           .sort((a: any, b: any) => b.confidence - a.confidence)[0];
 
         if (box) {
-          // Find which Google Text block is INSIDE this box
-          // We skip allText[0] because that is the full page summary
+          // Find text block INSIDE this box
+          // We iterate through Google's blocks (skip 0)
           const matchingText = allText
             .slice(1)
             .find((textBlock: any) =>
@@ -337,8 +347,7 @@ export default function RayScanLocal() {
             );
 
           if (matchingText) {
-            // Clean the text (remove units if Roboflow box included them)
-            // Keep only digits and decimals
+            // Clean the text: keep decimals
             const num = matchingText.description.match(/(\d+\.?\d*)/);
             if (num) updates[field] = num[0];
           }
@@ -356,7 +365,11 @@ export default function RayScanLocal() {
         );
         setDebugLog(`Mapped: ${JSON.stringify(updates)}`);
       } else {
-        alert("Could not match text to boxes. Check lighting/glare.");
+        // Fallback: Display what we found if matching failed
+        const classesFound = predictions.map((p: any) => p.class).join(", ");
+        alert(
+          `Model found boxes: [${classesFound}], but text did not overlap perfectly.\nTry getting closer.`
+        );
       }
     } catch (e: any) {
       alert("Scan Error: " + e.message);
@@ -452,7 +465,7 @@ export default function RayScanLocal() {
               type="password"
               value={roboflowKey}
               onChange={(e) => setRoboflowKey(e.target.value)}
-              placeholder="Roboflow Private Key"
+              placeholder="rf_..."
             />
           </div>
           <button
@@ -588,7 +601,7 @@ export default function RayScanLocal() {
           </div>
 
           {debugLog && (
-            <div className="bg-slate-900 text-green-400 p-2 text-[10px] font-mono overflow-x-auto whitespace-nowrap rounded">
+            <div className="bg-slate-900 text-green-400 p-2 text-[10px] font-mono overflow-x-auto whitespace-nowrap rounded mb-4">
               {debugLog}
             </div>
           )}
@@ -609,9 +622,9 @@ export default function RayScanLocal() {
                   {isScanning ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <Crosshair size={14} />
+                    <ScanLine size={14} />
                   )}{" "}
-                  Smart Scan
+                  Scan
                   <input
                     type="file"
                     accept="image/*"
