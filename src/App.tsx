@@ -10,23 +10,48 @@ import {
   Loader2,
   ArrowLeft,
   Trash2,
-  UploadCloud,
   Edit3,
-  FileText,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
-// --- CONFIG ---
-const ROBOFLOW_WORKFLOW_URL =
-  "https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls";
-// HARDCODED API KEY per your request
-const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
+// --- CONFIGURATION ---
+const WORKSPACE_NAME = "rlis";
+const WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
+const ROBOFLOW_WORKFLOW_URL = `https://serverless.roboflow.com/infer/workflows/${WORKSPACE_NAME}/${WORKFLOW_ID}`;
+const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh"; // Hardcoded per request
 
-// --- LOGIC FUNCTIONS ---
+// --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
+// 1. Recursive finder for text data in Roboflow response
+const findTextData = (obj: any): any[] | null => {
+  if (!obj || typeof obj !== "object") return null;
+
+  if (Array.isArray(obj)) {
+    if (obj.length > 0 && typeof obj[0] === "object") {
+      // Check for Standard Roboflow OCR
+      if ("text" in obj[0]) return obj;
+      // Check for Google Vision Wrapper
+      if (obj[0].predictions && Array.isArray(obj[0].predictions)) return obj;
+    }
+    for (const item of obj) {
+      const found = findTextData(item);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const keys = Object.keys(obj);
+  for (const key of keys) {
+    const found = findTextData(obj[key]);
+    if (found) return found;
+  }
+  return null;
+};
+
+// 2. Excel Parser
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -35,7 +60,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
-    // Header Hunter
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -63,6 +87,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
+// 3. Word Doc Generator
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -87,27 +112,22 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
+// 4. Grid Parser (Sorts text blocks)
 const extractSortedValues = (textBlocks: any[]): number[] => {
-  // 1. Filter for valid decimal numbers
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
-    // Exclude rate units, dates, page numbers
     if (txt.includes("/s") || txt.includes("/min")) return false;
     if (txt.includes("/")) return false;
     if (txt.includes("of")) return false;
-    // Must be a decimal number
     return /\d+\.\d+/.test(txt);
   });
 
-  // 2. Sort Spatially (Y-Priority)
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
     if (Math.abs(yDiff) > 30) return yDiff;
     return a.x - b.x;
   });
 
-  // 3. Extract Numbers
   return validBlocks
     .map((block) => {
       const match = block.text.match(/(\d+\.?\d*)/);
@@ -116,14 +136,13 @@ const extractSortedValues = (textBlocks: any[]): number[] => {
     .filter((n) => !isNaN(n));
 };
 
-// --- MAIN COMPONENT ---
-
+// --- TYPES ---
 type Machine = {
   id: string;
   fullDetails: string;
   type: string;
-  location: string; // Credential #
-  registrantName: string; // Facility Name
+  location: string;
+  registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -173,6 +192,7 @@ const DENTAL_STEPS = [
   },
 ];
 
+// --- MAIN COMPONENT ---
 export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
@@ -194,7 +214,6 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-    // Load previous machines if any
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
@@ -202,11 +221,6 @@ export default function RayScanLocal() {
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setApiKey(e.target.value);
-    // No longer saving to localStorage since we hardcode, but keeping for flexibility
-  };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -267,40 +281,6 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- ROBOFLOW WORKFLOW API CALL ---
-  // --- HELPER: Recursively find the array containing text data ---
-  const findTextData = (obj: any): any[] | null => {
-    if (!obj || typeof obj !== "object") return null;
-
-    // 1. If this object is an array, check if it holds text data
-    if (Array.isArray(obj)) {
-      const firstItem = obj[0];
-      // Check for standard Roboflow OCR format (items have 'text' or 'class')
-      if (firstItem && typeof firstItem === "object") {
-        if ("text" in firstItem) return obj;
-        if (firstItem.predictions && Array.isArray(firstItem.predictions))
-          return obj; // Google Vision wrapper
-      }
-      // If it's just a wrapper array (like the root response), dig into its items
-      for (const item of obj) {
-        const found = findTextData(item);
-        if (found) return found;
-      }
-      return null;
-    }
-
-    // 2. If it's an object, search all its keys
-    // We prioritize keys that look like OCR data
-    const keys = Object.keys(obj);
-    for (const key of keys) {
-      // Direct recursion
-      const found = findTextData(obj[key]);
-      if (found) return found;
-    }
-
-    return null;
-  };
-
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -316,6 +296,8 @@ export default function RayScanLocal() {
       const imageContent = base64Image.split(",")[1];
       const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
+      console.log("🚀 Sending image to:", endpoint);
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -323,64 +305,50 @@ export default function RayScanLocal() {
           inputs: {
             image: { type: "base64", value: imageContent },
           },
+          api_key: apiKey,
         }),
       });
 
       const result = await response.json();
-      console.log("🔴 LIVE API RESPONSE:", result); // Check console if it still fails
+      console.log("🔴 ROBOFLOW RESPONSE:", result);
 
+      if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // --- SMART FINDER ---
-      // Instead of asking for 'output_google_vision_ocr', we hunt for the data.
       const rawTextData = findTextData(result);
 
       if (!rawTextData) {
-        // If we still can't find it, show the user what keys ARE there
-        const rootKeys = Array.isArray(result)
-          ? result.map((i) => Object.keys(i)).flat()
-          : Object.keys(result);
-
         throw new Error(
-          `Could not find OCR data in response.\nAvailable keys: ${JSON.stringify(
-            rootKeys
-          )}`
+          `Success, but no text found.\nKeys received: ${Object.keys(
+            result
+          ).join(", ")}`
         );
       }
 
-      // --- NORMALIZE DATA ---
-      // Handle the nested structure (Google Vision usually nests x/y inside 'predictions')
       const textBlocks = rawTextData.map((item: any) => {
-        // 1. Try to find location at top level
         let x = item.x;
         let y = item.y;
+        let text = item.text || "";
 
-        // 2. If not found, dig into 'predictions' array (Common in Google Vision output)
         if (x === undefined && item.predictions?.predictions?.[0]) {
           x = item.predictions.predictions[0].x;
           y = item.predictions.predictions[0].y;
+          if (!text) text = item.predictions.predictions[0].class || "";
         }
 
-        // 3. Fallback for center coordinates
-        if (x === undefined && item.x === undefined && item.center) {
+        if (x === undefined && item.center) {
           x = item.center.x;
           y = item.center.y;
         }
 
-        return {
-          text: item.text || "",
-          x: x || 0,
-          y: y || 0,
-        };
+        return { text, x: x || 0, y: y || 0 };
       });
 
-      // --- SORT & EXTRACT ---
       const sortedNumbers = extractSortedValues(textBlocks);
 
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
-      // --- UPDATE STATE ---
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -400,11 +368,7 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(
-          `Scan complete but no valid numbers found matching criteria.\nFound text: ${sortedNumbers.join(
-            ", "
-          )}`
-        );
+        alert(`Scan complete. Found numbers: ${sortedNumbers.join(", ")}`);
       }
     } catch (e: any) {
       console.error(e);
@@ -487,8 +451,7 @@ export default function RayScanLocal() {
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-4">
           <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
-            <strong>API Key Loaded:</strong> Roboflow key is hardcoded
-            (M9vl...).
+            <strong>API Key Loaded:</strong> Roboflow key is hardcoded.
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
@@ -544,17 +507,13 @@ export default function RayScanLocal() {
     return (
       <div className="min-h-screen bg-slate-100 pb-20 font-sans">
         <header className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-20">
-          {/* BACK BUTTON ADDED TO HEADER */}
           <button
             onClick={() => setView("dashboard")}
             className="p-1 hover:bg-blue-800 rounded-lg transition-colors active:scale-95 flex items-center gap-1 text-sm font-bold"
           >
             <ArrowLeft size={20} /> Back
           </button>
-
           <h1 className="font-bold text-lg">My Inspections</h1>
-
-          {/* Empty div for flex balance */}
           <div className="w-10"></div>
         </header>
         <div className="p-4 space-y-3">
@@ -599,7 +558,6 @@ export default function RayScanLocal() {
       <div className="min-h-screen bg-slate-50 pb-24 font-sans">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
-            {/* BACK BUTTON */}
             <button
               onClick={() => setView("mobile-list")}
               className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
@@ -616,7 +574,6 @@ export default function RayScanLocal() {
         </header>
 
         <div className="p-4 space-y-6">
-          {/* USER INPUTS SECTION */}
           <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
             <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
               Machine Settings
@@ -669,7 +626,6 @@ export default function RayScanLocal() {
             </div>
           </div>
 
-          {/* OCR Debugging Area */}
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1 text-slate-700">
