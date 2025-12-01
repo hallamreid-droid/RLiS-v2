@@ -70,13 +70,11 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc
-      .getZip()
-      .generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -84,8 +82,9 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER: Extracts numbers based on POSITION
-const extractGridValues = (textBlocks: any[]): number[] => {
+// GRID PARSER: Extracts numbers based on POSITION (Top->Bottom, Left->Right)
+// This matches the function call in the component.
+const extractSortedValues = (textBlocks: any[]): number[] => {
   // textBlocks is array of { text: "...", x: ..., y: ... }
 
   // 1. Filter for valid decimal numbers
@@ -101,9 +100,9 @@ const extractGridValues = (textBlocks: any[]): number[] => {
 
   // 2. Sort Spatially
   // Y-coordinate primary (Row), X-coordinate secondary (Column)
+  // Use 20px tolerance for Y to group "same line" items
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    // If Y difference is small (< 20px), consider them on same line
     if (Math.abs(yDiff) > 20) return yDiff;
     return a.x - b.x;
   });
@@ -133,42 +132,42 @@ const DENTAL_STEPS = [
   {
     id: "scan1",
     label: "1. Technique Scan",
-    desc: "Order: kVp, Dose, Time, HVL",
+    desc: "Capture All",
     fields: ["kvp", "mR1", "time1", "hvl"],
     indices: [0, 1, 2, 3],
   },
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Order: Dose (2nd), Time (3rd)",
+    desc: "Capture Dose, Time",
     fields: ["mR2", "time2"],
     indices: [1, 2],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Order: Dose (2nd), Time (3rd)",
+    desc: "Capture Dose, Time",
     fields: ["mR3", "time3"],
     indices: [1, 2],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Order: Dose (2nd), Time (3rd)",
+    desc: "Capture Dose, Time",
     fields: ["mR4", "time4"],
     indices: [1, 2],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Order: Dose (2nd)",
+    desc: "Capture Dose",
     fields: ["6 foot"],
     indices: [1],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Order: Dose (2nd)",
+    desc: "Capture Dose",
     fields: ["operator location"],
     indices: [1],
   },
@@ -188,6 +187,7 @@ export default function RayScanLocal() {
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [lastParsedNumbers, setLastParsedNumbers] = useState<number[]>([]);
 
+  // Force Styles
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -195,6 +195,10 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
+  }, []);
+
+  // Load Data
+  useEffect(() => {
     const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedKey) setApiKey(savedKey);
@@ -283,7 +287,6 @@ export default function RayScanLocal() {
     try {
       const imageContent = base64Image.split(",")[1]; // Raw base64
 
-      // Roboflow Inference Endpoint
       const endpoint = `https://detect.roboflow.com/${ROBOFLOW_MODEL_ID}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
@@ -305,12 +308,9 @@ export default function RayScanLocal() {
       if (ocrData && ocrData.output_google_vision_ocr) {
         // Flatten predictions: extract text, x, y
         textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
-          // item.text is the string. item.predictions.predictions[0] has coords.
-          // Sometimes predictions array might be empty or structured differently.
-          // We handle the structure shown in your snippet.
           const preds = item.predictions?.predictions || [];
           return preds.map((pred: any) => ({
-            text: item.text, // The text string (e.g. "2.80")
+            text: item.text,
             x: pred.x,
             y: pred.y,
           }));
@@ -325,7 +325,7 @@ export default function RayScanLocal() {
         return;
       }
 
-      // 2. EXTRACT & SORT
+      // 2. EXTRACT & SORT using the correctly named function
       const sortedNumbers = extractSortedValues(textBlocks);
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
@@ -393,21 +393,26 @@ export default function RayScanLocal() {
       alert("Upload Template first!");
       return;
     }
+
     const data = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
       "registration number": machine.location,
       "registrant name": machine.registrantName,
       date: new Date().toLocaleDateString(),
+
       "tube number": machine.data["tube_num"] || "1",
       "preset kvp": machine.data["preset_kvp"] || "",
       "preset mas": machine.data["preset_mas"] || "",
       "preset time": machine.data["preset_time"] || "",
+
       details: machine.fullDetails,
       credential: machine.location,
+
       type: machine.type,
       ...machine.data,
     };
+
     createWordDoc(templateFile, data, `Inspection_${machine.location}.docx`);
     setMachines((prev) =>
       prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
@@ -415,13 +420,15 @@ export default function RayScanLocal() {
   };
 
   const clearAll = () => {
-    if (window.confirm("Delete all?")) {
+    if (window.confirm("Delete all machines?")) {
       setMachines([]);
       localStorage.removeItem("rayScanMachines");
     }
   };
+
   const activeMachine = machines.find((m) => m.id === activeMachineId);
 
+  // --- UI ---
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -432,31 +439,82 @@ export default function RayScanLocal() {
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4">Settings</h1>
-        <input
-          className="w-full border p-3 mb-4 rounded"
-          placeholder="Roboflow API Key"
-          value={apiKey}
-          onChange={handleApiKeyChange}
-          type="password"
-        />
-        <div className="border-2 border-dashed p-6 text-center rounded relative">
-          <label className="block w-full h-full cursor-pointer">
-            {templateName}
-            <input
-              type="file"
-              accept=".docx"
-              onChange={handleTemplateUpload}
-              className="hidden"
-            />
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+          <label className="block font-bold mb-2 text-sm text-slate-700">
+            Roboflow API Key
           </label>
-          {templateFile && (
-            <button
-              onClick={clearTemplate}
-              className="absolute top-2 right-2 p-1 bg-red-100 text-red-600 rounded-full"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+          <input
+            className="w-full border p-3 rounded-lg font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="rf_..."
+            value={apiKey}
+            onChange={handleApiKeyChange}
+            type="password"
+          />
+          <p className="text-xs text-slate-400 mt-2">
+            Required for OCR scanning.
+          </p>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex justify-between items-center mb-4">
+            <label className="block font-bold text-sm text-slate-700">
+              Word Document Template
+            </label>
+            {templateFile && (
+              <button
+                onClick={clearTemplate}
+                className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors"
+                title="Clear Template"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+          </div>
+          <div
+            className={`border-2 border-dashed p-8 rounded-xl text-center transition-all ${
+              templateFile
+                ? "border-emerald-400 bg-emerald-50"
+                : "border-slate-300 hover:border-blue-400 hover:bg-slate-50"
+            }`}
+          >
+            <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
+              {templateFile ? (
+                <>
+                  <div className="h-12 w-12 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
+                    <CheckCircle size={24} />
+                  </div>
+                  <div>
+                    <p className="text-emerald-800 font-bold text-lg">
+                      {templateName}
+                    </p>
+                    <p className="text-emerald-600 text-sm">
+                      Template Loaded & Ready
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
+                    <FileText size={24} />
+                  </div>
+                  <div>
+                    <p className="text-slate-600 font-bold">
+                      Tap to Upload Template
+                    </p>
+                    <p className="text-slate-400 text-sm">
+                      Supports .docx files only
+                    </p>
+                  </div>
+                </>
+              )}
+              <input
+                type="file"
+                accept=".docx"
+                onChange={handleTemplateUpload}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
       </div>
     );
@@ -510,6 +568,7 @@ export default function RayScanLocal() {
             {activeMachine.fullDetails}
           </div>
         </header>
+
         <div className="p-4 space-y-6">
           <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
             <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
@@ -566,7 +625,7 @@ export default function RayScanLocal() {
           {lastScannedText && (
             <div className="bg-slate-100 p-2 rounded text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1">
-                Detected: {JSON.stringify(lastParsedNumbers)}
+                Parsed Decimals: {JSON.stringify(lastParsedNumbers)}
               </div>
               <div className="truncate text-slate-400">{lastScannedText}</div>
             </div>
@@ -588,7 +647,7 @@ export default function RayScanLocal() {
                   {isScanning ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <ScanLine size={14} />
+                    <Camera size={14} />
                   )}{" "}
                   Scan
                   <input
