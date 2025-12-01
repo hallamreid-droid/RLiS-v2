@@ -76,6 +76,7 @@ const extractValuesByClass = (
     mr: 1,
     dose: 1,
     ugy: 1,
+    mgy: 1,
     time: 2,
     ms: 2,
     s: 2,
