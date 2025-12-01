@@ -75,13 +75,11 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc
-      .getZip()
-      .generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -280,9 +278,10 @@ export default function RayScanLocal() {
       return;
     }
     setIsScanning(true);
-    try {
-      const imageContent = base64Image.split(",")[1];
 
+    try {
+      // 1. Prepare Payload
+      const imageContent = base64Image.split(",")[1];
       const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
@@ -299,36 +298,47 @@ export default function RayScanLocal() {
 
       if (result.message) throw new Error(result.message);
 
-      // PARSE ROBOFLOW RESPONSE
-      let textBlocks: any[] = [];
-      const resultArray = Array.isArray(result) ? result : [result];
-      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
+      // 2. TARGETED PARSING for 'google_vision_ocr'
+      // Workflows usually return an array (batch processing), so we take the first item.
+      const outputRoot = Array.isArray(result) ? result[0] : result;
 
-      if (ocrData && ocrData.output_google_vision_ocr) {
-        textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
-          const preds = item.predictions?.predictions || [];
-          return preds.map((pred: any) => ({
-            text: item.text,
-            x: pred.x,
-            y: pred.y,
-          }));
-        });
+      // Access your specific node name
+      const ocrNode = outputRoot.google_vision_ocr;
+
+      if (!ocrNode) {
+        console.error("Roboflow Response Keys:", Object.keys(outputRoot));
+        throw new Error("Key 'google_vision_ocr' not found in response.");
       }
 
-      if (textBlocks.length === 0) {
-        setLastScannedText("No text found in Roboflow response.");
-        alert("Roboflow returned no OCR data. Check debug log.");
-        console.log("Full Response:", result);
+      // The structure inside the node is usually { predictions: [ ... ] } or just [ ... ]
+      // We handle both cases to be safe.
+      const rawPredictions = ocrNode.predictions || ocrNode;
+
+      if (!Array.isArray(rawPredictions) || rawPredictions.length === 0) {
+        setLastScannedText("No text detected.");
+        alert("Roboflow saw the image but found no text.");
         return;
       }
 
-      // 2. EXTRACT & SORT
+      // 3. NORMALIZE DATA
+      // Map the Google Vision structure into a flat list of {text, x, y}
+      const textBlocks = rawPredictions.map((item: any) => ({
+        text: item.text || "",
+        // Some versions of the block nest x/y, others have it at top level
+        x: item.x || item.center?.x || 0,
+        y: item.y || item.center?.y || 0,
+      }));
+
+      // 4. SORT & EXTRACT (Your original logic)
       const sortedNumbers = extractSortedValues(textBlocks);
+
+      // Update UI for debugging
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
-      // 3. MAP TO FIELDS
+      // 5. UPDATE STATE
       const updates: Record<string, string> = {};
+
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
         if (sortedNumbers[indexToGrab] !== undefined) {
@@ -354,6 +364,7 @@ export default function RayScanLocal() {
         );
       }
     } catch (e: any) {
+      console.error(e);
       alert("Scan Error: " + e.message);
     } finally {
       setIsScanning(false);
