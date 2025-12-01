@@ -20,9 +20,9 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-const ROBOFLOW_WORKFLOW_URL =
+// Exact endpoint from your Roboflow docs
+const ROBOFLOW_ENDPOINT =
   "https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls";
-// HARDCODED API KEY per your request
 const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
 // --- LOGIC FUNCTIONS ---
@@ -88,7 +88,7 @@ const createWordDoc = (
   }
 };
 
-// GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
+// GRID PARSER
 const extractSortedValues = (textBlocks: any[]): number[] => {
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
@@ -100,7 +100,7 @@ const extractSortedValues = (textBlocks: any[]): number[] => {
 
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > 20) return yDiff;
+    if (Math.abs(yDiff) > 30) return yDiff;
     return a.x - b.x;
   });
 
@@ -173,7 +173,6 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-  const [apiKey, setApiKey] = useState(ROBOFLOW_API_KEY);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -190,22 +189,13 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-    const savedKey = localStorage.getItem("rayScanRoboflowKey");
     const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedKey) setApiKey(savedKey);
-    else setApiKey(ROBOFLOW_API_KEY); // Default to hardcoded
-
     if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
 
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setApiKey(e.target.value);
-    localStorage.setItem("rayScanRoboflowKey", e.target.value);
-  };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -266,86 +256,59 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- ROBOFLOW WORKFLOW API CALL ---
+  // --- ROBOFLOW WORKFLOW API CALL (Fixed Auth) ---
   const performRoboflowScan = async (
-    base64Image: string,
+    file: File,
     targetFields: string[],
     indices: number[]
   ) => {
-    if (!apiKey) {
-      alert("Set Roboflow API Key first!");
-      return;
-    }
     setIsScanning(true);
     try {
-      // Remove header
-      const imageContent = base64Image.split(",")[1];
+      // Use FormData to mimic cURL -F "image=@file"
+      // This is the standard way to upload files to Roboflow inference API
+      const formData = new FormData();
+      formData.append("image", file);
 
-      // Use form-data for image upload to workflow endpoint as per docs logic
-      // However, for simplicity and since we have base64, let's try the JSON body method
-      // but to the workflow endpoint this time.
+      // Note: Some Roboflow endpoints might block CORS from browsers.
+      // If this fails with a Network Error, it's CORS.
+      // But typically, serverless.roboflow.com allows it if the key is valid.
 
-      const response = await fetch(ROBOFLOW_WORKFLOW_URL, {
+      const response = await fetch(ROBOFLOW_ENDPOINT, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          // NOTE: For workflows, sometimes API key is query param, sometimes header.
-          // We will try query param first as it's safer for CORS usually.
+          // Authorization header as per your provided docs
+          Authorization: `Bearer ${ROBOFLOW_API_KEY}`,
+          // Do NOT set Content-Type here; fetch sets it automatically for FormData (multipart/form-data boundary)
         },
-        body: JSON.stringify({
-          inputs: {
-            image: { type: "base64", value: imageContent },
-          },
-          api_key: apiKey, // Pass key in body or query param
-        }),
+        body: formData,
       });
 
-      // If that fails, try adding key to URL:
-      // const response = await fetch(`${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`, ...);
-
       if (!response.ok) {
-        // If JSON body failed, try the FormData approach which mimics cURL -F
-        // But we need to convert base64 back to blob
-        const byteCharacters = atob(imageContent);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: "image/jpeg" });
-
-        const formData = new FormData();
-        formData.append("image", blob, "scan.jpg");
-
-        // Retry with FormData and URL query param for key
-        const response2 = await fetch(
-          `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`,
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
-
-        if (!response2.ok) {
-          const errText = await response2.text();
-          throw new Error(`API Error: ${errText}`);
-        }
-
-        var result = await response2.json();
-      } else {
-        var result = await response.json();
+        const errText = await response.text();
+        throw new Error(`API Error ${response.status}: ${errText}`);
       }
 
-      // PARSE RESPONSE (Array or Object)
-      const resultArray = Array.isArray(result) ? result : [result];
+      const result = await response.json();
+
+      // PARSE ROBOFLOW RESPONSE
       let textBlocks: any[] = [];
 
-      // Find OCR data
-      // Based on your JSON: output_google_vision_ocr is at top level of array item
-      const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
+      const resultArray = Array.isArray(result) ? result : [result];
+
+      // Search for the OCR data block
+      // Check root level, 'outputs' array, or array items
+      let ocrData = null;
+
+      if (result.output_google_vision_ocr) ocrData = result;
+      else if (result.outputs && result.outputs[0]?.output_google_vision_ocr)
+        ocrData = result.outputs[0];
+      else if (resultArray[0]?.output_google_vision_ocr)
+        ocrData = resultArray[0];
 
       if (ocrData && ocrData.output_google_vision_ocr) {
+        // Flatten predictions
         textBlocks = ocrData.output_google_vision_ocr.flatMap((item: any) => {
+          // item.text is the string. item.predictions.predictions[0] has coords.
           const preds = item.predictions?.predictions || [];
           return preds.map((pred: any) => ({
             text: item.text,
@@ -356,16 +319,18 @@ export default function RayScanLocal() {
       }
 
       if (textBlocks.length === 0) {
-        setLastScannedText("No text found.");
+        setLastScannedText("No text found in Roboflow response.");
         console.log("Full Response:", result);
         alert("Roboflow returned no OCR data. Check debug log.");
         return;
       }
 
+      // 2. EXTRACT & SORT
       const sortedNumbers = extractSortedValues(textBlocks);
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
+      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -405,10 +370,8 @@ export default function RayScanLocal() {
   ) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () =>
-        performRoboflowScan(reader.result as string, fields, indices);
-      reader.readAsDataURL(file);
+      // Pass the raw FILE object to the scan function for FormData
+      performRoboflowScan(file, fields, indices);
     }
   };
 
@@ -470,20 +433,9 @@ export default function RayScanLocal() {
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-4">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
-              Roboflow API Key
-            </label>
-            <input
-              className="w-full border p-3 rounded-lg font-mono text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
-              type="password"
-              value={apiKey}
-              onChange={handleApiKeyChange}
-              placeholder="rf_..."
-            />
-            <p className="text-xs text-slate-400 mt-2">
-              Required for OCR scanning.
-            </p>
+          <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
+            <strong>API Key Loaded:</strong> Roboflow key is hardcoded
+            (M9vl...).
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
@@ -725,6 +677,7 @@ export default function RayScanLocal() {
                         className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
                         placeholder="-"
                       />
+                      <Edit3 className="absolute right-0 top-1 text-slate-200 h-3 w-3 pointer-events-none" />
                     </div>
                   </div>
                 ))}
