@@ -20,11 +20,10 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIG ---
-// Hardcoded API Key
+const ROBOFLOW_WORKFLOW_URL =
+  "https://serverless.roboflow.com/find-kvps-mrs-times-and-hvls";
+// HARDCODED API KEY per your request
 const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
-// Base URL for the workflow
-const WORKFLOW_URL =
-  "https://detect.roboflow.com/infer/workflows/rlis/find-kvps-mrs-times-and-hvls";
 
 // --- LOGIC FUNCTIONS ---
 
@@ -36,6 +35,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
 
+    // Header Hunter
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -91,20 +91,25 @@ const createWordDoc = (
 
 // GRID PARSER: Sorts detected text blocks by position (Top->Bottom, Left->Right)
 const extractSortedValues = (textBlocks: any[]): number[] => {
+  // 1. Filter for valid decimal numbers
   const validBlocks = textBlocks.filter((block) => {
     let txt = block.text;
+    // Exclude rate units, dates, page numbers
     if (txt.includes("/s") || txt.includes("/min")) return false;
     if (txt.includes("/")) return false;
     if (txt.includes("of")) return false;
+    // Must be a decimal number
     return /\d+\.\d+/.test(txt);
   });
 
+  // 2. Sort Spatially (Y-Priority)
   validBlocks.sort((a, b) => {
     const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > 20) return yDiff;
+    if (Math.abs(yDiff) > 30) return yDiff;
     return a.x - b.x;
   });
 
+  // 3. Extract Numbers
   return validBlocks
     .map((block) => {
       const match = block.text.match(/(\d+\.?\d*)/);
@@ -119,8 +124,8 @@ type Machine = {
   id: string;
   fullDetails: string;
   type: string;
-  location: string;
-  registrantName: string;
+  location: string; // Credential #
+  registrantName: string; // Facility Name
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -136,37 +141,37 @@ const DENTAL_STEPS = [
   {
     id: "scan2",
     label: "2. Reproducibility",
-    desc: "Capture Dose, Time",
-    indices: [1, 2],
+    desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR2", "time2"],
+    indices: [1, 2],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
-    desc: "Capture Dose, Time",
-    indices: [1, 2],
+    desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR3", "time3"],
+    indices: [1, 2],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
-    desc: "Capture Dose, Time",
-    indices: [1, 2],
+    desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR4", "time4"],
+    indices: [1, 2],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
-    desc: "Capture Dose",
-    indices: [1],
+    desc: "Order: Dose (2nd)",
     fields: ["6 foot"],
+    indices: [1],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
-    desc: "Capture Dose",
-    indices: [1],
+    desc: "Order: Dose (2nd)",
     fields: ["operator location"],
+    indices: [1],
   },
 ];
 
@@ -191,11 +196,8 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-    const savedKey = localStorage.getItem("rayScanRoboflowKey");
+    // Load previous machines if any
     const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedKey) setApiKey(savedKey);
-    else setApiKey(ROBOFLOW_API_KEY);
-
     if (savedMachines) setMachines(JSON.parse(savedMachines));
   }, []);
 
@@ -205,7 +207,7 @@ export default function RayScanLocal() {
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
-    localStorage.setItem("rayScanRoboflowKey", e.target.value);
+    // No longer saving to localStorage since we hardcode, but keeping for flexibility
   };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -267,7 +269,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- ROBOFLOW WORKFLOW API CALL (Fixed Auth) ---
+  // --- ROBOFLOW WORKFLOW API CALL ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -279,11 +281,9 @@ export default function RayScanLocal() {
     }
     setIsScanning(true);
     try {
-      // Remove header
       const imageContent = base64Image.split(",")[1];
 
-      // Construct URL with API Key query param to bypass header issues
-      const endpoint = `${WORKFLOW_URL}?api_key=${apiKey}`;
+      const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -295,16 +295,12 @@ export default function RayScanLocal() {
         }),
       });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`API Error ${response.status}: ${errText}`);
-      }
-
       const result = await response.json();
+
+      if (result.message) throw new Error(result.message);
 
       // PARSE ROBOFLOW RESPONSE
       let textBlocks: any[] = [];
-
       const resultArray = Array.isArray(result) ? result : [result];
       const ocrData = resultArray.find((r: any) => r.output_google_vision_ocr);
 
@@ -321,15 +317,17 @@ export default function RayScanLocal() {
 
       if (textBlocks.length === 0) {
         setLastScannedText("No text found in Roboflow response.");
-        console.log("Full Response:", result);
         alert("Roboflow returned no OCR data. Check debug log.");
+        console.log("Full Response:", result);
         return;
       }
 
+      // 2. EXTRACT & SORT
       const sortedNumbers = extractSortedValues(textBlocks);
       setLastParsedNumbers(sortedNumbers);
       setLastScannedText(sortedNumbers.join(", "));
 
+      // 3. MAP TO FIELDS
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const indexToGrab = indices[i];
@@ -492,13 +490,18 @@ export default function RayScanLocal() {
     return (
       <div className="min-h-screen bg-slate-100 pb-20 font-sans">
         <header className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-20">
-          <h1 className="font-bold text-lg">My Inspections</h1>
+          {/* BACK BUTTON ADDED TO HEADER */}
           <button
             onClick={() => setView("dashboard")}
-            className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors active:scale-95"
+            className="p-1 hover:bg-blue-800 rounded-lg transition-colors active:scale-95 flex items-center gap-1 text-sm font-bold"
           >
-            Exit
+            <ArrowLeft size={20} /> Back
           </button>
+
+          <h1 className="font-bold text-lg">My Inspections</h1>
+
+          {/* Empty div for flex balance */}
+          <div className="w-10"></div>
         </header>
         <div className="p-4 space-y-3">
           {machines.map((m) => (
@@ -542,6 +545,7 @@ export default function RayScanLocal() {
       <div className="min-h-screen bg-slate-50 pb-24 font-sans">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
+            {/* BACK BUTTON */}
             <button
               onClick={() => setView("mobile-list")}
               className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
@@ -569,7 +573,7 @@ export default function RayScanLocal() {
                   Tube #
                 </label>
                 <input
-                  className="w-full p-2 border rounded text-sm font-bold"
+                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                   placeholder="1"
                   value={activeMachine.data["tube_num"] || ""}
                   onChange={(e) => updateField("tube_num", e.target.value)}
@@ -580,7 +584,7 @@ export default function RayScanLocal() {
                   Preset kVp
                 </label>
                 <input
-                  className="w-full p-2 border rounded text-sm font-bold"
+                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                   placeholder="70"
                   value={activeMachine.data["preset_kvp"] || ""}
                   onChange={(e) => updateField("preset_kvp", e.target.value)}
@@ -591,7 +595,7 @@ export default function RayScanLocal() {
                   Preset mAs
                 </label>
                 <input
-                  className="w-full p-2 border rounded text-sm font-bold"
+                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                   placeholder="10"
                   value={activeMachine.data["preset_mas"] || ""}
                   onChange={(e) => updateField("preset_mas", e.target.value)}
@@ -602,7 +606,7 @@ export default function RayScanLocal() {
                   Preset Time
                 </label>
                 <input
-                  className="w-full p-2 border rounded text-sm font-bold"
+                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                   placeholder="0.10"
                   value={activeMachine.data["preset_time"] || ""}
                   onChange={(e) => updateField("preset_time", e.target.value)}
