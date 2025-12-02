@@ -23,12 +23,23 @@ const WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
 const ROBOFLOW_WORKFLOW_URL = `https://serverless.roboflow.com/infer/workflows/${WORKSPACE_NAME}/${WORKFLOW_ID}`;
 const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
+// --- ZONES CONFIGURATION (The RaySafe Screen Layout) ---
+// We map the screen coordinates to specific fields.
+// Coordinates derived from your JSON data.
+const SCREEN_ZONES = [
+  // Row 1
+  { id: "kvp", minX: 0, maxX: 220, minY: 0, maxY: 130 },
+  { id: "mR", minX: 220, maxX: 350, minY: 0, maxY: 130 }, // Dose
+  { id: "time", minX: 350, maxX: 600, minY: 0, maxY: 130 },
+  // Row 2
+  { id: "hvl", minX: 0, maxX: 220, minY: 130, maxY: 250 },
+];
+
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. ARRAY FINDER: Finds an array where items contain a specific key
+// 1. ARRAY FINDER: Finds the LIST containing the data we need
 const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
   if (!obj || typeof obj !== "object") return null;
-
   if (Array.isArray(obj)) {
     // Check if the first item has the key we want
     if (obj.length > 0 && typeof obj[0] === "object" && keyToFind in obj[0]) {
@@ -41,8 +52,6 @@ const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
     }
     return null;
   }
-
-  // Search object keys
   for (const k of Object.keys(obj)) {
     const found = findArrayWithKey(obj[k], keyToFind);
     if (found) return found;
@@ -50,69 +59,14 @@ const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
   return null;
 };
 
-// 2. GEOMETRY: Check if text is inside a labeled box
-const isTextInsideBox = (text: { x: number; y: number }, box: any) => {
-  const boxLeft = box.x - box.width / 2;
-  const boxRight = box.x + box.width / 2;
-  const boxTop = box.y - box.height / 2;
-  const boxBottom = box.y + box.height / 2;
-
-  // Add a small buffer (padding) to be generous
-  const padding = 15;
-
-  return (
-    text.x >= boxLeft - padding &&
-    text.x <= boxRight + padding &&
-    text.y >= boxTop - padding &&
-    text.y <= boxBottom + padding
+// 2. ZONE MATCHER: Checks which Zone a point falls into
+const getZoneForPoint = (x: number, y: number) => {
+  return SCREEN_ZONES.find(
+    (z) => x >= z.minX && x <= z.maxX && y >= z.minY && y <= z.maxY
   );
 };
 
-// 3. MATCHER: Maps OCR Text to specific Classes based on location
-const extractValuesByClass = (
-  textBlocks: any[],
-  predictions: any[]
-): number[] => {
-  const resultSlots = [NaN, NaN, NaN, NaN]; // Order: [kVp, mR, Time, HVL]
-
-  // Map Roboflow Labels to our result slots
-  const CLASS_MAP: { [key: string]: number } = {
-    kvp: 0,
-    kv: 0,
-    mr: 1,
-    dose: 1,
-    ugy: 1,
-    mgy: 1,
-    time: 2,
-    ms: 2,
-    s: 2,
-    hvl: 3,
-  };
-
-  predictions.forEach((pred) => {
-    const label = pred.class?.toLowerCase();
-    const slotIndex = CLASS_MAP[label];
-
-    if (slotIndex !== undefined) {
-      // Find the text block that sits INSIDE this box
-      const match = textBlocks.find((tb) => isTextInsideBox(tb, pred));
-
-      if (match) {
-        // Regex to find numbers, handling decimals
-        const cleanNumber = parseFloat(
-          match.text.match(/(\d+\.?\d*)/)?.[0] || "NaN"
-        );
-        if (!isNaN(cleanNumber)) {
-          resultSlots[slotIndex] = cleanNumber;
-        }
-      }
-    }
-  });
-
-  return resultSlots;
-};
-
-// 4. Excel Parser
+// 3. EXCEL PARSER
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -143,7 +97,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
-// 5. Word Doc Generator
+// 4. DOC GENERATOR
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -168,7 +122,7 @@ const createWordDoc = (
   }
 };
 
-// --- TYPES & COMPONENT ---
+// --- TYPES ---
 type Machine = {
   id: string;
   fullDetails: string;
@@ -184,7 +138,7 @@ const DENTAL_STEPS = [
     id: "scan1",
     label: "1. Technique Scan",
     desc: "Order: kVp, Dose, Time, HVL",
-    indices: [0, 1, 2, 3],
+    indices: ["kvp", "mR", "time", "hvl"],
     fields: ["kvp", "mR1", "time1", "hvl"],
   },
   {
@@ -192,35 +146,35 @@ const DENTAL_STEPS = [
     label: "2. Reproducibility",
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR2", "time2"],
-    indices: [1, 2],
+    indices: ["mR", "time"],
   },
   {
     id: "scan3",
     label: "3. Reproducibility",
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR3", "time3"],
-    indices: [1, 2],
+    indices: ["mR", "time"],
   },
   {
     id: "scan4",
     label: "4. Reproducibility",
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR4", "time4"],
-    indices: [1, 2],
+    indices: ["mR", "time"],
   },
   {
     id: "scan5",
     label: "5. Scatter (6ft)",
     desc: "Order: Dose (2nd)",
     fields: ["6 foot"],
-    indices: [1],
+    indices: ["mR"],
   },
   {
     id: "scan6",
     label: "6. Scatter (Operator)",
     desc: "Order: Dose (2nd)",
     fields: ["operator location"],
-    indices: [1],
+    indices: ["mR"],
   },
 ];
 
@@ -308,11 +262,11 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- LOGIC: OFFSET CORRECTION ---
+  // --- NEW ZONE-BASED ROBOFLOW LOGIC ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
-    indices: number[]
+    zoneIds: string[]
   ) => {
     if (!apiKey) {
       alert("Set Roboflow API Key first!");
@@ -343,84 +297,85 @@ export default function RayScanLocal() {
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // 1. FIND THE DATA
-      // Text might be in 'output_google_vision_ocr' OR generic text arrays
-      // Boxes might be in 'predictions'
+      // 1. FIND DATA (Fallback logic for text source)
       let rawOcr = findArrayWithKey(result, "text");
-      if (!rawOcr)
-        rawOcr = findArrayWithKey(result, "output_google_vision_ocr");
+      const rawPreds = findArrayWithKey(result, "class"); // Predictions often contain the text
 
-      const rawPreds = findArrayWithKey(result, "class");
-
-      if (!rawOcr) {
-        throw new Error("Scan successful, but no text blocks found.");
+      // Fallback: If no dedicated text array, use the predictions array
+      if (!rawOcr && rawPreds) {
+        console.log("Using predictions as OCR source");
+        rawOcr = rawPreds;
       }
 
-      // 2. NORMALIZE TEXT & APPLY OFFSET (THE CRITICAL FIX)
-      const textBlocks = rawOcr.map((item: any) => {
-        let x = item.x;
-        let y = item.y;
-        let text = item.text || item.class || ""; // Sometimes text is in 'class'
-        let offsetX = 0;
-        let offsetY = 0;
+      if (!rawOcr) {
+        throw new Error(
+          "Scan successful, but no text blocks found in response."
+        );
+      }
 
-        // A. Handle Google Vision / Nested structure
-        const innerPred = item.predictions?.predictions?.[0];
+      // 2. PROCESS TEXT & MAP TO ZONES
+      const foundValues: Record<string, number> = {};
+      const debugFound: string[] = [];
 
-        if (innerPred) {
-          if (innerPred.x) x = innerPred.x;
-          if (innerPred.y) y = innerPred.y;
+      rawOcr.forEach((item: any) => {
+        let x = item.x,
+          y = item.y,
+          text = item.text || item.class || "";
+        let offsetX = 0,
+          offsetY = 0;
 
-          // LOOK FOR PARENT ORIGIN IN INNER PRED
-          if (innerPred.parent_origin) {
-            offsetX = innerPred.parent_origin.offset_x || 0;
-            offsetY = innerPred.parent_origin.offset_y || 0;
+        // Handle Nested Predictions (Google Vision style)
+        const inner = item.predictions?.predictions?.[0];
+        if (inner) {
+          if (inner.x) {
+            x = inner.x;
+            y = inner.y;
+          }
+          // Offset Logic
+          if (inner.parent_origin) {
+            offsetX = inner.parent_origin.offset_x || 0;
+            offsetY = inner.parent_origin.offset_y || 0;
           } else if (item.predictions?.parent_origin) {
-            // LOOK FOR PARENT ORIGIN IN WRAPPER
             offsetX = item.predictions.parent_origin.offset_x || 0;
             offsetY = item.predictions.parent_origin.offset_y || 0;
           }
-
-          if (!text) text = innerPred.class || "";
+          if (!text) text = inner.class || "";
+        } else {
+          // Standard Format Offsets
+          if (item.parent_origin) {
+            offsetX = item.parent_origin.offset_x || 0;
+            offsetY = item.parent_origin.offset_y || 0;
+          }
         }
 
-        // B. Handle Standard Format (Root Level)
-        if (item.parent_origin) {
-          offsetX = item.parent_origin.offset_x || 0;
-          offsetY = item.parent_origin.offset_y || 0;
+        // Apply Offset
+        const globalX = (x || 0) + offsetX;
+        const globalY = (y || 0) + offsetY;
+
+        // Extract Number
+        const numberMatch = text.match(/(\d+\.?\d*)/);
+        if (numberMatch) {
+          const val = parseFloat(numberMatch[0]);
+
+          // CHECK ZONES
+          const zone = getZoneForPoint(globalX, globalY);
+          if (zone) {
+            foundValues[zone.id] = val;
+            debugFound.push(`${zone.id}: ${val}`);
+          }
         }
-
-        // C. Fallback for Center format
-        if (x === undefined && item.center) {
-          x = item.center.x;
-          y = item.center.y;
-        }
-
-        // Apply Offset to map crop-space to full-image-space
-        const finalX = (x || 0) + offsetX;
-        const finalY = (y || 0) + offsetY;
-
-        return { text, x: finalX, y: finalY };
       });
 
-      // 3. NORMALIZE BOXES (PREDICTIONS)
-      const predictionBlocks = rawPreds || [];
+      setLastScannedText(debugFound.join(", ") || "No matching zones");
 
-      // 4. PERFORM MATCHING
-      const finalNumbers = extractValuesByClass(textBlocks, predictionBlocks);
-
-      setLastParsedNumbers(finalNumbers);
-      setLastScannedText(
-        finalNumbers.map((n) => (isNaN(n) ? "-" : n)).join(", ")
-      );
-
-      // 5. UPDATE STATE
+      // 3. UPDATE STATE
       const updates: Record<string, string> = {};
-      targetFields.forEach((field, i) => {
-        const indexToGrab = indices[i];
-        const val = finalNumbers[indexToGrab];
 
-        if (val !== undefined && !isNaN(val)) {
+      targetFields.forEach((field, i) => {
+        const requiredZoneId = zoneIds[i]; // e.g. "kvp"
+        const val = foundValues[requiredZoneId];
+
+        if (val !== undefined) {
           updates[field] = val.toString();
         }
       });
@@ -436,10 +391,9 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        // Debug info if it still fails
-        console.log("Failed Text Blocks:", textBlocks);
-        console.log("Failed Prediction Blocks:", predictionBlocks);
-        alert("Scan complete. No matching numbers found in boxes.");
+        alert(
+          "Scan complete. Text found, but coordinates didn't match any zones."
+        );
       }
     } catch (e: any) {
       console.error(e);
@@ -452,13 +406,13 @@ export default function RayScanLocal() {
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
     fields: string[],
-    indices: number[]
+    zoneIds: string[]
   ) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () =>
-        performRoboflowScan(reader.result as string, fields, indices);
+        performRoboflowScan(reader.result as string, fields, zoneIds);
       reader.readAsDataURL(file);
     }
   };
@@ -524,7 +478,6 @@ export default function RayScanLocal() {
           <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
             <strong>API Key Loaded:</strong> Roboflow key is hardcoded.
           </div>
-
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
               {templateFile ? (
@@ -624,7 +577,7 @@ export default function RayScanLocal() {
       </div>
     );
 
-  if (view === "mobile-form" && activeMachine) {
+  if (view === "mobile-form" && activeMachine)
     return (
       <div className="min-h-screen bg-slate-50 pb-24 font-sans">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
@@ -643,7 +596,6 @@ export default function RayScanLocal() {
             {activeMachine.fullDetails}
           </div>
         </header>
-
         <div className="p-4 space-y-6">
           <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
             <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
@@ -696,21 +648,12 @@ export default function RayScanLocal() {
               </div>
             </div>
           </div>
-
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
-              <div className="font-bold mb-1 text-slate-700">
-                Parsed Decimals:
-              </div>
-              <div className="truncate bg-white p-1 rounded border border-slate-100">
-                {JSON.stringify(lastParsedNumbers)}
-              </div>
-              <div className="mt-1 truncate opacity-50">
-                Raw: {lastScannedText}
-              </div>
+              <div className="font-bold mb-1 text-slate-700">Found Zones:</div>
+              <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
             </div>
           )}
-
           {DENTAL_STEPS.map((step) => (
             <div
               key={step.id}
@@ -736,7 +679,7 @@ export default function RayScanLocal() {
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
                     <Camera size={14} />
-                  )}
+                  )}{" "}
                   {isScanning ? " scanning..." : "Scan"}
                   <input
                     type="file"
@@ -781,7 +724,6 @@ export default function RayScanLocal() {
         </div>
       </div>
     );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans">
