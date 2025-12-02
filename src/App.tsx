@@ -36,7 +36,7 @@ const SCREEN_ZONES = [
 
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. THE COLLECTOR (FIX): Recursively gathers ALL detections from the JSON
+// 1. THE COLLECTOR: Recursively gathers ALL detections from the JSON
 const collectAllDetections = (obj: any): any[] => {
   let results: any[] = [];
   if (!obj || typeof obj !== "object") return [];
@@ -47,12 +47,10 @@ const collectAllDetections = (obj: any): any[] => {
     });
   } else {
     // Check if this object is a valid detection
-    // Must have 'x', 'y' and either 'class' or 'text'
     if (("class" in obj || "text" in obj) && "x" in obj && "y" in obj) {
       results.push(obj);
     }
-
-    // Continue searching deeper (e.g. inside "predictions" object)
+    // Continue searching deeper
     Object.keys(obj).forEach((key) => {
       results = results.concat(collectAllDetections(obj[key]));
     });
@@ -300,8 +298,7 @@ export default function RayScanLocal() {
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // 1. COLLECT ALL DETECTIONS (The Fix)
-      // This grabs every single item with x/y/class from the entire JSON tree
+      // 1. COLLECT ALL DETECTIONS
       const allDetections = collectAllDetections(result);
 
       if (allDetections.length === 0) {
@@ -312,7 +309,6 @@ export default function RayScanLocal() {
 
       // 2. PROCESS & MAP TO ZONES
       const foundValues: Record<string, number> = {};
-      const debugFound: string[] = [];
 
       allDetections.forEach((item: any) => {
         let x = item.x;
@@ -321,7 +317,7 @@ export default function RayScanLocal() {
         let offsetX = 0;
         let offsetY = 0;
 
-        // Apply Parent Origin Offset (if available)
+        // Apply Parent Origin Offset
         if (item.parent_origin) {
           offsetX = item.parent_origin.offset_x || 0;
           offsetY = item.parent_origin.offset_y || 0;
@@ -330,21 +326,26 @@ export default function RayScanLocal() {
         const globalX = x + offsetX;
         const globalY = y + offsetY;
 
-        // Check if text is a number
+        // Extract Number
         const numberMatch = text.match(/(\d+\.?\d*)/);
         if (numberMatch) {
           const val = parseFloat(numberMatch[0]);
 
-          // Check which ZONE this number falls into
+          // CHECK ZONES
           const zone = getZoneForPoint(globalX, globalY);
           if (zone) {
+            // Save to object (handles deduplication automatically)
             foundValues[zone.id] = val;
-            debugFound.push(`${zone.id}: ${val}`);
           }
         }
       });
 
-      setLastScannedText(debugFound.join(", ") || "No matching zones found");
+      // --- DEDUPLICATION FIX: Generate string AFTER the loop ---
+      const debugString = Object.entries(foundValues)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+
+      setLastScannedText(debugString || "No matching zones found");
 
       // 3. UPDATE STATE
       const updates: Record<string, string> = {};
