@@ -23,17 +23,6 @@ const WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
 const ROBOFLOW_WORKFLOW_URL = `https://serverless.roboflow.com/infer/workflows/${WORKSPACE_NAME}/${WORKFLOW_ID}`;
 const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
-// --- ZONES CONFIGURATION ---
-// Based on the specific RaySafe screen coordinates
-const SCREEN_ZONES = [
-  // Row 1
-  { id: "kvp", minX: 0, maxX: 220, minY: 0, maxY: 130 },
-  { id: "mR", minX: 220, maxX: 350, minY: 0, maxY: 130 },
-  { id: "time", minX: 350, maxX: 600, minY: 0, maxY: 130 },
-  // Row 2
-  { id: "hvl", minX: 0, maxX: 220, minY: 130, maxY: 250 },
-];
-
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
 // 1. THE COLLECTOR: Recursively gathers ALL detections from the JSON
@@ -47,6 +36,7 @@ const collectAllDetections = (obj: any): any[] => {
     });
   } else {
     // Check if this object is a valid detection
+    // Must have 'x', 'y' and either 'class' or 'text'
     if (("class" in obj || "text" in obj) && "x" in obj && "y" in obj) {
       results.push(obj);
     }
@@ -58,14 +48,7 @@ const collectAllDetections = (obj: any): any[] => {
   return results;
 };
 
-// 2. ZONE MATCHER
-const getZoneForPoint = (x: number, y: number) => {
-  return SCREEN_ZONES.find(
-    (z) => x >= z.minX && x <= z.maxX && y >= z.minY && y <= z.maxY
-  );
-};
-
-// 3. EXCEL PARSER
+// 2. PARSE EXCEL
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -96,7 +79,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
-// 4. DOC GENERATOR
+// 3. GENERATE DOC
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -263,7 +246,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- UPDATED ROBOFLOW LOGIC ---
+  // --- DYNAMIC SCAN LOGIC ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -279,8 +262,6 @@ export default function RayScanLocal() {
       const imageContent = base64Image.split(",")[1];
       const endpoint = `${ROBOFLOW_WORKFLOW_URL}?api_key=${apiKey}`;
 
-      console.log("🚀 Sending image to:", endpoint);
-
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -293,12 +274,11 @@ export default function RayScanLocal() {
       });
 
       const result = await response.json();
-      console.log("🔴 ROBOFLOW RESPONSE:", result);
 
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // 1. COLLECT ALL DETECTIONS
+      // 1. COLLECT RAW DATA
       const allDetections = collectAllDetections(result);
 
       if (allDetections.length === 0) {
@@ -307,53 +287,92 @@ export default function RayScanLocal() {
         );
       }
 
-      // 2. PROCESS & MAP TO ZONES
-      const foundValues: Record<string, number> = {};
-
-      allDetections.forEach((item: any) => {
+      // 2. NORMALIZE (Convert crops to global coordinates)
+      const normalizedItems = allDetections.map((item: any) => {
         let x = item.x;
         let y = item.y;
         let text = item.text || item.class || "";
         let offsetX = 0;
         let offsetY = 0;
 
-        // Apply Parent Origin Offset
         if (item.parent_origin) {
           offsetX = item.parent_origin.offset_x || 0;
           offsetY = item.parent_origin.offset_y || 0;
         }
 
-        const globalX = x + offsetX;
-        const globalY = y + offsetY;
-
-        // Extract Number
-        const numberMatch = text.match(/(\d+\.?\d*)/);
-        if (numberMatch) {
-          const val = parseFloat(numberMatch[0]);
-
-          // CHECK ZONES
-          const zone = getZoneForPoint(globalX, globalY);
-          if (zone) {
-            // Save to object (handles deduplication automatically)
-            foundValues[zone.id] = val;
-          }
-        }
+        return {
+          text,
+          x: x + offsetX,
+          y: y + offsetY,
+        };
       });
 
-      // --- DEDUPLICATION FIX: Generate string AFTER the loop ---
+      // 3. FILTER FOR NUMBERS
+      const numberItems = normalizedItems.filter((item: any) => {
+        const match = item.text.match(/(\d+\.?\d*)/);
+        if (match) {
+          item.value = parseFloat(match[0]);
+          return true;
+        }
+        return false;
+      });
+
+      if (numberItems.length === 0)
+        throw new Error("Found text, but no valid numbers.");
+
+      // 4. SPATIAL SORTING (The "Relative" Logic)
+      // Sort by Y first (Rows)
+      numberItems.sort((a: any, b: any) => a.y - b.y);
+
+      // Group into rows based on Y-proximity (threshold 40px)
+      const rows: any[][] = [];
+      if (numberItems.length > 0) {
+        let currentRow = [numberItems[0]];
+        for (let i = 1; i < numberItems.length; i++) {
+          if (Math.abs(numberItems[i].y - numberItems[i - 1].y) < 40) {
+            currentRow.push(numberItems[i]);
+          } else {
+            rows.push(currentRow);
+            currentRow = [numberItems[i]];
+          }
+        }
+        rows.push(currentRow);
+      }
+
+      // Sort each row by X (Left to Right)
+      rows.forEach((row) => row.sort((a, b) => a.x - b.x));
+
+      // 5. ASSIGN ROLES BASED ON RELATIVE POSITION
+      const foundValues: Record<string, number> = {};
+
+      // -- ROW 1: [kVp, mR, Time] --
+      if (rows.length > 0) {
+        const topRow = rows[0];
+        // We expect at least 3 numbers. We take them left-to-right.
+        // Even if we missed one, this is our best guess.
+        if (topRow.length >= 1) foundValues["kvp"] = topRow[0].value;
+        if (topRow.length >= 2) foundValues["mR"] = topRow[1].value;
+        if (topRow.length >= 3) foundValues["time"] = topRow[2].value;
+      }
+
+      // -- ROW 2: [HVL, ...] --
+      if (rows.length > 1) {
+        const secondRow = rows[1];
+        // The first number on the second row is HVL
+        if (secondRow.length >= 1) foundValues["hvl"] = secondRow[0].value;
+      }
+
+      // Debugging Output
       const debugString = Object.entries(foundValues)
         .map(([k, v]) => `${k}: ${v}`)
         .join(", ");
+      setLastScannedText(debugString || "Structure unrecognized");
 
-      setLastScannedText(debugString || "No matching zones found");
-
-      // 3. UPDATE STATE
+      // 6. UPDATE STATE
       const updates: Record<string, string> = {};
-
       targetFields.forEach((field, i) => {
         const requiredZoneId = zoneIds[i];
         const val = foundValues[requiredZoneId];
-
         if (val !== undefined) {
           updates[field] = val.toString();
         }
@@ -371,7 +390,9 @@ export default function RayScanLocal() {
         }
       } else {
         alert(
-          "Scan complete. Text found, but coordinates didn't match any zones."
+          `Scan processed, but logic couldn't assign values.\nRows detected: ${
+            rows.length
+          }\nTop Row Items: ${rows[0]?.length || 0}`
         );
       }
     } catch (e: any) {
@@ -629,7 +650,7 @@ export default function RayScanLocal() {
           </div>
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
-              <div className="font-bold mb-1 text-slate-700">Found Zones:</div>
+              <div className="font-bold mb-1 text-slate-700">Scan Results:</div>
               <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
             </div>
           )}
