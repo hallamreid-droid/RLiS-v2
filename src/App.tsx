@@ -25,17 +25,16 @@ const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. ARRAY FINDER (THE FIX): Finds the LIST containing the data we need
-// Unlike the previous version, this ensures we get the ARRAY of items.
+// 1. ARRAY FINDER: Finds an array where items contain a specific key
 const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
   if (!obj || typeof obj !== "object") return null;
 
   if (Array.isArray(obj)) {
-    // A. Check if THIS array is the one we want (does the first item have the key?)
+    // Check if the first item has the key we want
     if (obj.length > 0 && typeof obj[0] === "object" && keyToFind in obj[0]) {
       return obj;
     }
-    // B. If not, search inside the items recursively
+    // Deep search inside items
     for (const item of obj) {
       const found = findArrayWithKey(item, keyToFind);
       if (found) return found;
@@ -43,7 +42,7 @@ const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
     return null;
   }
 
-  // C. Search inside object keys
+  // Search object keys
   for (const k of Object.keys(obj)) {
     const found = findArrayWithKey(obj[k], keyToFind);
     if (found) return found;
@@ -53,17 +52,19 @@ const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
 
 // 2. GEOMETRY: Check if text is inside a labeled box
 const isTextInsideBox = (text: { x: number; y: number }, box: any) => {
-  // Roboflow boxes are x/y (center) + width/height
   const boxLeft = box.x - box.width / 2;
   const boxRight = box.x + box.width / 2;
   const boxTop = box.y - box.height / 2;
   const boxBottom = box.y + box.height / 2;
 
+  // Add a small buffer (padding) to be generous
+  const padding = 15;
+
   return (
-    text.x >= boxLeft &&
-    text.x <= boxRight &&
-    text.y >= boxTop &&
-    text.y <= boxBottom
+    text.x >= boxLeft - padding &&
+    text.x <= boxRight + padding &&
+    text.y >= boxTop - padding &&
+    text.y <= boxBottom + padding
   );
 };
 
@@ -119,7 +120,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
     const wb = XLSX.read(arrayBuffer, { type: "array" });
     const wsname = wb.SheetNames[0];
     const ws = wb.Sheets[wsname];
-
     const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
     let headerRowIndex = -1;
     for (let i = 0; i < Math.min(20, rawData.length); i++) {
@@ -133,14 +133,10 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
         break;
       }
     }
-
     if (headerRowIndex === -1) {
-      alert(
-        "Could not find header row 'Inspection Number'. Check Excel format."
-      );
+      alert("Could not find header row 'Inspection Number'.");
       return;
     }
-
     const data = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
     callback(data);
   };
@@ -168,11 +164,11 @@ const createWordDoc = (
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
-    alert("Error generating document. Check template tags.");
+    alert("Error generating document.");
   }
 };
 
-// --- TYPES ---
+// --- TYPES & COMPONENT ---
 type Machine = {
   id: string;
   fullDetails: string;
@@ -228,7 +224,6 @@ const DENTAL_STEPS = [
   },
 ];
 
-// --- MAIN COMPONENT ---
 export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
@@ -279,7 +274,6 @@ export default function RayScanLocal() {
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     parseExcel(file, (data) => {
       const newMachines: Machine[] = data
         .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
@@ -291,13 +285,11 @@ export default function RayScanLocal() {
           const rawString = row["Entity Name"] || "";
           let fullDetails = "Unknown Machine";
           let facility = rawString;
-
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
             fullDetails = parts[1].replace(")", "");
           }
-
           return {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
@@ -308,7 +300,6 @@ export default function RayScanLocal() {
             isComplete: false,
           };
         });
-
       if (newMachines.length === 0) alert("No machines found.");
       else {
         setMachines(newMachines);
@@ -317,7 +308,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- UPDATED ROBOFLOW SCAN LOGIC ---
+  // --- LOGIC: OFFSET CORRECTION ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -352,40 +343,40 @@ export default function RayScanLocal() {
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // 1. FIND THE DATA ARRAYS
-      // findArrayWithKey returns the actual array of objects
-      const rawOcr = findArrayWithKey(result, "text");
+      // 1. FIND THE DATA
+      // Text might be in 'output_google_vision_ocr' OR generic text arrays
+      // Boxes might be in 'predictions'
+      let rawOcr = findArrayWithKey(result, "text");
+      if (!rawOcr)
+        rawOcr = findArrayWithKey(result, "output_google_vision_ocr");
+
       const rawPreds = findArrayWithKey(result, "class");
 
       if (!rawOcr) {
-        console.error("Missing OCR Data. Full Response:", result);
-        throw new Error(
-          "Scan successful, but no text blocks found in response."
-        );
+        throw new Error("Scan successful, but no text blocks found.");
       }
 
-      // 2. NORMALIZE TEXT BLOCKS (CRITICAL: ADD OFFSETS)
+      // 2. NORMALIZE TEXT & APPLY OFFSET (THE CRITICAL FIX)
       const textBlocks = rawOcr.map((item: any) => {
         let x = item.x;
         let y = item.y;
-        let text = item.text || "";
+        let text = item.text || item.class || ""; // Sometimes text is in 'class'
         let offsetX = 0;
         let offsetY = 0;
 
-        // Check for Google Vision / Nested structure
+        // A. Handle Google Vision / Nested structure
         const innerPred = item.predictions?.predictions?.[0];
 
         if (innerPred) {
-          // Use the inner coordinates if available
           if (innerPred.x) x = innerPred.x;
           if (innerPred.y) y = innerPred.y;
 
-          // CRITICAL FIX: Check for Parent Origin (The Crop Offset)
+          // LOOK FOR PARENT ORIGIN IN INNER PRED
           if (innerPred.parent_origin) {
             offsetX = innerPred.parent_origin.offset_x || 0;
             offsetY = innerPred.parent_origin.offset_y || 0;
           } else if (item.predictions?.parent_origin) {
-            // Sometimes it is one level up
+            // LOOK FOR PARENT ORIGIN IN WRAPPER
             offsetX = item.predictions.parent_origin.offset_x || 0;
             offsetY = item.predictions.parent_origin.offset_y || 0;
           }
@@ -393,24 +384,29 @@ export default function RayScanLocal() {
           if (!text) text = innerPred.class || "";
         }
 
-        // Handle Center format fallback
+        // B. Handle Standard Format (Root Level)
+        if (item.parent_origin) {
+          offsetX = item.parent_origin.offset_x || 0;
+          offsetY = item.parent_origin.offset_y || 0;
+        }
+
+        // C. Fallback for Center format
         if (x === undefined && item.center) {
           x = item.center.x;
           y = item.center.y;
         }
 
-        // Apply Offset to convert "Crop Coordinates" to "Global Coordinates"
+        // Apply Offset to map crop-space to full-image-space
         const finalX = (x || 0) + offsetX;
         const finalY = (y || 0) + offsetY;
 
         return { text, x: finalX, y: finalY };
       });
 
-      // 3. NORMALIZE PREDICTIONS (BOXES)
+      // 3. NORMALIZE BOXES (PREDICTIONS)
       const predictionBlocks = rawPreds || [];
 
       // 4. PERFORM MATCHING
-      // This maps the text numbers to the fields [kVp, mR, Time, HVL]
       const finalNumbers = extractValuesByClass(textBlocks, predictionBlocks);
 
       setLastParsedNumbers(finalNumbers);
@@ -440,6 +436,9 @@ export default function RayScanLocal() {
           );
         }
       } else {
+        // Debug info if it still fails
+        console.log("Failed Text Blocks:", textBlocks);
+        console.log("Failed Prediction Blocks:", predictionBlocks);
         alert("Scan complete. No matching numbers found in boxes.");
       }
     } catch (e: any) {
