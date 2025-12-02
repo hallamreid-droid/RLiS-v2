@@ -23,13 +23,12 @@ const WORKFLOW_ID = "find-kvps-mrs-times-and-hvls";
 const ROBOFLOW_WORKFLOW_URL = `https://serverless.roboflow.com/infer/workflows/${WORKSPACE_NAME}/${WORKFLOW_ID}`;
 const ROBOFLOW_API_KEY = "M9vlXyIc0R1gBNSWuKdh";
 
-// --- ZONES CONFIGURATION (The RaySafe Screen Layout) ---
-// We map the screen coordinates to specific fields.
-// Coordinates derived from your JSON data.
+// --- ZONES CONFIGURATION ---
+// Based on the specific RaySafe screen coordinates
 const SCREEN_ZONES = [
   // Row 1
   { id: "kvp", minX: 0, maxX: 220, minY: 0, maxY: 130 },
-  { id: "mR", minX: 220, maxX: 350, minY: 0, maxY: 130 }, // Dose
+  { id: "mR", minX: 220, maxX: 350, minY: 0, maxY: 130 },
   { id: "time", minX: 350, maxX: 600, minY: 0, maxY: 130 },
   // Row 2
   { id: "hvl", minX: 0, maxX: 220, minY: 130, maxY: 250 },
@@ -37,29 +36,31 @@ const SCREEN_ZONES = [
 
 // --- HELPER FUNCTIONS (OUTSIDE COMPONENT) ---
 
-// 1. ARRAY FINDER: Finds the LIST containing the data we need
-const findArrayWithKey = (obj: any, keyToFind: string): any[] | null => {
-  if (!obj || typeof obj !== "object") return null;
+// 1. THE COLLECTOR (FIX): Recursively gathers ALL detections from the JSON
+const collectAllDetections = (obj: any): any[] => {
+  let results: any[] = [];
+  if (!obj || typeof obj !== "object") return [];
+
   if (Array.isArray(obj)) {
-    // Check if the first item has the key we want
-    if (obj.length > 0 && typeof obj[0] === "object" && keyToFind in obj[0]) {
-      return obj;
+    obj.forEach((item) => {
+      results = results.concat(collectAllDetections(item));
+    });
+  } else {
+    // Check if this object is a valid detection
+    // Must have 'x', 'y' and either 'class' or 'text'
+    if (("class" in obj || "text" in obj) && "x" in obj && "y" in obj) {
+      results.push(obj);
     }
-    // Deep search inside items
-    for (const item of obj) {
-      const found = findArrayWithKey(item, keyToFind);
-      if (found) return found;
-    }
-    return null;
+
+    // Continue searching deeper (e.g. inside "predictions" object)
+    Object.keys(obj).forEach((key) => {
+      results = results.concat(collectAllDetections(obj[key]));
+    });
   }
-  for (const k of Object.keys(obj)) {
-    const found = findArrayWithKey(obj[k], keyToFind);
-    if (found) return found;
-  }
-  return null;
+  return results;
 };
 
-// 2. ZONE MATCHER: Checks which Zone a point falls into
+// 2. ZONE MATCHER
 const getZoneForPoint = (x: number, y: number) => {
   return SCREEN_ZONES.find(
     (z) => x >= z.minX && x <= z.maxX && y >= z.minY && y <= z.maxY
@@ -110,11 +111,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -262,7 +265,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- NEW ZONE-BASED ROBOFLOW LOGIC ---
+  // --- UPDATED ROBOFLOW LOGIC ---
   const performRoboflowScan = async (
     base64Image: string,
     targetFields: string[],
@@ -297,67 +300,42 @@ export default function RayScanLocal() {
       if (result.detail) throw new Error(`API Error: ${result.detail}`);
       if (result.message) throw new Error(result.message);
 
-      // 1. FIND DATA (Fallback logic for text source)
-      let rawOcr = findArrayWithKey(result, "text");
-      const rawPreds = findArrayWithKey(result, "class"); // Predictions often contain the text
+      // 1. COLLECT ALL DETECTIONS (The Fix)
+      // This grabs every single item with x/y/class from the entire JSON tree
+      const allDetections = collectAllDetections(result);
 
-      // Fallback: If no dedicated text array, use the predictions array
-      if (!rawOcr && rawPreds) {
-        console.log("Using predictions as OCR source");
-        rawOcr = rawPreds;
-      }
-
-      if (!rawOcr) {
+      if (allDetections.length === 0) {
         throw new Error(
           "Scan successful, but no text blocks found in response."
         );
       }
 
-      // 2. PROCESS TEXT & MAP TO ZONES
+      // 2. PROCESS & MAP TO ZONES
       const foundValues: Record<string, number> = {};
       const debugFound: string[] = [];
 
-      rawOcr.forEach((item: any) => {
-        let x = item.x,
-          y = item.y,
-          text = item.text || item.class || "";
-        let offsetX = 0,
-          offsetY = 0;
+      allDetections.forEach((item: any) => {
+        let x = item.x;
+        let y = item.y;
+        let text = item.text || item.class || "";
+        let offsetX = 0;
+        let offsetY = 0;
 
-        // Handle Nested Predictions (Google Vision style)
-        const inner = item.predictions?.predictions?.[0];
-        if (inner) {
-          if (inner.x) {
-            x = inner.x;
-            y = inner.y;
-          }
-          // Offset Logic
-          if (inner.parent_origin) {
-            offsetX = inner.parent_origin.offset_x || 0;
-            offsetY = inner.parent_origin.offset_y || 0;
-          } else if (item.predictions?.parent_origin) {
-            offsetX = item.predictions.parent_origin.offset_x || 0;
-            offsetY = item.predictions.parent_origin.offset_y || 0;
-          }
-          if (!text) text = inner.class || "";
-        } else {
-          // Standard Format Offsets
-          if (item.parent_origin) {
-            offsetX = item.parent_origin.offset_x || 0;
-            offsetY = item.parent_origin.offset_y || 0;
-          }
+        // Apply Parent Origin Offset (if available)
+        if (item.parent_origin) {
+          offsetX = item.parent_origin.offset_x || 0;
+          offsetY = item.parent_origin.offset_y || 0;
         }
 
-        // Apply Offset
-        const globalX = (x || 0) + offsetX;
-        const globalY = (y || 0) + offsetY;
+        const globalX = x + offsetX;
+        const globalY = y + offsetY;
 
-        // Extract Number
+        // Check if text is a number
         const numberMatch = text.match(/(\d+\.?\d*)/);
         if (numberMatch) {
           const val = parseFloat(numberMatch[0]);
 
-          // CHECK ZONES
+          // Check which ZONE this number falls into
           const zone = getZoneForPoint(globalX, globalY);
           if (zone) {
             foundValues[zone.id] = val;
@@ -366,13 +344,13 @@ export default function RayScanLocal() {
         }
       });
 
-      setLastScannedText(debugFound.join(", ") || "No matching zones");
+      setLastScannedText(debugFound.join(", ") || "No matching zones found");
 
       // 3. UPDATE STATE
       const updates: Record<string, string> = {};
 
       targetFields.forEach((field, i) => {
-        const requiredZoneId = zoneIds[i]; // e.g. "kvp"
+        const requiredZoneId = zoneIds[i];
         const val = foundValues[requiredZoneId];
 
         if (val !== undefined) {
