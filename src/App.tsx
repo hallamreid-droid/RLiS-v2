@@ -21,7 +21,7 @@ import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
-const GOOGLE_API_KEY = "AIzaSyC77bRD9rBSo0Hje6AawO1ORSgvaRXgyjo";
+const GOOGLE_API_KEY = "AIzaSyA555qhSir9YRQa8iFQQrCL6BTQ7uD8oms";
 
 // --- TYPES ---
 type InspectionType = "dental" | "general";
@@ -236,8 +236,6 @@ export default function RayScanLocal() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
-  // --- UPDATED TEMPLATE STATE ---
-  // We store templates in a dictionary by type.
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({ dental: null, general: null });
@@ -264,7 +262,6 @@ export default function RayScanLocal() {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
-  // --- MULTI-FILE UPLOAD HANDLER ---
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -273,7 +270,6 @@ export default function RayScanLocal() {
       const name = file.name.toLowerCase();
       let type: InspectionType | null = null;
 
-      // Auto-detect type based on filename
       if (name.includes("dental")) type = "dental";
       else if (name.includes("gen") || name.includes("rad")) type = "general";
 
@@ -293,15 +289,13 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- REMOVE TEMPLATE (Fixed click bubbling) ---
   const removeTemplate = (type: string, e: React.MouseEvent) => {
     e.preventDefault();
-    e.stopPropagation(); // <--- CRITICAL FIX
+    e.stopPropagation();
     setTemplates((prev) => ({ ...prev, [type]: null }));
     setTemplateNames((prev) => ({ ...prev, [type]: "No Template" }));
   };
 
-  // --- EXCEL ROUTER ---
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -322,7 +316,6 @@ export default function RayScanLocal() {
             fullDetails = parts[1].replace(")", "");
           }
 
-          // ROUTER LOGIC
           const credentialType = row["Credential Type"] || "";
           const isGeneral = credentialType.toLowerCase().includes("radiograph");
           const inspectionType: InspectionType = isGeneral
@@ -348,7 +341,6 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- GEMINI AI ---
   const performGeminiScan = async (
     file: File,
     targetFields: string[],
@@ -564,7 +556,6 @@ export default function RayScanLocal() {
 
           {/* TEMPLATE LIST */}
           <div className="space-y-2">
-            {/* Dental Template Card */}
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
                 templates.dental
@@ -605,7 +596,6 @@ export default function RayScanLocal() {
               )}
             </div>
 
-            {/* General Template Card */}
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
                 templates.general
@@ -739,10 +729,12 @@ export default function RayScanLocal() {
             <span>{activeMachine.fullDetails}</span>
           </div>
         </header>
+
         <div className="p-4 space-y-6">
+          {/* HEADER INPUTS - DYNAMIC BASED ON INSPECTION TYPE */}
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
-              Room Configuration
+              Machine Settings
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -756,17 +748,63 @@ export default function RayScanLocal() {
                   onChange={(e) => updateField("tube_no", e.target.value)}
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase">
-                  # of Tubes
-                </label>
-                <input
-                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                  placeholder="1"
-                  value={activeMachine.data["num_tubes"] || ""}
-                  onChange={(e) => updateField("num_tubes", e.target.value)}
-                />
-              </div>
+
+              {/* DENTAL: Show Presets | GENERAL: Show # of Tubes */}
+              {activeMachine.inspectionType === "dental" ? (
+                <>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Preset kVp
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="70"
+                      value={activeMachine.data["preset_kvp"] || ""}
+                      onChange={(e) =>
+                        updateField("preset_kvp", e.target.value)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Preset mAs
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="10"
+                      value={activeMachine.data["preset_mas"] || ""}
+                      onChange={(e) =>
+                        updateField("preset_mas", e.target.value)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Preset Time
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="0.10"
+                      value={activeMachine.data["preset_time"] || ""}
+                      onChange={(e) =>
+                        updateField("preset_time", e.target.value)
+                      }
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    # of Tubes
+                  </label>
+                  <input
+                    className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                    placeholder="1"
+                    value={activeMachine.data["num_tubes"] || ""}
+                    onChange={(e) => updateField("num_tubes", e.target.value)}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -951,8 +989,19 @@ export default function RayScanLocal() {
                   <div className="font-bold text-sm text-slate-800">
                     {m.location}
                   </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {m.fullDetails}
+                  <div className="flex gap-2 items-center mt-1">
+                    <span
+                      className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        m.inspectionType === "general"
+                          ? "bg-purple-100 text-purple-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {m.inspectionType}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {m.fullDetails}
+                    </span>
                   </div>
                 </div>
                 {m.isComplete ? (
