@@ -16,87 +16,29 @@ import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
-// ⚠️ WARNING: In a production app, do not expose API keys on the client side.
-// Restrict this key in Google Cloud Console to your specific domain/IP.
 const GOOGLE_API_KEY = "AIzaSyC77bRD9rBSo0Hje6AawO1ORSgvaRXgyjo";
-const GOOGLE_VISION_URL = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_API_KEY}`;
 
-// --- HELPER FUNCTIONS ---
-
-// 1. CALCULATE DISTANCE (Euclidean distance between center points)
-const getDistance = (boxA: any, boxB: any) => {
-  if (!boxA?.vertices || !boxB?.vertices) return Infinity;
-
-  // Calculate centers
-  const aX = (boxA.vertices[0].x + boxA.vertices[2].x) / 2;
-  const aY = (boxA.vertices[0].y + boxA.vertices[2].y) / 2;
-
-  const bX = (boxB.vertices[0].x + boxB.vertices[2].x) / 2;
-  const bY = (boxB.vertices[0].y + boxB.vertices[2].y) / 2;
-
-  return Math.sqrt(Math.pow(aX - bX, 2) + Math.pow(aY - bY, 2));
-};
-
-// 2. SMART FINDER: Finds the number closest to a specific label
-const findValueForLabel = (
-  allBlocks: any[],
-  labelPatterns: string[]
-): number | null => {
-  // A. Find all blocks that contain the label (e.g. "kVp")
-  const labelBlocks = allBlocks.filter((b) =>
-    labelPatterns.some((pattern) =>
-      b.description.toLowerCase().includes(pattern)
-    )
-  );
-
-  if (labelBlocks.length === 0) return null;
-
-  let bestMatch: number | null = null;
-  let minDistance = Infinity;
-
-  // B. Iterate through each label instance found
-  labelBlocks.forEach((labelBlock) => {
-    // Case 1: The number is INSIDE the label block (e.g. "70 kVp")
-    const internalMatch = labelBlock.description.match(/(\d+\.?\d*)/);
-    if (internalMatch) {
-      // If found inside, distance is 0 (best possible match)
-      bestMatch = parseFloat(internalMatch[0]);
-      minDistance = 0;
-      return;
-    }
-
-    // Case 2: The number is in a DIFFERENT block. Find the closest neighbor.
-    const numberBlocks = allBlocks.filter((b) => {
-      // Must look like a number
-      const isNumber = /^\d+(\.\d+)?$/.test(
-        b.description.replace(/[^\d.]/g, "")
-      );
-      // Must NOT be the label itself
-      const isNotLabel = b !== labelBlock;
-      return isNumber && isNotLabel;
-    });
-
-    numberBlocks.forEach((numBlock) => {
-      const dist = getDistance(labelBlock.boundingPoly, numBlock.boundingPoly);
-
-      // Filter out things that are too far away (>300px) to avoid cross-reading
-      if (dist < minDistance && dist < 300) {
-        // Extract the number
-        const match = numBlock.description.match(/(\d+\.?\d*)/);
-        if (match) {
-          minDistance = dist;
-          bestMatch = parseFloat(match[0]);
-        }
-      }
-    });
+// --- HELPER: Convert File to Base64 for Gemini ---
+const fileToGenerativePart = async (file: File) => {
+  const base64EncodedDataPromise = new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
+    reader.readAsDataURL(file);
   });
 
-  return bestMatch;
+  // Return the object structure Gemini expects
+  return {
+    inlineData: {
+      data: (await base64EncodedDataPromise) as string,
+      mimeType: file.type,
+    },
+  };
 };
 
-// 3. EXCEL PARSER
+// --- HELPER: Excel Parser ---
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -127,7 +69,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
-// 4. DOC GENERATOR
+// --- HELPER: Doc Generator ---
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -140,13 +82,11 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc
-      .getZip()
-      .generate({
-        type: "blob",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+    const out = doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -165,6 +105,7 @@ type Machine = {
   isComplete: boolean;
 };
 
+// --- SCAN STEPS ---
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -221,7 +162,6 @@ export default function RayScanLocal() {
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
-  // Removed unused state vars
 
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
@@ -293,65 +233,50 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- GOOGLE VISION LOGIC ---
-  const performGoogleVisionScan = async (
-    base64Image: string,
+  // --- GEMINI AI LOGIC ---
+  const performGeminiScan = async (
+    file: File,
     targetFields: string[],
     indices: string[]
   ) => {
     setIsScanning(true);
-
     try {
-      const imageContent = base64Image.split(",")[1];
+      const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-      const response = await fetch(GOOGLE_VISION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requests: [
-            {
-              image: { content: imageContent },
-              features: [{ type: "TEXT_DETECTION" }],
-            },
-          ],
-        }),
-      });
+      const imagePart = await fileToGenerativePart(file);
 
-      const result = await response.json();
+      const prompt = `
+      Analyze this image of a RaySafe x-ray measurement screen.
+      Extract the following values:
+      - kVp (Kilovoltage Peak)
+      - mR (Exposure/Dose, usually in mGy, uGy, or mR)
+      - Time (Exposure time, usually in ms or s)
+      - HVL (Half Value Layer, usually in mm Al)
 
-      const annotations = result.responses?.[0]?.textAnnotations;
+      Return ONLY a JSON object with keys: "kvp", "mR", "time", "hvl".
+      If a value is not visible, use null. 
+      Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
+    `;
 
-      if (!annotations || annotations.length === 0) {
-        throw new Error("No text found in image.");
-      }
+      // FIX: Cast imagePart to 'any' to bypass strict TypeScript checking for 'Part'
+      const result = await model.generateContent([prompt, imagePart as any]);
+      const response = await result.response;
+      const text = response.text();
 
-      // Slice(1) to skip the full-page summary and get individual blocks
-      const blocks = annotations.slice(1);
+      const cleanedText = text
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      const data = JSON.parse(cleanedText);
 
-      // --- LOGIC: FIND CLOSEST NUMBERS TO LABELS ---
-      // We look for multiple synonyms for each field to be safe.
-      const extractedData: { [key: string]: number | null } = {
-        kvp: findValueForLabel(blocks, ["kvp", "kv"]),
-        // We include uGy/mGy because that's often what RaySafe displays for mR
-        mR: findValueForLabel(blocks, ["mr", "mgy", "ugy", "dose"]),
-        time: findValueForLabel(blocks, ["ms", "s", "time"]),
-        hvl: findValueForLabel(blocks, ["hvl", "mm al", "mmal"]),
-      };
+      setLastScannedText(JSON.stringify(data));
 
-      // Debug String
-      const debugStr = Object.entries(extractedData)
-        .filter(([_, v]) => v !== null)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(", ");
-
-      setLastScannedText(debugStr || "Labels not found in image");
-
-      // Update State
       const updates: Record<string, string> = {};
 
       targetFields.forEach((field, i) => {
-        const key = indices[i]; // e.g. "kvp"
-        const val = extractedData[key];
+        const key = indices[i];
+        const val = data[key];
 
         if (val !== null && val !== undefined) {
           updates[field] = val.toString();
@@ -369,13 +294,11 @@ export default function RayScanLocal() {
           );
         }
       } else {
-        alert(
-          `Scan complete. Found text, but could not link numbers to labels (kVp, mR, etc).\n\nLabels found: ${debugStr}`
-        );
+        alert("Gemini analyzed the image but couldn't find the specific data.");
       }
-    } catch (e: any) {
-      console.error(e);
-      alert("Scan Error: " + e.message);
+    } catch (error: any) {
+      console.error("Gemini Error:", error);
+      alert(`AI Scan Failed: ${error.message}`);
     } finally {
       setIsScanning(false);
     }
@@ -388,11 +311,7 @@ export default function RayScanLocal() {
   ) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      // Pass the KEY names (kvp, mR) as indices to the Google function
-      reader.onloadend = () =>
-        performGoogleVisionScan(reader.result as string, fields, indices);
-      reader.readAsDataURL(file);
+      performGeminiScan(file, fields, indices);
     }
   };
 
@@ -455,7 +374,7 @@ export default function RayScanLocal() {
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-4">
           <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
-            <strong>Engine:</strong> Google Vision API
+            <strong>Engine:</strong> Gemini 1.5 Flash
           </div>
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
@@ -629,9 +548,7 @@ export default function RayScanLocal() {
           </div>
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
-              <div className="font-bold mb-1 text-slate-700">
-                Matches Found:
-              </div>
+              <div className="font-bold mb-1 text-slate-700">AI Response:</div>
               <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
             </div>
           )}
