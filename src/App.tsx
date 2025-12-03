@@ -11,6 +11,8 @@ import {
   ArrowLeft,
   Trash2,
   Edit3,
+  FileText,
+  UploadCloud,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -27,15 +29,15 @@ type InspectionType = "dental" | "general";
 type Machine = {
   id: string;
   fullDetails: string;
-  type: string; // The raw string from Excel
-  inspectionType: InspectionType; // The "Router" decision
+  type: string;
+  inspectionType: InspectionType;
   location: string;
   registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
 
-// --- HELPER: Convert File to Base64 for Gemini ---
+// --- HELPER FUNCTIONS ---
 const fileToGenerativePart = async (file: File) => {
   const base64EncodedDataPromise = new Promise((resolve) => {
     const reader = new FileReader();
@@ -50,7 +52,6 @@ const fileToGenerativePart = async (file: File) => {
   };
 };
 
-// --- HELPER: Excel Parser (THE ROUTER LOGIC IS HERE) ---
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -81,7 +82,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
-// --- HELPER: Doc Generator ---
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -94,11 +94,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -107,7 +109,6 @@ const createWordDoc = (
 };
 
 // --- STEP CONFIGURATIONS ---
-
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -234,9 +235,17 @@ export default function RayScanLocal() {
   >("dashboard");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
-  const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
-  const [templateName, setTemplateName] =
-    useState<string>("No Template Loaded");
+
+  // --- UPDATED TEMPLATE STATE ---
+  // We store templates in a dictionary by type.
+  const [templates, setTemplates] = useState<
+    Record<string, ArrayBuffer | null>
+  >({ dental: null, general: null });
+  const [templateNames, setTemplateNames] = useState<Record<string, string>>({
+    dental: "No Template",
+    general: "No Template",
+  });
+
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
 
@@ -255,25 +264,44 @@ export default function RayScanLocal() {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
-  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setTemplateName(file.name);
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        if (evt.target?.result)
-          setTemplateFile(evt.target.result as ArrayBuffer);
-      };
-      reader.readAsArrayBuffer(file);
-    }
+  // --- MULTI-FILE UPLOAD HANDLER ---
+  const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach((file) => {
+      const name = file.name.toLowerCase();
+      let type: InspectionType | null = null;
+
+      // Auto-detect type based on filename
+      if (name.includes("dental")) type = "dental";
+      else if (name.includes("gen") || name.includes("rad")) type = "general";
+
+      if (type) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          if (evt.target?.result) {
+            setTemplates((prev) => ({
+              ...prev,
+              [type!]: evt.target?.result as ArrayBuffer,
+            }));
+            setTemplateNames((prev) => ({ ...prev, [type!]: file.name }));
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
   };
 
-  const clearTemplate = () => {
-    setTemplateFile(null);
-    setTemplateName("No Template Loaded");
+  // --- REMOVE TEMPLATE (Fixed click bubbling) ---
+  const removeTemplate = (type: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation(); // <--- CRITICAL FIX
+    setTemplates((prev) => ({ ...prev, [type]: null }));
+    setTemplateNames((prev) => ({ ...prev, [type]: "No Template" }));
   };
 
-  // --- ROUTER LOGIC ---
+  // --- EXCEL ROUTER ---
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -294,8 +322,7 @@ export default function RayScanLocal() {
             fullDetails = parts[1].replace(")", "");
           }
 
-          // --- THE ROUTER ---
-          // Check the "Credential Type" column
+          // ROUTER LOGIC
           const credentialType = row["Credential Type"] || "";
           const isGeneral = credentialType.toLowerCase().includes("radiograph");
           const inspectionType: InspectionType = isGeneral
@@ -306,7 +333,7 @@ export default function RayScanLocal() {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
             type: credentialType || row["Inspection Form"] || "Unknown",
-            inspectionType: inspectionType, // Saved to machine state
+            inspectionType: inspectionType,
             location: row["Credential #"] || facility,
             registrantName: facility,
             data: {},
@@ -321,7 +348,7 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- GEMINI AI LOGIC ---
+  // --- GEMINI AI ---
   const performGeminiScan = async (
     file: File,
     targetFields: string[],
@@ -350,7 +377,6 @@ export default function RayScanLocal() {
       const result = await model.generateContent([prompt, imagePart as any]);
       const response = await result.response;
       const text = response.text();
-
       const cleanedText = text
         .replace(/```json/g, "")
         .replace(/```/g, "")
@@ -360,11 +386,9 @@ export default function RayScanLocal() {
       setLastScannedText(JSON.stringify(data));
 
       const updates: Record<string, string> = {};
-
       targetFields.forEach((field, i) => {
         const key = indices[i];
         const val = data[key];
-
         if (val !== null && val !== undefined) {
           updates[field] = val.toString();
         }
@@ -413,10 +437,14 @@ export default function RayScanLocal() {
     );
   };
 
-  // --- DOC GENERATION (WITH MATH) ---
   const generateDoc = (machine: Machine) => {
-    if (!templateFile) {
-      alert("Upload Template first!");
+    const selectedTemplate = templates[machine.inspectionType];
+    if (!selectedTemplate) {
+      alert(
+        `Please upload the ${
+          machine.inspectionType === "dental" ? "Dental" : "Gen Rad"
+        } Template in Settings!`
+      );
       return;
     }
 
@@ -432,22 +460,19 @@ export default function RayScanLocal() {
       ...machine.data,
     };
 
-    // --- MATH LOGIC ---
     if (machine.inspectionType === "general") {
-      // 1. Linearity 1
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = 10;
       finalData["g1_calc"] = g1_mr > 0 ? (g1_mr / mas1).toFixed(2) : "";
 
-      // 2. Reproducibility
       const mas2 = 16;
       const r1 = parseFloat(machine.data["g2a_mr"] || "0");
       const r2 = parseFloat(machine.data["g2b_mr"] || "0");
       const r3 = parseFloat(machine.data["g2c_mr"] || "0");
       const r4 = parseFloat(machine.data["g2d_mr"] || "0");
 
-      let count = 0;
-      let sum = 0;
+      let count = 0,
+        sum = 0;
       if (r1 > 0) {
         sum += r1;
         count++;
@@ -471,14 +496,13 @@ export default function RayScanLocal() {
         finalData["g2_calc"] = (avg / mas2).toFixed(2);
       }
 
-      // 3. Linearity 2
       const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
       const mas3 = 20;
       finalData["g3_calc"] = g3_mr > 0 ? (g3_mr / mas3).toFixed(2) : "";
     }
 
     createWordDoc(
-      templateFile,
+      selectedTemplate,
       finalData,
       `Inspection_${machine.location}.docx`
     );
@@ -496,7 +520,7 @@ export default function RayScanLocal() {
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
   const currentSteps =
-    activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS; // DYNAMIC STEPS
+    activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS;
 
   // --- UI ---
   if (view === "settings")
@@ -513,50 +537,114 @@ export default function RayScanLocal() {
           <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
             <strong>Engine:</strong> Gemini 2.0 Flash
           </div>
+
+          {/* SINGLE DROPZONE FOR MULTIPLE FILES */}
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
-              {templateFile ? (
-                <>
-                  <div className="h-12 w-12 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
-                    <CheckCircle size={24} />
-                  </div>
-                  <div>
-                    <p className="text-emerald-800 font-bold text-lg">
-                      {templateName}
-                    </p>
-                    <p className="text-emerald-600 text-sm">Template Loaded</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
-                    <FileSpreadsheet size={24} />
-                  </div>
-                  <div>
-                    <p className="text-slate-600 font-bold">
-                      Tap to Upload Template
-                    </p>
-                    <p className="text-slate-400 text-sm">
-                      Supports .docx files only
-                    </p>
-                  </div>
-                </>
-              )}
+              <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                <UploadCloud size={24} />
+              </div>
+              <div>
+                <p className="text-blue-800 font-bold text-lg">
+                  Upload Templates
+                </p>
+                <p className="text-blue-600 text-sm">
+                  Select all your .docx files at once
+                </p>
+              </div>
               <input
                 type="file"
                 accept=".docx"
-                onChange={handleTemplateUpload}
+                multiple
+                onChange={handleBulkTemplateUpload}
                 className="hidden"
               />
             </label>
-            {templateFile && (
-              <button
-                onClick={clearTemplate}
-                className="absolute top-2 right-2 p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 active:scale-90 transition-all shadow-sm"
-              >
-                <Trash2 size={18} />
-              </button>
-            )}
+          </div>
+
+          {/* TEMPLATE LIST */}
+          <div className="space-y-2">
+            {/* Dental Template Card */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.dental
+                  ? "bg-emerald-50 border-emerald-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.dental
+                      ? "bg-emerald-200 text-emerald-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <FileText size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.dental ? "text-emerald-900" : "text-slate-500"
+                    }`}
+                  >
+                    Dental Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.dental}
+                  </p>
+                </div>
+              </div>
+              {templates.dental && (
+                <button
+                  onClick={(e) => removeTemplate("dental", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* General Template Card */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.general
+                  ? "bg-purple-50 border-purple-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.general
+                      ? "bg-purple-200 text-purple-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <FileText size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.general ? "text-purple-900" : "text-slate-500"
+                    }`}
+                  >
+                    General Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.general}
+                  </p>
+                </div>
+              </div>
+              {templates.general && (
+                <button
+                  onClick={(e) => removeTemplate("general", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -590,7 +678,6 @@ export default function RayScanLocal() {
                   {m.location}
                 </div>
                 <div className="flex gap-2 items-center mt-1">
-                  {/* Visual tag for the type */}
                   <span
                     className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
                       m.inspectionType === "general"
@@ -653,7 +740,6 @@ export default function RayScanLocal() {
           </div>
         </header>
         <div className="p-4 space-y-6">
-          {/* TOP SECTION: TUBE INFO */}
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
               Room Configuration
@@ -684,7 +770,6 @@ export default function RayScanLocal() {
             </div>
           </div>
 
-          {/* AI DEBUG */}
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1 text-slate-700">AI Response:</div>
@@ -692,7 +777,6 @@ export default function RayScanLocal() {
             </div>
           )}
 
-          {/* DYNAMIC STEPS */}
           {currentSteps.map((step: any) => (
             <div
               key={step.id}
@@ -733,7 +817,6 @@ export default function RayScanLocal() {
                 </label>
               </div>
 
-              {/* MANUAL SETTINGS OVERRIDE */}
               {step.defaultSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
                   <div className="flex-1">
