@@ -26,7 +26,7 @@ const DB_NAME = "RayScanDB";
 const DB_VERSION = 1;
 const STORE_NAME = "templates";
 
-// --- INDEXED DB HELPERS (For saving templates) ---
+// --- INDEXED DB HELPERS ---
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -214,7 +214,7 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
   },
-  // Group 2: Exp 2-5 (Reproducibility)
+  // Group 2: Exp 2-5
   {
     id: "g2a",
     label: "2. Repro (Exp 1/4)",
@@ -263,13 +263,14 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
   },
-  // Group 4: Exp 7 & 8 (HVL & Scatter)
+  // Group 4: Exp 7 & 8
   {
     id: "g4",
     label: "4. HVL Check",
     desc: "Exp 7",
     settingsGroup: "g4",
     showSettings: true,
+    // UPDATED: time is null, so input won't render
     defaultPresets: { kvp: "90", mas: "40", time: null },
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
@@ -370,10 +371,8 @@ export default function RayScanLocal() {
         reader.onload = (evt) => {
           if (evt.target?.result) {
             const buffer = evt.target?.result as ArrayBuffer;
-            // Update State
             setTemplates((prev) => ({ ...prev, [type!]: buffer }));
             setTemplateNames((prev) => ({ ...prev, [type!]: file.name }));
-            // Save to DB
             saveTemplateToDB(type!, file.name, buffer);
           }
         };
@@ -385,10 +384,8 @@ export default function RayScanLocal() {
   const removeTemplate = (type: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Remove from State
     setTemplates((prev) => ({ ...prev, [type]: null }));
     setTemplateNames((prev) => ({ ...prev, [type]: "No Template" }));
-    // Remove from DB
     deleteTemplateFromDB(type);
   };
 
@@ -554,31 +551,46 @@ export default function RayScanLocal() {
     };
 
     if (machine.inspectionType === "general") {
-      // Group 1: Exp 1
-      finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
-      finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
-      finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
+      // --- APPLY DEFAULTS IF USER INPUT IS EMPTY ---
 
-      // Group 2: Exp 2-5
-      finalData["preset_kvp2"] = machine.data["g2_preset_kvp"] || "70";
-      finalData["mas2"] = machine.data["g2_preset_mas"] || "16";
-      finalData["preset_time2"] = machine.data["g2_preset_time"] || "";
+      // Group 1: 70kVp / 10mAs
+      const g1_kvp_val = machine.data["g1_preset_kvp"] || "70";
+      const g1_mas_val = machine.data["g1_preset_mas"] || "10";
+      const g1_time_val = machine.data["g1_preset_time"] || "";
+      finalData["preset_kvp1"] = g1_kvp_val;
+      finalData["mas1"] = g1_mas_val;
+      finalData["preset_time1"] = g1_time_val;
 
-      // Group 3: Exp 6
-      finalData["preset_kvp3"] = machine.data["g3_preset_kvp"] || "70";
-      finalData["mas3"] = machine.data["g3_preset_mas"] || "20";
-      finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
+      // Group 2: 70kVp / 16mAs (Reproducibility)
+      const g2_kvp_val = machine.data["g2_preset_kvp"] || "70";
+      const g2_mas_val = machine.data["g2_preset_mas"] || "16";
+      const g2_time_val = machine.data["g2_preset_time"] || "";
+      finalData["preset_kvp2"] = g2_kvp_val;
+      finalData["mas2"] = g2_mas_val;
+      finalData["preset_time2"] = g2_time_val;
 
-      // Group 4: Exp 7 & 8
-      finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
+      // Group 3: 70kVp / 20mAs
+      const g3_kvp_val = machine.data["g3_preset_kvp"] || "70";
+      const g3_mas_val = machine.data["g3_preset_mas"] || "20";
+      const g3_time_val = machine.data["g3_preset_time"] || "";
+      finalData["preset_kvp3"] = g3_kvp_val;
+      finalData["mas3"] = g3_mas_val;
+      finalData["preset_time3"] = g3_time_val;
 
-      // Calculations
+      // Group 4: 90kVp / 40mAs
+      const g4_mas_val = machine.data["g4_preset_mas"] || "40";
+      finalData["mas4"] = g4_mas_val;
+
+      // --- CALCULATIONS USING THE DEFAULTED VALUES ---
+
+      // 1. Linearity (Low)
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
-      const mas1 = parseFloat(finalData["mas1"]);
+      const mas1_num = parseFloat(g1_mas_val);
       finalData["g1_calc"] =
-        g1_mr > 0 && mas1 > 0 ? (g1_mr / mas1).toFixed(2) : "";
+        g1_mr > 0 && mas1_num > 0 ? (g1_mr / mas1_num).toFixed(2) : "";
 
-      const mas2 = parseFloat(finalData["mas2"]);
+      // 2. Reproducibility
+      const mas2_num = parseFloat(g2_mas_val);
       const r1 = parseFloat(machine.data["g2a_mr"] || "0");
       const r2 = parseFloat(machine.data["g2b_mr"] || "0");
       const r3 = parseFloat(machine.data["g2c_mr"] || "0");
@@ -606,13 +618,16 @@ export default function RayScanLocal() {
       if (count > 0) {
         const avg = sum / count;
         finalData["g2_avg"] = avg.toFixed(2);
-        if (mas2 > 0) finalData["g2_calc"] = (avg / mas2).toFixed(2);
+        if (mas2_num > 0) {
+          finalData["g2_calc"] = (avg / mas2_num).toFixed(2);
+        }
       }
 
+      // 3. Linearity (High)
       const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
-      const mas3 = parseFloat(finalData["mas3"]);
+      const mas3_num = parseFloat(g3_mas_val);
       finalData["g3_calc"] =
-        g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
+        g3_mr > 0 && mas3_num > 0 ? (g3_mr / mas3_num).toFixed(2) : "";
     }
 
     createWordDoc(
