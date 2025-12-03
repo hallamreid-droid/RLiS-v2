@@ -18,13 +18,17 @@ import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 
 // --- CONFIGURATION ---
+// ⚠️ WARNING: In a production app, do not expose API keys on the client side.
+// Restrict this key in Google Cloud Console to your specific domain/IP.
 const GOOGLE_API_KEY = "AIzaSyC77bRD9rBSo0Hje6AawO1ORSgvaRXgyjo";
 const GOOGLE_VISION_URL = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_API_KEY}`;
 
 // --- HELPER FUNCTIONS ---
 
-// 1. CALCULATE DISTANCE between two text blocks
+// 1. CALCULATE DISTANCE (Euclidean distance between center points)
 const getDistance = (boxA: any, boxB: any) => {
+  if (!boxA?.vertices || !boxB?.vertices) return Infinity;
+
   // Calculate centers
   const aX = (boxA.vertices[0].x + boxA.vertices[2].x) / 2;
   const aY = (boxA.vertices[0].y + boxA.vertices[2].y) / 2;
@@ -32,54 +36,64 @@ const getDistance = (boxA: any, boxB: any) => {
   const bX = (boxB.vertices[0].x + boxB.vertices[2].x) / 2;
   const bY = (boxB.vertices[0].y + boxB.vertices[2].y) / 2;
 
-  // Euclidean distance
   return Math.sqrt(Math.pow(aX - bX, 2) + Math.pow(aY - bY, 2));
 };
 
-// 2. FIND CLOSEST NUMBER to a specific label
-const findClosestNumberToLabel = (
+// 2. SMART FINDER: Finds the number closest to a specific label
+const findValueForLabel = (
   allBlocks: any[],
   labelPatterns: string[]
 ): number | null => {
-  // A. Find the label block (e.g. the block containing "kVp")
-  const labelBlock = allBlocks.find((b) =>
+  // A. Find all blocks that contain the label (e.g. "kVp")
+  const labelBlocks = allBlocks.filter((b) =>
     labelPatterns.some((pattern) =>
       b.description.toLowerCase().includes(pattern)
     )
   );
 
-  if (!labelBlock) return null;
+  if (labelBlocks.length === 0) return null;
 
-  // B. Filter for blocks that look like numbers
-  const numberBlocks = allBlocks.filter((b) => {
-    // Must contain a digit, can include decimals, shouldn't be the label itself
-    return (
-      /[\d]/.test(b.description) &&
-      !labelPatterns.some((p) => b.description.toLowerCase().includes(p))
-    );
-  });
-
-  // C. Find the closest number block to the label block
-  // FIX: Explicitly type this as 'any' to satisfy TypeScript
-  let closestBlock: any = null;
+  let bestMatch: number | null = null;
   let minDistance = Infinity;
 
-  numberBlocks.forEach((numBlock) => {
-    const dist = getDistance(labelBlock.boundingPoly, numBlock.boundingPoly);
-    // Threshold: The number shouldn't be halfway across the screen (limit to ~300px)
-    if (dist < minDistance && dist < 300) {
-      minDistance = dist;
-      closestBlock = numBlock;
+  // B. Iterate through each label instance found
+  labelBlocks.forEach((labelBlock) => {
+    // Case 1: The number is INSIDE the label block (e.g. "70 kVp")
+    const internalMatch = labelBlock.description.match(/(\d+\.?\d*)/);
+    if (internalMatch) {
+      // If found inside, distance is 0 (best possible match)
+      bestMatch = parseFloat(internalMatch[0]);
+      minDistance = 0;
+      return;
     }
+
+    // Case 2: The number is in a DIFFERENT block. Find the closest neighbor.
+    const numberBlocks = allBlocks.filter((b) => {
+      // Must look like a number
+      const isNumber = /^\d+(\.\d+)?$/.test(
+        b.description.replace(/[^\d.]/g, "")
+      );
+      // Must NOT be the label itself
+      const isNotLabel = b !== labelBlock;
+      return isNumber && isNotLabel;
+    });
+
+    numberBlocks.forEach((numBlock) => {
+      const dist = getDistance(labelBlock.boundingPoly, numBlock.boundingPoly);
+
+      // Filter out things that are too far away (>300px) to avoid cross-reading
+      if (dist < minDistance && dist < 300) {
+        // Extract the number
+        const match = numBlock.description.match(/(\d+\.?\d*)/);
+        if (match) {
+          minDistance = dist;
+          bestMatch = parseFloat(match[0]);
+        }
+      }
+    });
   });
 
-  if (closestBlock) {
-    // Extract the float from the block text (handles "74.4" or "74.45")
-    const match = closestBlock.description.match(/(\d+\.?\d*)/);
-    return match ? parseFloat(match[0]) : null;
-  }
-
-  return null;
+  return bestMatch;
 };
 
 // 3. EXCEL PARSER
@@ -151,7 +165,6 @@ type Machine = {
   isComplete: boolean;
 };
 
-// --- CONFIG: DENTAL STEPS ---
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -208,6 +221,7 @@ export default function RayScanLocal() {
     useState<string>("No Template Loaded");
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
+  // Removed unused state vars
 
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
@@ -283,15 +297,13 @@ export default function RayScanLocal() {
   const performGoogleVisionScan = async (
     base64Image: string,
     targetFields: string[],
-    indices: string[] // This now receives the KEYS (kvp, mR, etc) not numbers
+    indices: string[]
   ) => {
     setIsScanning(true);
 
     try {
-      // 1. Remove header from base64
       const imageContent = base64Image.split(",")[1];
 
-      // 2. Send to Google
       const response = await fetch(GOOGLE_VISION_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -307,38 +319,38 @@ export default function RayScanLocal() {
 
       const result = await response.json();
 
-      // 3. Extract Text Annotations
       const annotations = result.responses?.[0]?.textAnnotations;
 
       if (!annotations || annotations.length === 0) {
         throw new Error("No text found in image.");
       }
 
-      // The first annotation is the full text, the rest are individual blocks
+      // Slice(1) to skip the full-page summary and get individual blocks
       const blocks = annotations.slice(1);
 
-      // 4. FIND CLOSEST NUMBERS
-      // We search for these specific labels in the text
+      // --- LOGIC: FIND CLOSEST NUMBERS TO LABELS ---
+      // We look for multiple synonyms for each field to be safe.
       const extractedData: { [key: string]: number | null } = {
-        kvp: findClosestNumberToLabel(blocks, ["kvp", "kv"]),
-        mR: findClosestNumberToLabel(blocks, ["mgy", "ugy", "mr", "dose"]),
-        time: findClosestNumberToLabel(blocks, ["ms", "s", "time"]),
-        hvl: findClosestNumberToLabel(blocks, ["hvl", "mm al", "mmal"]),
+        kvp: findValueForLabel(blocks, ["kvp", "kv"]),
+        // We include uGy/mGy because that's often what RaySafe displays for mR
+        mR: findValueForLabel(blocks, ["mr", "mgy", "ugy", "dose"]),
+        time: findValueForLabel(blocks, ["ms", "s", "time"]),
+        hvl: findValueForLabel(blocks, ["hvl", "mm al", "mmal"]),
       };
 
-      // 5. UPDATE DEBUG UI
+      // Debug String
       const debugStr = Object.entries(extractedData)
         .filter(([_, v]) => v !== null)
         .map(([k, v]) => `${k}: ${v}`)
         .join(", ");
 
-      setLastScannedText(debugStr || "Labels not found");
+      setLastScannedText(debugStr || "Labels not found in image");
 
-      // 6. UPDATE MACHINE STATE
+      // Update State
       const updates: Record<string, string> = {};
 
       targetFields.forEach((field, i) => {
-        const key = indices[i];
+        const key = indices[i]; // e.g. "kvp"
         const val = extractedData[key];
 
         if (val !== null && val !== undefined) {
@@ -358,7 +370,7 @@ export default function RayScanLocal() {
         }
       } else {
         alert(
-          "Found text, but could not match numbers to labels (kVp, mR, etc)."
+          `Scan complete. Found text, but could not link numbers to labels (kVp, mR, etc).\n\nLabels found: ${debugStr}`
         );
       }
     } catch (e: any) {
@@ -377,6 +389,7 @@ export default function RayScanLocal() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
+      // Pass the KEY names (kvp, mR) as indices to the Google function
       reader.onloadend = () =>
         performGoogleVisionScan(reader.result as string, fields, indices);
       reader.readAsDataURL(file);
@@ -617,7 +630,7 @@ export default function RayScanLocal() {
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1 text-slate-700">
-                Found Matches:
+                Matches Found:
               </div>
               <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
             </div>
