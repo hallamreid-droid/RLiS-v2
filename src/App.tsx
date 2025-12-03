@@ -13,13 +13,15 @@ import {
   Edit3,
   FileText,
   UploadCloud,
-  Key,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// --- CONFIGURATION ---
+const GOOGLE_API_KEY = "AIzaSyA555qhSir9YRQa8iFQQrCL6BTQ7uD8oms";
 
 // --- TYPES ---
 type InspectionType = "dental" | "general";
@@ -153,6 +155,7 @@ const DENTAL_STEPS = [
 ];
 
 const GENERAL_STEPS = [
+  // Group 1: Exp 1
   {
     id: "g1",
     label: "1. Linearity (Low)",
@@ -163,6 +166,7 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
   },
+  // Group 2: Exp 2-5 (Reproducibility)
   {
     id: "g2a",
     label: "2. Repro (Exp 1/4)",
@@ -200,6 +204,7 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
   },
+  // Group 3: Exp 6
   {
     id: "g3",
     label: "3. Linearity (High)",
@@ -210,13 +215,15 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
   },
+  // Group 4: Exp 7 & 8 (HVL & Scatter)
   {
     id: "g4",
     label: "4. HVL Check",
     desc: "Exp 7",
     settingsGroup: "g4",
     showSettings: true,
-    defaultPresets: { kvp: "90", mas: "40", time: "" },
+    // UPDATED: time is null, so input won't render
+    defaultPresets: { kvp: "90", mas: "40", time: null },
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
   },
@@ -244,14 +251,9 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-
-  // --- STATE: USER DATA ---
-  // Initialize API Key from LocalStorage if it exists
-  const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
-  // --- STATE: TEMPLATES ---
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({ dental: null, general: null });
@@ -270,27 +272,14 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
-
-    // Load Saved Data
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) setMachines(JSON.parse(savedMachines));
-
-    const savedKey = localStorage.getItem("rayScanApiKey");
-    if (savedKey) setApiKey(savedKey);
   }, []);
 
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
-  // --- API KEY HANDLER ---
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setApiKey(val);
-    localStorage.setItem("rayScanApiKey", val);
-  };
-
-  // --- MULTI-FILE UPLOAD HANDLER ---
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -370,20 +359,14 @@ export default function RayScanLocal() {
     });
   };
 
-  // --- GEMINI AI LOGIC ---
   const performGeminiScan = async (
     file: File,
     targetFields: string[],
     indices: string[]
   ) => {
-    if (!apiKey) {
-      alert("Please go to Settings and enter your Google API Key first.");
-      return;
-    }
-
     setIsScanning(true);
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
+      const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
       const imagePart = await fileToGenerativePart(file);
@@ -581,23 +564,9 @@ export default function RayScanLocal() {
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
-        <div className="space-y-6">
-          {/* API KEY INPUT */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Key className="text-blue-500" size={20} />
-              <h3 className="font-bold text-slate-700">Gemini API Key</h3>
-            </div>
-            <input
-              type="text"
-              value={apiKey}
-              onChange={handleApiKeyChange}
-              placeholder="Paste your AIza... key here"
-              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-            <p className="text-[11px] text-slate-400 mt-2">
-              Key is saved locally in your browser.
-            </p>
+        <div className="space-y-4">
+          <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
+            <strong>Engine:</strong> Gemini 2.0 Flash
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
@@ -964,26 +933,29 @@ export default function RayScanLocal() {
                       }
                     />
                   </div>
-                  <div className="flex-1">
-                    <label className="text-[8px] uppercase font-bold text-slate-400">
-                      Set Time
-                    </label>
-                    <input
-                      className="w-full bg-white border rounded px-1 text-xs"
-                      placeholder="-"
-                      value={
-                        activeMachine.data[
-                          `${step.settingsGroup}_preset_time`
-                        ] || ""
-                      }
-                      onChange={(e) =>
-                        updateField(
-                          `${step.settingsGroup}_preset_time`,
-                          e.target.value
-                        )
-                      }
-                    />
-                  </div>
+                  {/* CONDITIONAL TIME INPUT */}
+                  {step.defaultPresets.time !== null && (
+                    <div className="flex-1">
+                      <label className="text-[8px] uppercase font-bold text-slate-400">
+                        Set Time
+                      </label>
+                      <input
+                        className="w-full bg-white border rounded px-1 text-xs"
+                        placeholder="-"
+                        value={
+                          activeMachine.data[
+                            `${step.settingsGroup}_preset_time`
+                          ] || ""
+                        }
+                        onChange={(e) =>
+                          updateField(
+                            `${step.settingsGroup}_preset_time`,
+                            e.target.value
+                          )
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1018,115 +990,4 @@ export default function RayScanLocal() {
         </div>
       </div>
     );
-
-  return (
-    <div className="min-h-screen bg-slate-50 p-4 font-sans">
-      <header className="flex justify-between items-center mb-8">
-        <div className="flex gap-2 items-center">
-          <div className="bg-blue-600 p-2 rounded-lg">
-            <ScanLine className="text-white h-6 w-6" />
-          </div>
-          <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
-        </div>
-        <button
-          onClick={() => setView("settings")}
-          className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
-        >
-          <Settings className="text-slate-600 h-5 w-5" />
-        </button>
-      </header>
-      <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
-        <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
-          {machines.length}
-        </div>
-        <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
-          Machines Loaded
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
-            <div className="flex justify-center mb-2">
-              <FileSpreadsheet size={20} className="text-emerald-600" />
-            </div>
-            Import Excel
-            <input
-              type="file"
-              accept=".xlsx"
-              onChange={handleExcelUpload}
-              className="hidden"
-            />
-          </label>
-          <button
-            onClick={() => setView("mobile-list")}
-            disabled={machines.length === 0}
-            className="bg-blue-600 text-white py-4 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-blue-200"
-          >
-            <div className="flex justify-center mb-2">
-              <Camera size={20} />
-            </div>
-            Start Scan
-          </button>
-        </div>
-      </div>
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Machine List
-          </span>
-          {machines.length > 0 && (
-            <button
-              onClick={clearAll}
-              className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
-        </div>
-        {machines.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">
-            No machines loaded.
-            <br />
-            Import an ALiS Excel file to begin.
-          </div>
-        ) : (
-          <div className="max-h-96 overflow-y-auto">
-            {machines.map((m) => (
-              <div
-                key={m.id}
-                className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors"
-              >
-                <div>
-                  <div className="font-bold text-sm text-slate-800">
-                    {m.location}
-                  </div>
-                  <div className="flex gap-2 items-center mt-1">
-                    <span
-                      className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        m.inspectionType === "general"
-                          ? "bg-purple-100 text-purple-700"
-                          : "bg-blue-100 text-blue-700"
-                      }`}
-                    >
-                      {m.inspectionType}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {m.fullDetails}
-                    </span>
-                  </div>
-                </div>
-                {m.isComplete ? (
-                  <div className="bg-emerald-100 p-1.5 rounded-full">
-                    <CheckCircle className="text-emerald-600 h-4 w-4" />
-                  </div>
-                ) : (
-                  <div className="bg-slate-100 p-1.5 rounded-full">
-                    <ChevronRight className="text-slate-400 h-4 w-4" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
