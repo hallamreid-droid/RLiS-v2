@@ -36,7 +36,7 @@ const getDistance = (boxA: any, boxB: any) => {
   return Math.sqrt(Math.pow(aX - bX, 2) + Math.pow(aY - bY, 2));
 };
 
-// 2. FIND CLOSEST NUMBER to a specific label (e.g. find number closest to "kVp")
+// 2. FIND CLOSEST NUMBER to a specific label
 const findClosestNumberToLabel = (
   allBlocks: any[],
   labelPatterns: string[]
@@ -60,7 +60,8 @@ const findClosestNumberToLabel = (
   });
 
   // C. Find the closest number block to the label block
-  let closestBlock = null;
+  // FIX: Explicitly type this as 'any' to satisfy TypeScript
+  let closestBlock: any = null;
   let minDistance = Infinity;
 
   numberBlocks.forEach((numBlock) => {
@@ -208,8 +209,6 @@ export default function RayScanLocal() {
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
 
-  // (Removed unused state variables for cleaner code)
-
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -316,7 +315,6 @@ export default function RayScanLocal() {
       }
 
       // The first annotation is the full text, the rest are individual blocks
-      // We skip the first one to check spatial relationships of individual blocks
       const blocks = annotations.slice(1);
 
       // 4. FIND CLOSEST NUMBERS
@@ -338,9 +336,6 @@ export default function RayScanLocal() {
 
       // 6. UPDATE MACHINE STATE
       const updates: Record<string, string> = {};
-
-      // targetFields = ["kvp", "mR1", etc]
-      // indices = ["kvp", "mR", "time", "hvl"] (The KEYS to look up in extractedData)
 
       targetFields.forEach((field, i) => {
         const key = indices[i];
