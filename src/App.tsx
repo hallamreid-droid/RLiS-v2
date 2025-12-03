@@ -21,6 +21,20 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // --- CONFIGURATION ---
 const GOOGLE_API_KEY = "AIzaSyC77bRD9rBSo0Hje6AawO1ORSgvaRXgyjo";
 
+// --- TYPES ---
+type InspectionType = "dental" | "general";
+
+type Machine = {
+  id: string;
+  fullDetails: string;
+  type: string; // The raw string from Excel
+  inspectionType: InspectionType; // The "Router" decision
+  location: string;
+  registrantName: string;
+  data: { [key: string]: string };
+  isComplete: boolean;
+};
+
 // --- HELPER: Convert File to Base64 for Gemini ---
 const fileToGenerativePart = async (file: File) => {
   const base64EncodedDataPromise = new Promise((resolve) => {
@@ -36,7 +50,7 @@ const fileToGenerativePart = async (file: File) => {
   };
 };
 
-// --- HELPER: Excel Parser ---
+// --- HELPER: Excel Parser (THE ROUTER LOGIC IS HERE) ---
 const parseExcel = (file: File, callback: (data: any[]) => void) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
@@ -94,17 +108,6 @@ const createWordDoc = (
   }
 };
 
-// --- TYPES ---
-type Machine = {
-  id: string;
-  fullDetails: string;
-  type: string;
-  location: string;
-  registrantName: string;
-  data: { [key: string]: string };
-  isComplete: boolean;
-};
-
 // --- STEP CONFIGURATIONS ---
 
 const DENTAL_STEPS = [
@@ -153,7 +156,6 @@ const DENTAL_STEPS = [
 ];
 
 const GENERAL_STEPS = [
-  // Step 1: 70kVp, 10mAs
   {
     id: "g1",
     label: "1. Linearity (Low)",
@@ -162,7 +164,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
   },
-  // Step 2: 70kVp, 16mAs (4 Exposures for Repro)
   {
     id: "g2a",
     label: "2. Repro (Exp 1/4)",
@@ -195,7 +196,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
   },
-  // Step 3: 70kVp, 20mAs
   {
     id: "g3",
     label: "3. Linearity (High)",
@@ -204,7 +204,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
   },
-  // Step 4: 90kVp, 40mAs (HVL)
   {
     id: "g4",
     label: "4. HVL Check",
@@ -213,7 +212,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
   },
-  // Step 5: Scatter 6ft
   {
     id: "g5",
     label: "5. Scatter (6ft)",
@@ -222,7 +220,6 @@ const GENERAL_STEPS = [
     indices: ["mR"],
     fields: ["g5_scatter"],
   },
-  // Step 6: Scatter Operator
   {
     id: "g6",
     label: "6. Scatter (Operator)",
@@ -237,9 +234,6 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
-  const [inspectionType, setInspectionType] = useState<"dental" | "general">(
-    "dental"
-  );
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -281,6 +275,7 @@ export default function RayScanLocal() {
     setTemplateName("No Template Loaded");
   };
 
+  // --- ROUTER LOGIC ---
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -300,10 +295,20 @@ export default function RayScanLocal() {
             facility = parts[0].trim();
             fullDetails = parts[1].replace(")", "");
           }
+
+          // --- THE ROUTER ---
+          // Check the "Credential Type" column
+          const credentialType = row["Credential Type"] || "";
+          const isGeneral = credentialType.toLowerCase().includes("radiograph");
+          const inspectionType: InspectionType = isGeneral
+            ? "general"
+            : "dental";
+
           return {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
-            type: row["Credential Type"] || row["Inspection Form"] || "Unknown",
+            type: credentialType || row["Inspection Form"] || "Unknown",
+            inspectionType: inspectionType, // Saved to machine state
             location: row["Credential #"] || facility,
             registrantName: facility,
             data: {},
@@ -344,7 +349,6 @@ export default function RayScanLocal() {
         Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
       `;
 
-      // Use "as any" to fix TypeScript error about 'Part' type mismatch
       const result = await model.generateContent([prompt, imagePart as any]);
       const response = await result.response;
       const text = response.text();
@@ -418,7 +422,6 @@ export default function RayScanLocal() {
       return;
     }
 
-    // Base Data
     let finalData: any = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
@@ -431,14 +434,14 @@ export default function RayScanLocal() {
       ...machine.data,
     };
 
-    // --- GENERAL RADIOGRAPHIC CALCULATIONS ---
-    if (inspectionType === "general") {
-      // 1. Linearity 1 (10 mAs)
+    // --- MATH LOGIC ---
+    if (machine.inspectionType === "general") {
+      // 1. Linearity 1
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = 10;
       finalData["g1_calc"] = g1_mr > 0 ? (g1_mr / mas1).toFixed(2) : "";
 
-      // 2. Reproducibility (16 mAs)
+      // 2. Reproducibility
       const mas2 = 16;
       const r1 = parseFloat(machine.data["g2a_mr"] || "0");
       const r2 = parseFloat(machine.data["g2b_mr"] || "0");
@@ -470,7 +473,7 @@ export default function RayScanLocal() {
         finalData["g2_calc"] = (avg / mas2).toFixed(2);
       }
 
-      // 3. Linearity 2 (20 mAs)
+      // 3. Linearity 2
       const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
       const mas3 = 20;
       finalData["g3_calc"] = g3_mr > 0 ? (g3_mr / mas3).toFixed(2) : "";
@@ -495,7 +498,7 @@ export default function RayScanLocal() {
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
   const currentSteps =
-    inspectionType === "dental" ? DENTAL_STEPS : GENERAL_STEPS;
+    activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS; // DYNAMIC STEPS
 
   // --- UI ---
   if (view === "settings")
@@ -571,9 +574,7 @@ export default function RayScanLocal() {
           >
             <ArrowLeft size={20} /> Back
           </button>
-          <h1 className="font-bold text-lg">
-            {inspectionType === "dental" ? "Dental" : "General"} List
-          </h1>
+          <h1 className="font-bold text-lg">My Inspections</h1>
           <div className="w-10"></div>
         </header>
         <div className="p-4 space-y-3">
@@ -590,8 +591,20 @@ export default function RayScanLocal() {
                 <div className="font-bold text-lg text-blue-900">
                   {m.location}
                 </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {m.fullDetails}
+                <div className="flex gap-2 items-center mt-1">
+                  {/* Visual tag for the type */}
+                  <span
+                    className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                      m.inspectionType === "general"
+                        ? "bg-purple-100 text-purple-700"
+                        : "bg-blue-100 text-blue-700"
+                    }`}
+                  >
+                    {m.inspectionType}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {m.fullDetails}
+                  </span>
                 </div>
               </div>
               <div
@@ -629,8 +642,14 @@ export default function RayScanLocal() {
             </div>
           </div>
           <div className="text-xs text-slate-500 ml-11 flex gap-2">
-            <span className="uppercase font-bold bg-slate-100 px-2 rounded text-slate-600">
-              {inspectionType}
+            <span
+              className={`uppercase font-bold px-2 rounded ${
+                activeMachine.inspectionType === "general"
+                  ? "bg-purple-100 text-purple-700"
+                  : "bg-blue-100 text-blue-700"
+              }`}
+            >
+              {activeMachine.inspectionType}
             </span>
             <span>{activeMachine.fullDetails}</span>
           </div>
@@ -795,31 +814,6 @@ export default function RayScanLocal() {
         <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
           Machines Loaded
         </div>
-
-        {/* MODE SWITCHER */}
-        <div className="flex justify-center gap-4 mb-6">
-          <button
-            onClick={() => setInspectionType("dental")}
-            className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${
-              inspectionType === "dental"
-                ? "bg-blue-100 text-blue-700 border border-blue-200"
-                : "bg-slate-100 text-slate-400 border border-slate-200"
-            }`}
-          >
-            Dental
-          </button>
-          <button
-            onClick={() => setInspectionType("general")}
-            className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${
-              inspectionType === "general"
-                ? "bg-blue-100 text-blue-700 border border-blue-200"
-                : "bg-slate-100 text-slate-400 border border-slate-200"
-            }`}
-          >
-            General
-          </button>
-        </div>
-
         <div className="grid grid-cols-2 gap-3">
           <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
             <div className="flex justify-center mb-2">
