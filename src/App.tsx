@@ -19,7 +19,7 @@ import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
-const GOOGLE_API_KEY = "AIzaSyA555qhSir9YRQa8iFQQrCL6BTQ7uD8oms";
+const GOOGLE_API_KEY = "AIzaSyC77bRD9rBSo0Hje6AawO1ORSgvaRXgyjo";
 
 // --- HELPER: Convert File to Base64 for Gemini ---
 const fileToGenerativePart = async (file: File) => {
@@ -28,8 +28,6 @@ const fileToGenerativePart = async (file: File) => {
     reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
     reader.readAsDataURL(file);
   });
-
-  // Return the object structure Gemini expects
   return {
     inlineData: {
       data: (await base64EncodedDataPromise) as string,
@@ -82,15 +80,17 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
-    alert("Error generating document.");
+    alert("Error generating document. Check your template tags!");
   }
 };
 
@@ -105,7 +105,8 @@ type Machine = {
   isComplete: boolean;
 };
 
-// --- SCAN STEPS ---
+// --- STEP CONFIGURATIONS ---
+
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -151,10 +152,94 @@ const DENTAL_STEPS = [
   },
 ];
 
+const GENERAL_STEPS = [
+  // Step 1: 70kVp, 10mAs
+  {
+    id: "g1",
+    label: "1. Linearity (Low)",
+    desc: "Set: 70 kVp, 10 mAs",
+    defaultSettings: { kvp: "70", mas: "10" },
+    indices: ["kvp", "mR", "time"],
+    fields: ["g1_kvp", "g1_mr", "g1_time"],
+  },
+  // Step 2: 70kVp, 16mAs (4 Exposures for Repro)
+  {
+    id: "g2a",
+    label: "2. Repro (Exp 1/4)",
+    desc: "Set: 70 kVp, 16 mAs",
+    defaultSettings: { kvp: "70", mas: "16" },
+    indices: ["kvp", "mR", "time"],
+    fields: ["g2a_kvp", "g2a_mr", "g2a_time"],
+  },
+  {
+    id: "g2b",
+    label: "2. Repro (Exp 2/4)",
+    desc: "Set: 70 kVp, 16 mAs",
+    defaultSettings: { kvp: "70", mas: "16" },
+    indices: ["kvp", "mR", "time"],
+    fields: ["g2b_kvp", "g2b_mr", "g2b_time"],
+  },
+  {
+    id: "g2c",
+    label: "2. Repro (Exp 3/4)",
+    desc: "Set: 70 kVp, 16 mAs",
+    defaultSettings: { kvp: "70", mas: "16" },
+    indices: ["kvp", "mR", "time"],
+    fields: ["g2c_kvp", "g2c_mr", "g2c_time"],
+  },
+  {
+    id: "g2d",
+    label: "2. Repro (Exp 4/4)",
+    desc: "Set: 70 kVp, 16 mAs",
+    defaultSettings: { kvp: "70", mas: "16" },
+    indices: ["kvp", "mR", "time"],
+    fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
+  },
+  // Step 3: 70kVp, 20mAs
+  {
+    id: "g3",
+    label: "3. Linearity (High)",
+    desc: "Set: 70 kVp, 20 mAs",
+    defaultSettings: { kvp: "70", mas: "20" },
+    indices: ["kvp", "mR", "time"],
+    fields: ["g3_kvp", "g3_mr", "g3_time"],
+  },
+  // Step 4: 90kVp, 40mAs (HVL)
+  {
+    id: "g4",
+    label: "4. HVL Check",
+    desc: "Set: 90 kVp, 40 mAs",
+    defaultSettings: { kvp: "90", mas: "40" },
+    indices: ["kvp", "hvl"],
+    fields: ["g4_kvp", "g4_hvl"],
+  },
+  // Step 5: Scatter 6ft
+  {
+    id: "g5",
+    label: "5. Scatter (6ft)",
+    desc: "Set: 90 kVp, 40 mAs",
+    defaultSettings: { kvp: "90", mas: "40" },
+    indices: ["mR"],
+    fields: ["g5_scatter"],
+  },
+  // Step 6: Scatter Operator
+  {
+    id: "g6",
+    label: "6. Scatter (Operator)",
+    desc: "Set: 90 kVp, 40 mAs",
+    defaultSettings: { kvp: "90", mas: "40" },
+    indices: ["mR"],
+    fields: ["g6_scatter"],
+  },
+];
+
 export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
+  const [inspectionType, setInspectionType] = useState<"dental" | "general">(
+    "dental"
+  );
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [templateFile, setTemplateFile] = useState<ArrayBuffer | null>(null);
@@ -247,19 +332,19 @@ export default function RayScanLocal() {
       const imagePart = await fileToGenerativePart(file);
 
       const prompt = `
-      Analyze this image of a RaySafe x-ray measurement screen.
-      Extract the following values:
-      - kVp (Kilovoltage Peak)
-      - mR (Exposure/Dose, usually in mGy, uGy, or mR)
-      - Time (Exposure time, usually in ms or s)
-      - HVL (Half Value Layer, usually in mm Al)
+        Analyze this image of a RaySafe x-ray measurement screen.
+        Extract the following values:
+        - kVp (Kilovoltage Peak)
+        - mR (Exposure/Dose, usually in mGy, uGy, or mR)
+        - Time (Exposure time, usually in ms or s)
+        - HVL (Half Value Layer, usually in mm Al)
 
-      Return ONLY a JSON object with keys: "kvp", "mR", "time", "hvl".
-      If a value is not visible, use null. 
-      Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
-    `;
+        Return ONLY a JSON object with keys: "kvp", "mR", "time", "hvl".
+        If a value is not visible, use null. 
+        Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
+      `;
 
-      // FIX: Cast imagePart to 'any' to bypass strict TypeScript checking for 'Part'
+      // Use "as any" to fix TypeScript error about 'Part' type mismatch
       const result = await model.generateContent([prompt, imagePart as any]);
       const response = await result.response;
       const text = response.text();
@@ -326,27 +411,76 @@ export default function RayScanLocal() {
     );
   };
 
+  // --- DOC GENERATION (WITH MATH) ---
   const generateDoc = (machine: Machine) => {
     if (!templateFile) {
       alert("Upload Template first!");
       return;
     }
-    const data = {
+
+    // Base Data
+    let finalData: any = {
       inspector: "RH",
       "make model serial": machine.fullDetails,
       "registration number": machine.location,
       "registrant name": machine.registrantName,
       date: new Date().toLocaleDateString(),
-      "tube number": machine.data["tube_num"] || "1",
-      "preset kvp": machine.data["preset_kvp"] || "",
-      "preset mas": machine.data["preset_mas"] || "",
-      "preset time": machine.data["preset_time"] || "",
       details: machine.fullDetails,
       credential: machine.location,
       type: machine.type,
       ...machine.data,
     };
-    createWordDoc(templateFile, data, `Inspection_${machine.location}.docx`);
+
+    // --- GENERAL RADIOGRAPHIC CALCULATIONS ---
+    if (inspectionType === "general") {
+      // 1. Linearity 1 (10 mAs)
+      const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
+      const mas1 = 10;
+      finalData["g1_calc"] = g1_mr > 0 ? (g1_mr / mas1).toFixed(2) : "";
+
+      // 2. Reproducibility (16 mAs)
+      const mas2 = 16;
+      const r1 = parseFloat(machine.data["g2a_mr"] || "0");
+      const r2 = parseFloat(machine.data["g2b_mr"] || "0");
+      const r3 = parseFloat(machine.data["g2c_mr"] || "0");
+      const r4 = parseFloat(machine.data["g2d_mr"] || "0");
+
+      let count = 0;
+      let sum = 0;
+      if (r1 > 0) {
+        sum += r1;
+        count++;
+      }
+      if (r2 > 0) {
+        sum += r2;
+        count++;
+      }
+      if (r3 > 0) {
+        sum += r3;
+        count++;
+      }
+      if (r4 > 0) {
+        sum += r4;
+        count++;
+      }
+
+      if (count > 0) {
+        const avg = sum / count;
+        finalData["g2_avg"] = avg.toFixed(2);
+        finalData["g2_calc"] = (avg / mas2).toFixed(2);
+      }
+
+      // 3. Linearity 2 (20 mAs)
+      const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
+      const mas3 = 20;
+      finalData["g3_calc"] = g3_mr > 0 ? (g3_mr / mas3).toFixed(2) : "";
+    }
+
+    createWordDoc(
+      templateFile,
+      finalData,
+      `Inspection_${machine.location}.docx`
+    );
     setMachines((prev) =>
       prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
     );
@@ -360,6 +494,8 @@ export default function RayScanLocal() {
   };
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
+  const currentSteps =
+    inspectionType === "dental" ? DENTAL_STEPS : GENERAL_STEPS;
 
   // --- UI ---
   if (view === "settings")
@@ -435,7 +571,9 @@ export default function RayScanLocal() {
           >
             <ArrowLeft size={20} /> Back
           </button>
-          <h1 className="font-bold text-lg">My Inspections</h1>
+          <h1 className="font-bold text-lg">
+            {inspectionType === "dental" ? "Dental" : "General"} List
+          </h1>
           <div className="w-10"></div>
         </header>
         <div className="p-4 space-y-3">
@@ -490,14 +628,18 @@ export default function RayScanLocal() {
               {activeMachine.location}
             </div>
           </div>
-          <div className="text-xs text-slate-500 ml-11">
-            {activeMachine.fullDetails}
+          <div className="text-xs text-slate-500 ml-11 flex gap-2">
+            <span className="uppercase font-bold bg-slate-100 px-2 rounded text-slate-600">
+              {inspectionType}
+            </span>
+            <span>{activeMachine.fullDetails}</span>
           </div>
         </header>
         <div className="p-4 space-y-6">
-          <div className="bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
-            <h3 className="font-bold text-blue-800 text-sm mb-3 uppercase tracking-wide">
-              Machine Settings
+          {/* TOP SECTION: TUBE INFO */}
+          <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+            <h3 className="font-bold text-slate-800 text-sm mb-3">
+              Room Configuration
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -505,54 +647,36 @@ export default function RayScanLocal() {
                   Tube #
                 </label>
                 <input
-                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                   placeholder="1"
-                  value={activeMachine.data["tube_num"] || ""}
-                  onChange={(e) => updateField("tube_num", e.target.value)}
+                  value={activeMachine.data["tube_no"] || ""}
+                  onChange={(e) => updateField("tube_no", e.target.value)}
                 />
               </div>
               <div>
                 <label className="text-[10px] font-bold text-slate-500 uppercase">
-                  Preset kVp
+                  # of Tubes
                 </label>
                 <input
-                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                  placeholder="70"
-                  value={activeMachine.data["preset_kvp"] || ""}
-                  onChange={(e) => updateField("preset_kvp", e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase">
-                  Preset mAs
-                </label>
-                <input
-                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                  placeholder="10"
-                  value={activeMachine.data["preset_mas"] || ""}
-                  onChange={(e) => updateField("preset_mas", e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase">
-                  Preset Time
-                </label>
-                <input
-                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                  placeholder="0.10"
-                  value={activeMachine.data["preset_time"] || ""}
-                  onChange={(e) => updateField("preset_time", e.target.value)}
+                  className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                  placeholder="1"
+                  value={activeMachine.data["num_tubes"] || ""}
+                  onChange={(e) => updateField("num_tubes", e.target.value)}
                 />
               </div>
             </div>
           </div>
+
+          {/* AI DEBUG */}
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1 text-slate-700">AI Response:</div>
               <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
             </div>
           )}
-          {DENTAL_STEPS.map((step) => (
+
+          {/* DYNAMIC STEPS */}
+          {currentSteps.map((step: any) => (
             <div
               key={step.id}
               className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
@@ -591,8 +715,33 @@ export default function RayScanLocal() {
                   />
                 </label>
               </div>
+
+              {/* MANUAL SETTINGS OVERRIDE */}
+              {step.defaultSettings && (
+                <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[8px] uppercase font-bold text-slate-400">
+                      Set kVp
+                    </label>
+                    <input
+                      className="w-full bg-white border rounded px-1 text-xs"
+                      defaultValue={step.defaultSettings.kvp}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[8px] uppercase font-bold text-slate-400">
+                      Set mAs
+                    </label>
+                    <input
+                      className="w-full bg-white border rounded px-1 text-xs"
+                      defaultValue={step.defaultSettings.mas}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
-                {step.fields.map((k) => (
+                {step.fields.map((k: string) => (
                   <div key={k}>
                     <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
                       {k}
@@ -646,6 +795,31 @@ export default function RayScanLocal() {
         <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
           Machines Loaded
         </div>
+
+        {/* MODE SWITCHER */}
+        <div className="flex justify-center gap-4 mb-6">
+          <button
+            onClick={() => setInspectionType("dental")}
+            className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${
+              inspectionType === "dental"
+                ? "bg-blue-100 text-blue-700 border border-blue-200"
+                : "bg-slate-100 text-slate-400 border border-slate-200"
+            }`}
+          >
+            Dental
+          </button>
+          <button
+            onClick={() => setInspectionType("general")}
+            className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${
+              inspectionType === "general"
+                ? "bg-blue-100 text-blue-700 border border-blue-200"
+                : "bg-slate-100 text-slate-400 border border-slate-200"
+            }`}
+          >
+            General
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
             <div className="flex justify-center mb-2">
