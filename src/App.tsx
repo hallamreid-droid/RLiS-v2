@@ -13,15 +13,13 @@ import {
   Edit3,
   FileText,
   UploadCloud,
+  Key,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// --- CONFIGURATION ---
-const GOOGLE_API_KEY = "AIzaSyA555qhSir9YRQa8iFQQrCL6BTQ7uD8oms";
 
 // --- TYPES ---
 type InspectionType = "dental" | "general";
@@ -154,10 +152,7 @@ const DENTAL_STEPS = [
   },
 ];
 
-// Note: 'settingsGroup' links multiple steps to one set of preset inputs
-// 'showSettings' tells the UI to render the input block for this step
 const GENERAL_STEPS = [
-  // Group 1: Exp 1
   {
     id: "g1",
     label: "1. Linearity (Low)",
@@ -168,7 +163,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
   },
-  // Group 2: Exp 2-5 (Reproducibility)
   {
     id: "g2a",
     label: "2. Repro (Exp 1/4)",
@@ -206,7 +200,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
   },
-  // Group 3: Exp 6
   {
     id: "g3",
     label: "3. Linearity (High)",
@@ -217,7 +210,6 @@ const GENERAL_STEPS = [
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
   },
-  // Group 4: Exp 7 & 8 (HVL & Scatter)
   {
     id: "g4",
     label: "4. HVL Check",
@@ -252,9 +244,14 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
+
+  // --- STATE: USER DATA ---
+  // Initialize API Key from LocalStorage if it exists
+  const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
+  // --- STATE: TEMPLATES ---
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({ dental: null, general: null });
@@ -273,14 +270,27 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
+
+    // Load Saved Data
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) setMachines(JSON.parse(savedMachines));
+
+    const savedKey = localStorage.getItem("rayScanApiKey");
+    if (savedKey) setApiKey(savedKey);
   }, []);
 
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
+  // --- API KEY HANDLER ---
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setApiKey(val);
+    localStorage.setItem("rayScanApiKey", val);
+  };
+
+  // --- MULTI-FILE UPLOAD HANDLER ---
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -360,14 +370,20 @@ export default function RayScanLocal() {
     });
   };
 
+  // --- GEMINI AI LOGIC ---
   const performGeminiScan = async (
     file: File,
     targetFields: string[],
     indices: string[]
   ) => {
+    if (!apiKey) {
+      alert("Please go to Settings and enter your Google API Key first.");
+      return;
+    }
+
     setIsScanning(true);
     try {
-      const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
+      const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
       const imagePart = await fileToGenerativePart(file);
@@ -471,7 +487,6 @@ export default function RayScanLocal() {
       ...machine.data,
     };
 
-    // --- MAPPING PRESETS FOR GENERAL RAD ---
     if (machine.inspectionType === "general") {
       // Group 1: Exp 1
       finalData["preset_kvp1"] = machine.data["g1_preset_kvp"];
@@ -488,10 +503,10 @@ export default function RayScanLocal() {
       finalData["mas3"] = machine.data["g3_preset_mas"];
       finalData["preset_time3"] = machine.data["g3_preset_time"];
 
-      // Group 4: Exp 7 & 8 (Only mas is requested)
+      // Group 4: Exp 7 & 8
       finalData["mas4"] = machine.data["g4_preset_mas"];
 
-      // --- CALCULATIONS ---
+      // Calculations
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = parseFloat(machine.data["g1_preset_mas"] || "10");
       finalData["g1_calc"] =
@@ -566,9 +581,23 @@ export default function RayScanLocal() {
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
-        <div className="space-y-4">
-          <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
-            <strong>Engine:</strong> Gemini 2.0 Flash
+        <div className="space-y-6">
+          {/* API KEY INPUT */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <Key className="text-blue-500" size={20} />
+              <h3 className="font-bold text-slate-700">Gemini API Key</h3>
+            </div>
+            <input
+              type="text"
+              value={apiKey}
+              onChange={handleApiKeyChange}
+              placeholder="Paste your AIza... key here"
+              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <p className="text-[11px] text-slate-400 mt-2">
+              Key is saved locally in your browser.
+            </p>
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
@@ -770,7 +799,7 @@ export default function RayScanLocal() {
         </header>
 
         <div className="p-4 space-y-6">
-          {/* HEADER INPUTS - DYNAMIC BASED ON INSPECTION TYPE */}
+          {/* HEADER INPUTS */}
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
               Machine Settings
@@ -788,7 +817,6 @@ export default function RayScanLocal() {
                 />
               </div>
 
-              {/* DENTAL: Show Presets | GENERAL: Show # of Tubes */}
               {activeMachine.inspectionType === "dental" ? (
                 <>
                   <div>
@@ -894,7 +922,6 @@ export default function RayScanLocal() {
                 </label>
               </div>
 
-              {/* MANUAL PRESET INPUTS FOR GENERAL RAD */}
               {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
                   <div className="flex-1">
@@ -904,7 +931,6 @@ export default function RayScanLocal() {
                     <input
                       className="w-full bg-white border rounded px-1 text-xs"
                       placeholder={step.defaultPresets.kvp}
-                      // Binds to a group key like "g1_preset_kvp"
                       value={
                         activeMachine.data[
                           `${step.settingsGroup}_preset_kvp`
