@@ -154,76 +154,95 @@ const DENTAL_STEPS = [
   },
 ];
 
+// Note: 'settingsGroup' links multiple steps to one set of preset inputs
+// 'showSettings' tells the UI to render the input block for this step
 const GENERAL_STEPS = [
+  // Group 1: Exp 1
   {
     id: "g1",
     label: "1. Linearity (Low)",
-    desc: "Set: 70 kVp, 10 mAs",
-    defaultSettings: { kvp: "70", mas: "10" },
+    desc: "Exp 1",
+    settingsGroup: "g1",
+    showSettings: true,
+    defaultPresets: { kvp: "70", mas: "10", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
   },
+  // Group 2: Exp 2-5 (Reproducibility)
   {
     id: "g2a",
     label: "2. Repro (Exp 1/4)",
-    desc: "Set: 70 kVp, 16 mAs",
-    defaultSettings: { kvp: "70", mas: "16" },
+    desc: "Exp 2",
+    settingsGroup: "g2",
+    showSettings: true,
+    defaultPresets: { kvp: "70", mas: "16", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g2a_kvp", "g2a_mr", "g2a_time"],
   },
   {
     id: "g2b",
     label: "2. Repro (Exp 2/4)",
-    desc: "Set: 70 kVp, 16 mAs",
-    defaultSettings: { kvp: "70", mas: "16" },
+    desc: "Exp 3",
+    settingsGroup: "g2",
+    showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2b_kvp", "g2b_mr", "g2b_time"],
   },
   {
     id: "g2c",
     label: "2. Repro (Exp 3/4)",
-    desc: "Set: 70 kVp, 16 mAs",
-    defaultSettings: { kvp: "70", mas: "16" },
+    desc: "Exp 4",
+    settingsGroup: "g2",
+    showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2c_kvp", "g2c_mr", "g2c_time"],
   },
   {
     id: "g2d",
     label: "2. Repro (Exp 4/4)",
-    desc: "Set: 70 kVp, 16 mAs",
-    defaultSettings: { kvp: "70", mas: "16" },
+    desc: "Exp 5",
+    settingsGroup: "g2",
+    showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
   },
+  // Group 3: Exp 6
   {
     id: "g3",
     label: "3. Linearity (High)",
-    desc: "Set: 70 kVp, 20 mAs",
-    defaultSettings: { kvp: "70", mas: "20" },
+    desc: "Exp 6",
+    settingsGroup: "g3",
+    showSettings: true,
+    defaultPresets: { kvp: "70", mas: "20", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
   },
+  // Group 4: Exp 7 & 8 (HVL & Scatter)
   {
     id: "g4",
     label: "4. HVL Check",
-    desc: "Set: 90 kVp, 40 mAs",
-    defaultSettings: { kvp: "90", mas: "40" },
+    desc: "Exp 7",
+    settingsGroup: "g4",
+    showSettings: true,
+    defaultPresets: { kvp: "90", mas: "40", time: "" },
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
   },
   {
     id: "g5",
     label: "5. Scatter (6ft)",
-    desc: "Set: 90 kVp, 40 mAs",
-    defaultSettings: { kvp: "90", mas: "40" },
+    desc: "Exp 8",
+    settingsGroup: "g4",
+    showSettings: false,
     indices: ["mR"],
     fields: ["g5_scatter"],
   },
   {
     id: "g6",
     label: "6. Scatter (Operator)",
-    desc: "Set: 90 kVp, 40 mAs",
-    defaultSettings: { kvp: "90", mas: "40" },
+    desc: "Exp 9",
+    settingsGroup: "g4",
+    showSettings: false,
     indices: ["mR"],
     fields: ["g6_scatter"],
   },
@@ -452,12 +471,33 @@ export default function RayScanLocal() {
       ...machine.data,
     };
 
+    // --- MAPPING PRESETS FOR GENERAL RAD ---
     if (machine.inspectionType === "general") {
-      const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
-      const mas1 = 10;
-      finalData["g1_calc"] = g1_mr > 0 ? (g1_mr / mas1).toFixed(2) : "";
+      // Group 1: Exp 1
+      finalData["preset_kvp1"] = machine.data["g1_preset_kvp"];
+      finalData["mas1"] = machine.data["g1_preset_mas"];
+      finalData["preset_time1"] = machine.data["g1_preset_time"];
 
-      const mas2 = 16;
+      // Group 2: Exp 2-5
+      finalData["preset_kvp2"] = machine.data["g2_preset_kvp"];
+      finalData["mas2"] = machine.data["g2_preset_mas"];
+      finalData["preset_time2"] = machine.data["g2_preset_time"];
+
+      // Group 3: Exp 6
+      finalData["preset_kvp3"] = machine.data["g3_preset_kvp"];
+      finalData["mas3"] = machine.data["g3_preset_mas"];
+      finalData["preset_time3"] = machine.data["g3_preset_time"];
+
+      // Group 4: Exp 7 & 8 (Only mas is requested)
+      finalData["mas4"] = machine.data["g4_preset_mas"];
+
+      // --- CALCULATIONS ---
+      const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
+      const mas1 = parseFloat(machine.data["g1_preset_mas"] || "10");
+      finalData["g1_calc"] =
+        g1_mr > 0 && mas1 > 0 ? (g1_mr / mas1).toFixed(2) : "";
+
+      const mas2 = parseFloat(machine.data["g2_preset_mas"] || "16");
       const r1 = parseFloat(machine.data["g2a_mr"] || "0");
       const r2 = parseFloat(machine.data["g2b_mr"] || "0");
       const r3 = parseFloat(machine.data["g2c_mr"] || "0");
@@ -489,8 +529,9 @@ export default function RayScanLocal() {
       }
 
       const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
-      const mas3 = 20;
-      finalData["g3_calc"] = g3_mr > 0 ? (g3_mr / mas3).toFixed(2) : "";
+      const mas3 = parseFloat(machine.data["g3_preset_mas"] || "20");
+      finalData["g3_calc"] =
+        g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
     }
 
     createWordDoc(
@@ -530,7 +571,6 @@ export default function RayScanLocal() {
             <strong>Engine:</strong> Gemini 2.0 Flash
           </div>
 
-          {/* SINGLE DROPZONE FOR MULTIPLE FILES */}
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
               <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
@@ -554,7 +594,6 @@ export default function RayScanLocal() {
             </label>
           </div>
 
-          {/* TEMPLATE LIST */}
           <div className="space-y-2">
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
@@ -855,7 +894,8 @@ export default function RayScanLocal() {
                 </label>
               </div>
 
-              {step.defaultSettings && (
+              {/* MANUAL PRESET INPUTS FOR GENERAL RAD */}
+              {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
                   <div className="flex-1">
                     <label className="text-[8px] uppercase font-bold text-slate-400">
@@ -863,7 +903,19 @@ export default function RayScanLocal() {
                     </label>
                     <input
                       className="w-full bg-white border rounded px-1 text-xs"
-                      defaultValue={step.defaultSettings.kvp}
+                      placeholder={step.defaultPresets.kvp}
+                      // Binds to a group key like "g1_preset_kvp"
+                      value={
+                        activeMachine.data[
+                          `${step.settingsGroup}_preset_kvp`
+                        ] || ""
+                      }
+                      onChange={(e) =>
+                        updateField(
+                          `${step.settingsGroup}_preset_kvp`,
+                          e.target.value
+                        )
+                      }
                     />
                   </div>
                   <div className="flex-1">
@@ -872,7 +924,38 @@ export default function RayScanLocal() {
                     </label>
                     <input
                       className="w-full bg-white border rounded px-1 text-xs"
-                      defaultValue={step.defaultSettings.mas}
+                      placeholder={step.defaultPresets.mas}
+                      value={
+                        activeMachine.data[
+                          `${step.settingsGroup}_preset_mas`
+                        ] || ""
+                      }
+                      onChange={(e) =>
+                        updateField(
+                          `${step.settingsGroup}_preset_mas`,
+                          e.target.value
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[8px] uppercase font-bold text-slate-400">
+                      Set Time
+                    </label>
+                    <input
+                      className="w-full bg-white border rounded px-1 text-xs"
+                      placeholder="-"
+                      value={
+                        activeMachine.data[
+                          `${step.settingsGroup}_preset_time`
+                        ] || ""
+                      }
+                      onChange={(e) =>
+                        updateField(
+                          `${step.settingsGroup}_preset_time`,
+                          e.target.value
+                        )
+                      }
                     />
                   </div>
                 </div>
