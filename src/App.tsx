@@ -290,7 +290,7 @@ const GENERAL_STEPS = [
   },
 ];
 
-// --- MAIN COMPONENT (RENAMED TO APP) ---
+// --- MAIN COMPONENT ---
 export default function App(): JSX.Element | null {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
@@ -542,7 +542,6 @@ export default function App(): JSX.Element | null {
     };
 
     if (machine.inspectionType === "general") {
-      // -- DEFAULTS APPLIED HERE --
       finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
       finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
       finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
@@ -557,7 +556,6 @@ export default function App(): JSX.Element | null {
 
       finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
-      // Calculations
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = parseFloat(finalData["mas1"]);
       finalData["g1_calc"] =
@@ -621,7 +619,6 @@ export default function App(): JSX.Element | null {
   const currentSteps =
     activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS;
 
-  // --- UI ---
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -633,7 +630,6 @@ export default function App(): JSX.Element | null {
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-6">
-          {/* API KEY INPUT */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
               <Key className="text-blue-500" size={20} />
@@ -650,7 +646,6 @@ export default function App(): JSX.Element | null {
               Key is saved locally in your browser.
             </p>
           </div>
-
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
               <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
@@ -673,7 +668,6 @@ export default function App(): JSX.Element | null {
               />
             </label>
           </div>
-
           <div className="space-y-2">
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
@@ -714,7 +708,6 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
-
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
                 templates.general
@@ -848,9 +841,7 @@ export default function App(): JSX.Element | null {
             <span>{activeMachine.fullDetails}</span>
           </div>
         </header>
-
         <div className="p-4 space-y-6">
-          {/* HEADER INPUTS */}
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
               Machine Settings
@@ -867,7 +858,6 @@ export default function App(): JSX.Element | null {
                   onChange={(e) => updateField("tube_no", e.target.value)}
                 />
               </div>
-
               {activeMachine.inspectionType === "dental" ? (
                 <>
                   <div>
@@ -972,7 +962,6 @@ export default function App(): JSX.Element | null {
                   />
                 </label>
               </div>
-
               {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
                   <div className="flex-1">
@@ -1015,7 +1004,6 @@ export default function App(): JSX.Element | null {
                       }
                     />
                   </div>
-                  {/* CONDITIONAL TIME INPUT */}
                   {step.defaultPresets.time !== null && (
                     <div className="flex-1">
                       <label className="text-[8px] uppercase font-bold text-slate-400">
@@ -1040,7 +1028,6 @@ export default function App(): JSX.Element | null {
                   )}
                 </div>
               )}
-
               <div className="grid grid-cols-2 gap-4">
                 {step.fields.map((k: string) => (
                   <div key={k}>
@@ -1073,6 +1060,103 @@ export default function App(): JSX.Element | null {
       </div>
     );
 
-  // Fallback return (essential for TS compliance)
-  return null;
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 font-sans">
+      <header className="flex justify-between items-center mb-8">
+        <div className="flex gap-2 items-center">
+          <div className="bg-blue-600 p-2 rounded-lg">
+            <ScanLine className="text-white h-6 w-6" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
+        </div>
+        <button
+          onClick={() => setView("settings")}
+          className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
+        >
+          <Settings className="text-slate-600 h-5 w-5" />
+        </button>
+      </header>
+      <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
+        <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
+          {machines.length}
+        </div>
+        <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
+          Machines Loaded
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
+            <div className="flex justify-center mb-2">
+              <FileSpreadsheet size={20} className="text-emerald-600" />
+            </div>
+            Import Excel
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={handleExcelUpload}
+              className="hidden"
+            />
+          </label>
+          <button
+            onClick={() => setView("mobile-list")}
+            disabled={machines.length === 0}
+            className="bg-blue-600 text-white py-4 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-blue-200"
+          >
+            <div className="flex justify-center mb-2">
+              <Camera size={20} />
+            </div>
+            Start Scan
+          </button>
+        </div>
+      </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Machine List
+          </span>
+          {machines.length > 0 && (
+            <button
+              onClick={clearAll}
+              className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+        {machines.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">
+            No machines loaded.
+            <br />
+            Import an ALiS Excel file to begin.
+          </div>
+        ) : (
+          <div className="max-h-96 overflow-y-auto">
+            {machines.map((m) => (
+              <div
+                key={m.id}
+                className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors"
+              >
+                <div>
+                  <div className="font-bold text-sm text-slate-800">
+                    {m.location}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {m.fullDetails}
+                  </div>
+                </div>
+                {m.isComplete ? (
+                  <div className="bg-emerald-100 p-1.5 rounded-full">
+                    <CheckCircle className="text-emerald-600 h-4 w-4" />
+                  </div>
+                ) : (
+                  <div className="bg-slate-100 p-1.5 rounded-full">
+                    <ChevronRight className="text-slate-400 h-4 w-4" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
