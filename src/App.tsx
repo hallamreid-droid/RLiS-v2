@@ -19,7 +19,7 @@ import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
-const GOOGLE_API_KEY = "AIzaSyC77bRD9rBSo0Hje6AawO1ORSgvaRXgyjo";
+const GOOGLE_API_KEY = "AIzaSyA555qhSir9YRQa8iFQQrCL6BTQ7uD8oms";
 
 // --- HELPER: Convert File to Base64 for Gemini ---
 const fileToGenerativePart = async (file: File) => {
