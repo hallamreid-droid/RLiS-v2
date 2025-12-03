@@ -13,6 +13,7 @@ import {
   Edit3,
   FileText,
   UploadCloud,
+  Key,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -21,7 +22,54 @@ import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
-const GOOGLE_API_KEY = "AIzaSyA555qhSir9YRQa8iFQQrCL6BTQ7uD8oms";
+const DB_NAME = "RayScanDB";
+const DB_VERSION = 1;
+const STORE_NAME = "templates";
+
+// --- INDEXED DB HELPERS (For saving templates) ---
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (event: any) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: "type" });
+      }
+    };
+    request.onsuccess = (event: any) => resolve(event.target.result);
+    request.onerror = (event) => reject(event);
+  });
+};
+
+const saveTemplateToDB = async (
+  type: string,
+  name: string,
+  buffer: ArrayBuffer
+) => {
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, "readwrite");
+  const store = tx.objectStore(STORE_NAME);
+  store.put({ type, name, buffer });
+};
+
+const getTemplatesFromDB = async () => {
+  const db = await openDB();
+  return new Promise<{ type: string; name: string; buffer: ArrayBuffer }[]>(
+    (resolve) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+    }
+  );
+};
+
+const deleteTemplateFromDB = async (type: string) => {
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, "readwrite");
+  const store = tx.objectStore(STORE_NAME);
+  store.delete(type);
+};
 
 // --- TYPES ---
 type InspectionType = "dental" | "general";
@@ -222,7 +270,6 @@ const GENERAL_STEPS = [
     desc: "Exp 7",
     settingsGroup: "g4",
     showSettings: true,
-    // UPDATED: time is null, so input won't render
     defaultPresets: { kvp: "90", mas: "40", time: null },
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
@@ -251,6 +298,8 @@ export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
+
+  const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
@@ -272,13 +321,38 @@ export default function RayScanLocal() {
       script.id = "tailwind-script";
       document.head.appendChild(script);
     }
+
+    // Load Data
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) setMachines(JSON.parse(savedMachines));
+
+    const savedKey = localStorage.getItem("rayScanApiKey");
+    if (savedKey) setApiKey(savedKey);
+
+    // Load Templates from IndexedDB
+    getTemplatesFromDB().then((storedTemplates) => {
+      const loadedTemplates: any = { ...templates };
+      const loadedNames: any = { ...templateNames };
+
+      storedTemplates.forEach((t) => {
+        loadedTemplates[t.type] = t.buffer;
+        loadedNames[t.type] = t.name;
+      });
+
+      setTemplates(loadedTemplates);
+      setTemplateNames(loadedNames);
+    });
   }, []);
 
   useEffect(() => {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
+
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setApiKey(val);
+    localStorage.setItem("rayScanApiKey", val);
+  };
 
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -295,11 +369,12 @@ export default function RayScanLocal() {
         const reader = new FileReader();
         reader.onload = (evt) => {
           if (evt.target?.result) {
-            setTemplates((prev) => ({
-              ...prev,
-              [type!]: evt.target?.result as ArrayBuffer,
-            }));
+            const buffer = evt.target?.result as ArrayBuffer;
+            // Update State
+            setTemplates((prev) => ({ ...prev, [type!]: buffer }));
             setTemplateNames((prev) => ({ ...prev, [type!]: file.name }));
+            // Save to DB
+            saveTemplateToDB(type!, file.name, buffer);
           }
         };
         reader.readAsArrayBuffer(file);
@@ -310,8 +385,11 @@ export default function RayScanLocal() {
   const removeTemplate = (type: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // Remove from State
     setTemplates((prev) => ({ ...prev, [type]: null }));
     setTemplateNames((prev) => ({ ...prev, [type]: "No Template" }));
+    // Remove from DB
+    deleteTemplateFromDB(type);
   };
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -364,9 +442,14 @@ export default function RayScanLocal() {
     targetFields: string[],
     indices: string[]
   ) => {
+    if (!apiKey) {
+      alert("Please go to Settings and enter your Google API Key first.");
+      return;
+    }
+
     setIsScanning(true);
     try {
-      const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
+      const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
       const imagePart = await fileToGenerativePart(file);
@@ -472,30 +555,30 @@ export default function RayScanLocal() {
 
     if (machine.inspectionType === "general") {
       // Group 1: Exp 1
-      finalData["preset_kvp1"] = machine.data["g1_preset_kvp"];
-      finalData["mas1"] = machine.data["g1_preset_mas"];
-      finalData["preset_time1"] = machine.data["g1_preset_time"];
+      finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
+      finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
+      finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
 
       // Group 2: Exp 2-5
-      finalData["preset_kvp2"] = machine.data["g2_preset_kvp"];
-      finalData["mas2"] = machine.data["g2_preset_mas"];
-      finalData["preset_time2"] = machine.data["g2_preset_time"];
+      finalData["preset_kvp2"] = machine.data["g2_preset_kvp"] || "70";
+      finalData["mas2"] = machine.data["g2_preset_mas"] || "16";
+      finalData["preset_time2"] = machine.data["g2_preset_time"] || "";
 
       // Group 3: Exp 6
-      finalData["preset_kvp3"] = machine.data["g3_preset_kvp"];
-      finalData["mas3"] = machine.data["g3_preset_mas"];
-      finalData["preset_time3"] = machine.data["g3_preset_time"];
+      finalData["preset_kvp3"] = machine.data["g3_preset_kvp"] || "70";
+      finalData["mas3"] = machine.data["g3_preset_mas"] || "20";
+      finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
 
       // Group 4: Exp 7 & 8
-      finalData["mas4"] = machine.data["g4_preset_mas"];
+      finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
       // Calculations
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
-      const mas1 = parseFloat(machine.data["g1_preset_mas"] || "10");
+      const mas1 = parseFloat(finalData["mas1"]);
       finalData["g1_calc"] =
         g1_mr > 0 && mas1 > 0 ? (g1_mr / mas1).toFixed(2) : "";
 
-      const mas2 = parseFloat(machine.data["g2_preset_mas"] || "16");
+      const mas2 = parseFloat(finalData["mas2"]);
       const r1 = parseFloat(machine.data["g2a_mr"] || "0");
       const r2 = parseFloat(machine.data["g2b_mr"] || "0");
       const r3 = parseFloat(machine.data["g2c_mr"] || "0");
@@ -523,11 +606,11 @@ export default function RayScanLocal() {
       if (count > 0) {
         const avg = sum / count;
         finalData["g2_avg"] = avg.toFixed(2);
-        finalData["g2_calc"] = (avg / mas2).toFixed(2);
+        if (mas2 > 0) finalData["g2_calc"] = (avg / mas2).toFixed(2);
       }
 
       const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
-      const mas3 = parseFloat(machine.data["g3_preset_mas"] || "20");
+      const mas3 = parseFloat(finalData["mas3"]);
       finalData["g3_calc"] =
         g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
     }
@@ -564,9 +647,23 @@ export default function RayScanLocal() {
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
-        <div className="space-y-4">
-          <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
-            <strong>Engine:</strong> Gemini 2.0 Flash
+        <div className="space-y-6">
+          {/* API KEY INPUT */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <Key className="text-blue-500" size={20} />
+              <h3 className="font-bold text-slate-700">Gemini API Key</h3>
+            </div>
+            <input
+              type="text"
+              value={apiKey}
+              onChange={handleApiKeyChange}
+              placeholder="Paste your AIza... key here"
+              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <p className="text-[11px] text-slate-400 mt-2">
+              Key is saved locally in your browser.
+            </p>
           </div>
 
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
@@ -933,7 +1030,6 @@ export default function RayScanLocal() {
                       }
                     />
                   </div>
-                  {/* CONDITIONAL TIME INPUT */}
                   {step.defaultPresets.time !== null && (
                     <div className="flex-1">
                       <label className="text-[8px] uppercase font-bold text-slate-400">
