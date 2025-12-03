@@ -374,7 +374,7 @@ export default function RayScanLocal() {
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
         <div className="space-y-4">
           <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-800 text-sm">
-            <strong>Engine:</strong> Gemini 1.5 Flash
+            <strong>Engine:</strong> Gemini 2.0 Flash
           </div>
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
