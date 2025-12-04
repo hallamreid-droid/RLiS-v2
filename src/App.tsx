@@ -293,14 +293,13 @@ const GENERAL_STEPS = [
   },
 ];
 
-export default function RayScanLocal() {
+export default function App(): JSX.Element | null {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
-
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({ dental: null, general: null });
@@ -308,13 +307,10 @@ export default function RayScanLocal() {
     dental: "No Template",
     general: "No Template",
   });
-
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
 
-  // --- INIT & MIGRATION ---
   useEffect(() => {
-    // Inject Tailwind
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
       script.src = "https://cdn.tailwindcss.com";
@@ -322,32 +318,12 @@ export default function RayScanLocal() {
       document.head.appendChild(script);
     }
 
-    // Load API Key
+    const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedMachines) setMachines(JSON.parse(savedMachines));
+
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
 
-    // Load & Migrate Machines (CRITICAL FIX FOR BLANK SCREEN)
-    const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedMachines) {
-      try {
-        const parsed: any[] = JSON.parse(savedMachines);
-        const migrated = parsed.map((m) => ({
-          ...m,
-          // Default to dental if missing (migrates old data)
-          inspectionType: m.inspectionType || "dental",
-          // Default empty strings if missing
-          make: m.make || "",
-          model: m.model || "",
-          serial: m.serial || "",
-          data: m.data || {},
-        }));
-        setMachines(migrated);
-      } catch (e) {
-        console.error("Failed to load machines", e);
-      }
-    }
-
-    // Load Templates
     getTemplatesFromDB().then((storedTemplates) => {
       const loadedTemplates: any = { ...templates };
       const loadedNames: any = { ...templateNames };
@@ -427,7 +403,6 @@ export default function RayScanLocal() {
             facility = parts[0].trim();
             fullDetails = parts[1].replace(")", "");
 
-            // Parse Make/Model/Serial
             const detailsParts = fullDetails.split(/-\s+/);
             if (detailsParts.length >= 3) {
               make = detailsParts[0].trim();
@@ -597,8 +572,14 @@ export default function RayScanLocal() {
       ...machine.data,
     };
 
+    // --- FIXED DENTAL MAPPING ---
+    if (machine.inspectionType === "dental") {
+      finalData["preset kvp"] = machine.data["preset_kvp"];
+      finalData["preset mas"] = machine.data["preset_mas"];
+      finalData["preset time"] = machine.data["preset_time"];
+    }
+
     if (machine.inspectionType === "general") {
-      // DEFAULTS
       finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
       finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
       finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
@@ -613,7 +594,6 @@ export default function RayScanLocal() {
 
       finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
-      // CALCS
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = parseFloat(finalData["mas1"]);
       finalData["g1_calc"] =
@@ -677,7 +657,6 @@ export default function RayScanLocal() {
   const currentSteps =
     activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS;
 
-  // --- UI ---
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -1219,19 +1198,8 @@ export default function RayScanLocal() {
                   <div className="font-bold text-sm text-slate-800">
                     {m.location}
                   </div>
-                  <div className="flex gap-2 items-center mt-1">
-                    <span
-                      className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        m.inspectionType === "general"
-                          ? "bg-purple-100 text-purple-700"
-                          : "bg-blue-100 text-blue-700"
-                      }`}
-                    >
-                      {m.inspectionType}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {m.fullDetails}
-                    </span>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {m.fullDetails}
                   </div>
                 </div>
                 {m.isComplete ? (
