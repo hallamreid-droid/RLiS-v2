@@ -320,26 +320,11 @@ export default function App(): JSX.Element | null {
       document.head.appendChild(script);
     }
 
+    const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedMachines) setMachines(JSON.parse(savedMachines));
+
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
-
-    const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedMachines) {
-      try {
-        const parsed: any[] = JSON.parse(savedMachines);
-        const migrated = parsed.map((m) => ({
-          ...m,
-          inspectionType: m.inspectionType || "dental",
-          make: m.make || "",
-          model: m.model || "",
-          serial: m.serial || "",
-          data: m.data || {},
-        }));
-        setMachines(migrated);
-      } catch (e) {
-        console.error("Failed to load machines", e);
-      }
-    }
 
     getTemplatesFromDB().then((storedTemplates) => {
       const loadedTemplates: any = { ...templates };
@@ -440,9 +425,9 @@ export default function App(): JSX.Element | null {
           const rawString = row["Entity Name"] || "";
           let fullDetails = "Unknown Machine";
           let facility = rawString;
-          let make = "";
-          let model = "";
-          let serial = "";
+          let make = "",
+            model = "",
+            serial = "";
 
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
@@ -503,44 +488,30 @@ export default function App(): JSX.Element | null {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
       const imagePart = await fileToGenerativePart(file);
-
       const prompt = `
         Analyze this image of a RaySafe x-ray measurement screen.
-        Extract the following values:
-        - kVp (Kilovoltage Peak)
-        - mR (Exposure/Dose, usually in mGy, uGy, or mR)
-        - Time (Exposure time, usually in ms or s)
-        - HVL (Half Value Layer, usually in mm Al)
-
-        Return ONLY a JSON object with keys: "kvp", "mR", "time", "hvl".
-        If a value is not visible, use null. 
-        Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
+        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al).
+        Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
       `;
-
       const result = await model.generateContent([prompt, imagePart as any]);
-      const response = await result.response;
-      const text = response.text();
-      const cleanedText = text
+      const text = result.response
+        .text()
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim();
-      const data = JSON.parse(cleanedText);
-
+      const data = JSON.parse(text);
       setLastScannedText(JSON.stringify(data));
 
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const key = indices[i];
         const val = data[key];
-        if (val !== null && val !== undefined) {
-          updates[field] = val.toString();
-        }
+        if (val !== null && val !== undefined) updates[field] = val.toString();
       });
 
       if (Object.keys(updates).length > 0) {
-        if (activeMachineId) {
+        if (activeMachineId)
           setMachines((prev) =>
             prev.map((m) =>
               m.id === activeMachineId
@@ -548,7 +519,6 @@ export default function App(): JSX.Element | null {
                 : m
             )
           );
-        }
       } else {
         alert("Gemini analyzed the image but couldn't find the specific data.");
       }
@@ -566,9 +536,7 @@ export default function App(): JSX.Element | null {
     indices: string[]
   ) => {
     const file = e.target.files?.[0];
-    if (file) {
-      performGeminiScan(file, fields, indices);
-    }
+    if (file) performGeminiScan(file, fields, indices);
   };
 
   const updateField = (key: string, value: string) => {
@@ -719,7 +687,6 @@ export default function App(): JSX.Element | null {
   }, [view, activeMachineId]);
 
   // --- UI ROUTER ---
-
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -899,7 +866,7 @@ export default function App(): JSX.Element | null {
               <div
                 className={`h-10 w-10 rounded-full flex items-center justify-center ${
                   m.isComplete
-                    ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
+                    ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200 cursor-pointer"
                     : "bg-slate-100 text-slate-400"
                 }`}
               >
@@ -1215,9 +1182,9 @@ export default function App(): JSX.Element | null {
           Machines Loaded
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
+          <label className="col-span-2 bg-slate-50 text-slate-600 py-6 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
             <div className="flex justify-center mb-2">
-              <FileSpreadsheet size={20} className="text-emerald-600" />
+              <FileSpreadsheet size={24} className="text-emerald-600" />
             </div>
             Import Excel
             <input
@@ -1227,16 +1194,6 @@ export default function App(): JSX.Element | null {
               className="hidden"
             />
           </label>
-          <button
-            onClick={() => setView("mobile-list")}
-            disabled={machines.length === 0}
-            className="bg-blue-600 text-white py-4 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-blue-200"
-          >
-            <div className="flex justify-center mb-2">
-              <Camera size={20} />
-            </div>
-            Start Scan
-          </button>
         </div>
       </div>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
