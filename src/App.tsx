@@ -294,12 +294,13 @@ const GENERAL_STEPS = [
 ];
 
 export default function App(): JSX.Element | null {
-  const [view, setView] = useState<
-    "dashboard" | "mobile-list" | "mobile-form" | "settings"
-  >("dashboard");
+  const [view, setView] = useState<"dashboard" | "mobile-form" | "settings">(
+    "dashboard"
+  );
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({ dental: null, general: null });
@@ -307,11 +308,11 @@ export default function App(): JSX.Element | null {
     dental: "No Template",
     general: "No Template",
   });
+
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [isParsingDetails, setIsParsingDetails] = useState(false);
 
-  // --- INIT ---
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -320,11 +321,26 @@ export default function App(): JSX.Element | null {
       document.head.appendChild(script);
     }
 
-    const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedMachines) setMachines(JSON.parse(savedMachines));
-
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
+
+    const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedMachines) {
+      try {
+        const parsed: any[] = JSON.parse(savedMachines);
+        const migrated = parsed.map((m) => ({
+          ...m,
+          inspectionType: m.inspectionType || "dental",
+          make: m.make || "",
+          model: m.model || "",
+          serial: m.serial || "",
+          data: m.data || {},
+        }));
+        setMachines(migrated);
+      } catch (e) {
+        console.error("Failed to load machines", e);
+      }
+    }
 
     getTemplatesFromDB().then((storedTemplates) => {
       const loadedTemplates: any = { ...templates };
@@ -342,7 +358,6 @@ export default function App(): JSX.Element | null {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
-  // --- HANDLERS ---
   const parseDetailsWithGemini = async (machine: Machine) => {
     if (!apiKey || (machine.make && machine.model && machine.serial)) return;
     setIsParsingDetails(true);
@@ -536,7 +551,9 @@ export default function App(): JSX.Element | null {
     indices: string[]
   ) => {
     const file = e.target.files?.[0];
-    if (file) performGeminiScan(file, fields, indices);
+    if (file) {
+      performGeminiScan(file, fields, indices);
+    }
   };
 
   const updateField = (key: string, value: string) => {
@@ -560,17 +577,20 @@ export default function App(): JSX.Element | null {
     );
   };
 
+  // --- COMPLETION HANDLER ---
   const markAsComplete = () => {
     if (!activeMachineId) return;
+    // Just mark as complete and go back to dashboard
     setMachines((prev) =>
       prev.map((m) =>
         m.id === activeMachineId ? { ...m, isComplete: true } : m
       )
     );
-    setView("mobile-list");
     setActiveMachineId(null);
+    setView("dashboard"); // Go back to dashboard
   };
 
+  // --- GENERATE DOC (Pure function, no navigation) ---
   const generateDoc = (machine: Machine) => {
     const selectedTemplate = templates[machine.inspectionType];
     if (!selectedTemplate) {
@@ -820,83 +840,14 @@ export default function App(): JSX.Element | null {
       </div>
     );
 
-  if (view === "mobile-list")
-    return (
-      <div className="min-h-screen bg-slate-100 pb-20 font-sans">
-        <header className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-20">
-          <button
-            onClick={() => setView("dashboard")}
-            className="p-1 hover:bg-blue-800 rounded-lg transition-colors active:scale-95 flex items-center gap-1 text-sm font-bold"
-          >
-            <ArrowLeft size={20} /> Back
-          </button>
-          <h1 className="font-bold text-lg">My Inspections</h1>
-          <div className="w-10"></div>
-        </header>
-        <div className="p-4 space-y-3">
-          {machines.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => {
-                if (m.isComplete) return;
-                setActiveMachineId(m.id);
-                setView("mobile-form");
-              }}
-              className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center cursor-pointer active:scale-95 transition-transform border border-slate-100 hover:border-blue-200"
-            >
-              <div>
-                <div className="font-bold text-lg text-blue-900">
-                  {m.location}
-                </div>
-                <div className="flex gap-2 items-center mt-1">
-                  <span
-                    className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                      m.inspectionType === "general"
-                        ? "bg-purple-100 text-purple-700"
-                        : "bg-blue-100 text-blue-700"
-                    }`}
-                  >
-                    {m.inspectionType}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {m.fullDetails}
-                  </span>
-                </div>
-              </div>
-              <div
-                className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                  m.isComplete
-                    ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200 cursor-pointer"
-                    : "bg-slate-100 text-slate-400"
-                }`}
-              >
-                {m.isComplete ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      generateDoc(m);
-                    }}
-                    className="flex items-center justify-center w-full h-full"
-                  >
-                    <Download size={20} />
-                  </button>
-                ) : (
-                  <ChevronRight size={20} />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-
+  // --- MOBILE FORM VIEW ---
   if (view === "mobile-form" && activeMachine)
     return (
       <div className="min-h-screen bg-slate-50 pb-24 font-sans">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
-              onClick={() => setView("mobile-list")}
+              onClick={() => setView("dashboard")}
               className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
             >
               <ArrowLeft className="text-slate-600" />
@@ -940,6 +891,7 @@ export default function App(): JSX.Element | null {
           </div>
         </header>
         <div className="p-4 space-y-6">
+          {/* MACHINE SETTINGS */}
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
               Machine Settings
@@ -1014,6 +966,7 @@ export default function App(): JSX.Element | null {
             </div>
           </div>
 
+          {/* AI DEBUG AREA */}
           {lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1 text-slate-700">AI Response:</div>
@@ -1021,6 +974,7 @@ export default function App(): JSX.Element | null {
             </div>
           )}
 
+          {/* STEPS */}
           {currentSteps.map((step: any) => (
             <div
               key={step.id}
@@ -1158,6 +1112,7 @@ export default function App(): JSX.Element | null {
       </div>
     );
 
+  // --- DASHBOARD VIEW (DEFAULT) ---
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans">
       <header className="flex justify-between items-center mb-8">
@@ -1232,8 +1187,19 @@ export default function App(): JSX.Element | null {
                   <div className="font-bold text-sm text-slate-800">
                     {m.location}
                   </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {m.fullDetails}
+                  <div className="flex gap-2 items-center mt-1">
+                    <span
+                      className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        m.inspectionType === "general"
+                          ? "bg-purple-100 text-purple-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {m.inspectionType}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {m.fullDetails}
+                    </span>
                   </div>
                 </div>
                 {m.isComplete ? (
