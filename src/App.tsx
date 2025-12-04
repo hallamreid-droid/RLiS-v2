@@ -309,7 +309,9 @@ export default function App(): JSX.Element | null {
   });
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
+  const [isParsingDetails, setIsParsingDetails] = useState(false);
 
+  // --- INIT ---
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -318,11 +320,26 @@ export default function App(): JSX.Element | null {
       document.head.appendChild(script);
     }
 
-    const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedMachines) setMachines(JSON.parse(savedMachines));
-
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
+
+    const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedMachines) {
+      try {
+        const parsed: any[] = JSON.parse(savedMachines);
+        const migrated = parsed.map((m) => ({
+          ...m,
+          inspectionType: m.inspectionType || "dental",
+          make: m.make || "",
+          model: m.model || "",
+          serial: m.serial || "",
+          data: m.data || {},
+        }));
+        setMachines(migrated);
+      } catch (e) {
+        console.error("Failed to load machines", e);
+      }
+    }
 
     getTemplatesFromDB().then((storedTemplates) => {
       const loadedTemplates: any = { ...templates };
@@ -340,6 +357,35 @@ export default function App(): JSX.Element | null {
     localStorage.setItem("rayScanMachines", JSON.stringify(machines));
   }, [machines]);
 
+  // --- HANDLERS ---
+  const parseDetailsWithGemini = async (machine: Machine) => {
+    if (!apiKey || (machine.make && machine.model && machine.serial)) return;
+    setIsParsingDetails(true);
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
+      const result = await model.generateContent(prompt);
+      const text = result.response
+        .text()
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      const data = JSON.parse(text);
+      setMachines((prev) =>
+        prev.map((m) =>
+          m.id === machine.id
+            ? { ...m, make: data.make, model: data.model, serial: data.serial }
+            : m
+        )
+      );
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsParsingDetails(false);
+    }
+  };
+
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setApiKey(val);
@@ -349,11 +395,9 @@ export default function App(): JSX.Element | null {
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     Array.from(files).forEach((file) => {
       const name = file.name.toLowerCase();
       let type: InspectionType | null = null;
-
       if (name.includes("dental")) type = "dental";
       else if (name.includes("gen") || name.includes("rad")) type = "general";
 
@@ -394,15 +438,14 @@ export default function App(): JSX.Element | null {
           const rawString = row["Entity Name"] || "";
           let fullDetails = "Unknown Machine";
           let facility = rawString;
-          let make = "";
-          let model = "";
-          let serial = "";
+          let make = "",
+            model = "",
+            serial = "";
 
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
             facility = parts[0].trim();
             fullDetails = parts[1].replace(")", "");
-
             const detailsParts = fullDetails.split(/-\s+/);
             if (detailsParts.length >= 3) {
               make = detailsParts[0].trim();
@@ -429,7 +472,7 @@ export default function App(): JSX.Element | null {
             model,
             serial,
             type: credentialType || row["Inspection Form"] || "Unknown",
-            inspectionType: inspectionType,
+            inspectionType,
             location: row["Credential #"] || facility,
             registrantName: facility,
             data: {},
@@ -453,49 +496,34 @@ export default function App(): JSX.Element | null {
       alert("Please go to Settings and enter your Google API Key first.");
       return;
     }
-
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
       const imagePart = await fileToGenerativePart(file);
-
       const prompt = `
         Analyze this image of a RaySafe x-ray measurement screen.
-        Extract the following values:
-        - kVp (Kilovoltage Peak)
-        - mR (Exposure/Dose, usually in mGy, uGy, or mR)
-        - Time (Exposure time, usually in ms or s)
-        - HVL (Half Value Layer, usually in mm Al)
-
-        Return ONLY a JSON object with keys: "kvp", "mR", "time", "hvl".
-        If a value is not visible, use null. 
-        Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
+        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al).
+        Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
       `;
-
       const result = await model.generateContent([prompt, imagePart as any]);
-      const response = await result.response;
-      const text = response.text();
-      const cleanedText = text
+      const text = result.response
+        .text()
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim();
-      const data = JSON.parse(cleanedText);
-
+      const data = JSON.parse(text);
       setLastScannedText(JSON.stringify(data));
 
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const key = indices[i];
         const val = data[key];
-        if (val !== null && val !== undefined) {
-          updates[field] = val.toString();
-        }
+        if (val !== null && val !== undefined) updates[field] = val.toString();
       });
 
       if (Object.keys(updates).length > 0) {
-        if (activeMachineId) {
+        if (activeMachineId)
           setMachines((prev) =>
             prev.map((m) =>
               m.id === activeMachineId
@@ -503,7 +531,6 @@ export default function App(): JSX.Element | null {
                 : m
             )
           );
-        }
       } else {
         alert("Gemini analyzed the image but couldn't find the specific data.");
       }
@@ -521,9 +548,7 @@ export default function App(): JSX.Element | null {
     indices: string[]
   ) => {
     const file = e.target.files?.[0];
-    if (file) {
-      performGeminiScan(file, fields, indices);
-    }
+    if (file) performGeminiScan(file, fields, indices);
   };
 
   const updateField = (key: string, value: string) => {
@@ -547,6 +572,19 @@ export default function App(): JSX.Element | null {
     );
   };
 
+  // --- NEW MARK AS COMPLETE LOGIC ---
+  const markAsComplete = () => {
+    if (!activeMachineId) return;
+    setMachines((prev) =>
+      prev.map((m) =>
+        m.id === activeMachineId ? { ...m, isComplete: true } : m
+      )
+    );
+    setView("mobile-list");
+    setActiveMachineId(null);
+  };
+
+  // --- GENERATE DOC (Now only generates, doesn't complete) ---
   const generateDoc = (machine: Machine) => {
     const selectedTemplate = templates[machine.inspectionType];
     if (!selectedTemplate) {
@@ -572,7 +610,6 @@ export default function App(): JSX.Element | null {
       ...machine.data,
     };
 
-    // --- FIXED DENTAL MAPPING ---
     if (machine.inspectionType === "dental") {
       finalData["preset kvp"] = machine.data["preset_kvp"];
       finalData["preset mas"] = machine.data["preset_mas"];
@@ -583,15 +620,12 @@ export default function App(): JSX.Element | null {
       finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
       finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
       finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
-
       finalData["preset_kvp2"] = machine.data["g2_preset_kvp"] || "70";
       finalData["mas2"] = machine.data["g2_preset_mas"] || "16";
       finalData["preset_time2"] = machine.data["g2_preset_time"] || "";
-
       finalData["preset_kvp3"] = machine.data["g3_preset_kvp"] || "70";
       finalData["mas3"] = machine.data["g3_preset_mas"] || "20";
       finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
-
       finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
@@ -641,9 +675,6 @@ export default function App(): JSX.Element | null {
       finalData,
       `Inspection_${machine.location}.docx`
     );
-    setMachines((prev) =>
-      prev.map((m) => (m.id === machine.id ? { ...m, isComplete: true } : m))
-    );
   };
 
   const clearAll = () => {
@@ -656,6 +687,20 @@ export default function App(): JSX.Element | null {
   const activeMachine = machines.find((m) => m.id === activeMachineId);
   const currentSteps =
     activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS;
+
+  useEffect(() => {
+    if (view === "mobile-form" && activeMachine && apiKey) {
+      if (
+        !activeMachine.make &&
+        !activeMachine.model &&
+        !activeMachine.serial
+      ) {
+        parseDetailsWithGemini(activeMachine);
+      }
+    }
+  }, [view, activeMachineId]);
+
+  // --- UI ROUTER ---
 
   if (view === "settings")
     return (
@@ -808,6 +853,7 @@ export default function App(): JSX.Element | null {
             <div
               key={m.id}
               onClick={() => {
+                if (m.isComplete) return; // Don't open form if complete
                 setActiveMachineId(m.id);
                 setView("mobile-form");
               }}
@@ -833,16 +879,23 @@ export default function App(): JSX.Element | null {
                 </div>
               </div>
               <div
-                className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                className={`h-10 w-10 rounded-full flex items-center justify-center ${
                   m.isComplete
-                    ? "bg-emerald-100 text-emerald-600"
+                    ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
                     : "bg-slate-100 text-slate-400"
                 }`}
               >
                 {m.isComplete ? (
-                  <CheckCircle size={18} />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      generateDoc(m);
+                    }}
+                  >
+                    <Download size={20} />
+                  </button>
                 ) : (
-                  <ChevronRight size={18} />
+                  <ChevronRight size={20} />
                 )}
               </div>
             </div>
@@ -1110,10 +1163,10 @@ export default function App(): JSX.Element | null {
         </div>
         <div className="fixed bottom-0 w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
           <button
-            onClick={() => generateDoc(activeMachine)}
-            className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg flex justify-center gap-2 active:scale-95 transition-transform"
+            onClick={markAsComplete}
+            className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg flex justify-center gap-2 active:scale-95 transition-transform"
           >
-            <Download className="h-5 w-5" /> Save Report
+            <CheckCircle className="h-5 w-5" /> Complete Inspection
           </button>
         </div>
       </div>
@@ -1192,6 +1245,11 @@ export default function App(): JSX.Element | null {
             {machines.map((m) => (
               <div
                 key={m.id}
+                onClick={() => {
+                  if (m.isComplete) return;
+                  setActiveMachineId(m.id);
+                  setView("mobile-form");
+                }}
                 className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors"
               >
                 <div>
@@ -1203,9 +1261,15 @@ export default function App(): JSX.Element | null {
                   </div>
                 </div>
                 {m.isComplete ? (
-                  <div className="bg-emerald-100 p-1.5 rounded-full">
-                    <CheckCircle className="text-emerald-600 h-4 w-4" />
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      generateDoc(m);
+                    }}
+                    className="bg-emerald-100 p-2 rounded-full text-emerald-600"
+                  >
+                    <Download size={18} />
+                  </button>
                 ) : (
                   <div className="bg-slate-100 p-1.5 rounded-full">
                     <ChevronRight className="text-slate-400 h-4 w-4" />
