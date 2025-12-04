@@ -395,9 +395,11 @@ export default function App(): JSX.Element | null {
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+
     Array.from(files).forEach((file) => {
       const name = file.name.toLowerCase();
       let type: InspectionType | null = null;
+
       if (name.includes("dental")) type = "dental";
       else if (name.includes("gen") || name.includes("rad")) type = "general";
 
@@ -438,9 +440,9 @@ export default function App(): JSX.Element | null {
           const rawString = row["Entity Name"] || "";
           let fullDetails = "Unknown Machine";
           let facility = rawString;
-          let make = "",
-            model = "",
-            serial = "";
+          let make = "";
+          let model = "";
+          let serial = "";
 
           if (rawString.includes("(") && rawString.includes(")")) {
             const parts = rawString.split("(");
@@ -496,34 +498,49 @@ export default function App(): JSX.Element | null {
       alert("Please go to Settings and enter your Google API Key first.");
       return;
     }
+
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
       const imagePart = await fileToGenerativePart(file);
+
       const prompt = `
         Analyze this image of a RaySafe x-ray measurement screen.
-        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al).
-        Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
+        Extract the following values:
+        - kVp (Kilovoltage Peak)
+        - mR (Exposure/Dose, usually in mGy, uGy, or mR)
+        - Time (Exposure time, usually in ms or s)
+        - HVL (Half Value Layer, usually in mm Al)
+
+        Return ONLY a JSON object with keys: "kvp", "mR", "time", "hvl".
+        If a value is not visible, use null. 
+        Example format: { "kvp": 70.2, "mR": 3.4, "time": 0.15, "hvl": 2.1 }
       `;
+
       const result = await model.generateContent([prompt, imagePart as any]);
-      const text = result.response
-        .text()
+      const response = await result.response;
+      const text = response.text();
+      const cleanedText = text
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim();
-      const data = JSON.parse(text);
+      const data = JSON.parse(cleanedText);
+
       setLastScannedText(JSON.stringify(data));
 
       const updates: Record<string, string> = {};
       targetFields.forEach((field, i) => {
         const key = indices[i];
         const val = data[key];
-        if (val !== null && val !== undefined) updates[field] = val.toString();
+        if (val !== null && val !== undefined) {
+          updates[field] = val.toString();
+        }
       });
 
       if (Object.keys(updates).length > 0) {
-        if (activeMachineId)
+        if (activeMachineId) {
           setMachines((prev) =>
             prev.map((m) =>
               m.id === activeMachineId
@@ -531,6 +548,7 @@ export default function App(): JSX.Element | null {
                 : m
             )
           );
+        }
       } else {
         alert("Gemini analyzed the image but couldn't find the specific data.");
       }
@@ -548,7 +566,9 @@ export default function App(): JSX.Element | null {
     indices: string[]
   ) => {
     const file = e.target.files?.[0];
-    if (file) performGeminiScan(file, fields, indices);
+    if (file) {
+      performGeminiScan(file, fields, indices);
+    }
   };
 
   const updateField = (key: string, value: string) => {
@@ -572,7 +592,6 @@ export default function App(): JSX.Element | null {
     );
   };
 
-  // --- NEW MARK AS COMPLETE LOGIC ---
   const markAsComplete = () => {
     if (!activeMachineId) return;
     setMachines((prev) =>
@@ -584,7 +603,6 @@ export default function App(): JSX.Element | null {
     setActiveMachineId(null);
   };
 
-  // --- GENERATE DOC (Now only generates, doesn't complete) ---
   const generateDoc = (machine: Machine) => {
     const selectedTemplate = templates[machine.inspectionType];
     if (!selectedTemplate) {
@@ -853,7 +871,7 @@ export default function App(): JSX.Element | null {
             <div
               key={m.id}
               onClick={() => {
-                if (m.isComplete) return; // Don't open form if complete
+                if (m.isComplete) return;
                 setActiveMachineId(m.id);
                 setView("mobile-form");
               }}
@@ -891,6 +909,7 @@ export default function App(): JSX.Element | null {
                       e.stopPropagation();
                       generateDoc(m);
                     }}
+                    className="flex items-center justify-center w-full h-full"
                   >
                     <Download size={20} />
                   </button>
@@ -1266,7 +1285,7 @@ export default function App(): JSX.Element | null {
                       e.stopPropagation();
                       generateDoc(m);
                     }}
-                    className="bg-emerald-100 p-2 rounded-full text-emerald-600"
+                    className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
                   >
                     <Download size={18} />
                   </button>
