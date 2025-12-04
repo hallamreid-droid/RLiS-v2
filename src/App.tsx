@@ -145,11 +145,13 @@ const createWordDoc = (
       linebreaks: true,
     });
     doc.render(data);
-    const out = doc.getZip().generate({
-      type: "blob",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    const out = doc
+      .getZip()
+      .generate({
+        type: "blob",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
     saveAs(out, filename);
   } catch (error) {
     console.error(error);
@@ -291,13 +293,14 @@ const GENERAL_STEPS = [
   },
 ];
 
-export default function App(): JSX.Element | null {
+export default function RayScanLocal() {
   const [view, setView] = useState<
     "dashboard" | "mobile-list" | "mobile-form" | "settings"
   >("dashboard");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({ dental: null, general: null });
@@ -305,10 +308,13 @@ export default function App(): JSX.Element | null {
     dental: "No Template",
     general: "No Template",
   });
+
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
 
+  // --- INIT & MIGRATION ---
   useEffect(() => {
+    // Inject Tailwind
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
       script.src = "https://cdn.tailwindcss.com";
@@ -316,21 +322,39 @@ export default function App(): JSX.Element | null {
       document.head.appendChild(script);
     }
 
-    const savedMachines = localStorage.getItem("rayScanMachines");
-    if (savedMachines) setMachines(JSON.parse(savedMachines));
-
+    // Load API Key
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
 
+    // Load & Migrate Machines (CRITICAL FIX FOR BLANK SCREEN)
+    const savedMachines = localStorage.getItem("rayScanMachines");
+    if (savedMachines) {
+      try {
+        const parsed: any[] = JSON.parse(savedMachines);
+        const migrated = parsed.map((m) => ({
+          ...m,
+          // Default to dental if missing (migrates old data)
+          inspectionType: m.inspectionType || "dental",
+          // Default empty strings if missing
+          make: m.make || "",
+          model: m.model || "",
+          serial: m.serial || "",
+          data: m.data || {},
+        }));
+        setMachines(migrated);
+      } catch (e) {
+        console.error("Failed to load machines", e);
+      }
+    }
+
+    // Load Templates
     getTemplatesFromDB().then((storedTemplates) => {
       const loadedTemplates: any = { ...templates };
       const loadedNames: any = { ...templateNames };
-
       storedTemplates.forEach((t) => {
         loadedTemplates[t.type] = t.buffer;
         loadedNames[t.type] = t.name;
       });
-
       setTemplates(loadedTemplates);
       setTemplateNames(loadedNames);
     });
@@ -403,8 +427,7 @@ export default function App(): JSX.Element | null {
             facility = parts[0].trim();
             fullDetails = parts[1].replace(")", "");
 
-            // --- STRING SPLITTER ---
-            // Split by hyphen followed by a space OR space-hyphen-space
+            // Parse Make/Model/Serial
             const detailsParts = fullDetails.split(/-\s+/);
             if (detailsParts.length >= 3) {
               make = detailsParts[0].trim();
@@ -427,9 +450,9 @@ export default function App(): JSX.Element | null {
           return {
             id: `mach_${Date.now()}_${index}`,
             fullDetails: fullDetails,
-            make: make,
-            model: model,
-            serial: serial,
+            make,
+            model,
+            serial,
             type: credentialType || row["Inspection Form"] || "Unknown",
             inspectionType: inspectionType,
             location: row["Credential #"] || facility,
@@ -539,7 +562,6 @@ export default function App(): JSX.Element | null {
     );
   };
 
-  // New: Update specific machine fields (Make/Model/Serial)
   const updateMachineDetails = (
     key: "make" | "model" | "serial",
     value: string
@@ -576,6 +598,7 @@ export default function App(): JSX.Element | null {
     };
 
     if (machine.inspectionType === "general") {
+      // DEFAULTS
       finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
       finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
       finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
@@ -590,6 +613,7 @@ export default function App(): JSX.Element | null {
 
       finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
+      // CALCS
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = parseFloat(finalData["mas1"]);
       finalData["g1_calc"] =
@@ -863,39 +887,40 @@ export default function App(): JSX.Element | null {
               {activeMachine.location}
             </div>
           </div>
-          <div className="text-xs text-slate-500 ml-11 flex gap-2">
-            <span
-              className={`uppercase font-bold px-2 rounded ${
-                activeMachine.inspectionType === "general"
-                  ? "bg-purple-100 text-purple-700"
-                  : "bg-blue-100 text-blue-700"
-              }`}
-            >
-              {activeMachine.inspectionType}
-            </span>
+          <div className="text-xs text-slate-500 ml-11 flex flex-col gap-2">
+            <div className="flex gap-2 items-center">
+              <span
+                className={`uppercase font-bold px-2 rounded ${
+                  activeMachine.inspectionType === "general"
+                    ? "bg-purple-100 text-purple-700"
+                    : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                {activeMachine.inspectionType}
+              </span>
+            </div>
             <div className="flex gap-1 text-[10px] font-mono">
               <input
                 className="bg-slate-50 border rounded px-1 w-16"
                 placeholder="Make"
-                value={activeMachine.make}
+                value={activeMachine.make || ""}
                 onChange={(e) => updateMachineDetails("make", e.target.value)}
               />
               <input
                 className="bg-slate-50 border rounded px-1 w-16"
                 placeholder="Model"
-                value={activeMachine.model}
+                value={activeMachine.model || ""}
                 onChange={(e) => updateMachineDetails("model", e.target.value)}
               />
               <input
                 className="bg-slate-50 border rounded px-1 w-16"
                 placeholder="Serial"
-                value={activeMachine.serial}
+                value={activeMachine.serial || ""}
                 onChange={(e) => updateMachineDetails("serial", e.target.value)}
               />
             </div>
           </div>
         </header>
-
         <div className="p-4 space-y-6">
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 text-sm mb-3">
@@ -1115,6 +1140,114 @@ export default function App(): JSX.Element | null {
       </div>
     );
 
-  // Fallback return to satisfy TypeScript
-  return null;
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 font-sans">
+      <header className="flex justify-between items-center mb-8">
+        <div className="flex gap-2 items-center">
+          <div className="bg-blue-600 p-2 rounded-lg">
+            <ScanLine className="text-white h-6 w-6" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
+        </div>
+        <button
+          onClick={() => setView("settings")}
+          className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
+        >
+          <Settings className="text-slate-600 h-5 w-5" />
+        </button>
+      </header>
+      <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
+        <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
+          {machines.length}
+        </div>
+        <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
+          Machines Loaded
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="bg-slate-50 text-slate-600 py-4 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
+            <div className="flex justify-center mb-2">
+              <FileSpreadsheet size={20} className="text-emerald-600" />
+            </div>
+            Import Excel
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={handleExcelUpload}
+              className="hidden"
+            />
+          </label>
+          <button
+            onClick={() => setView("mobile-list")}
+            disabled={machines.length === 0}
+            className="bg-blue-600 text-white py-4 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-blue-200"
+          >
+            <div className="flex justify-center mb-2">
+              <Camera size={20} />
+            </div>
+            Start Scan
+          </button>
+        </div>
+      </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Machine List
+          </span>
+          {machines.length > 0 && (
+            <button
+              onClick={clearAll}
+              className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+        {machines.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">
+            No machines loaded.
+            <br />
+            Import an ALiS Excel file to begin.
+          </div>
+        ) : (
+          <div className="max-h-96 overflow-y-auto">
+            {machines.map((m) => (
+              <div
+                key={m.id}
+                className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors"
+              >
+                <div>
+                  <div className="font-bold text-sm text-slate-800">
+                    {m.location}
+                  </div>
+                  <div className="flex gap-2 items-center mt-1">
+                    <span
+                      className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        m.inspectionType === "general"
+                          ? "bg-purple-100 text-purple-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {m.inspectionType}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {m.fullDetails}
+                    </span>
+                  </div>
+                </div>
+                {m.isComplete ? (
+                  <div className="bg-emerald-100 p-1.5 rounded-full">
+                    <CheckCircle className="text-emerald-600 h-4 w-4" />
+                  </div>
+                ) : (
+                  <div className="bg-slate-100 p-1.5 rounded-full">
+                    <ChevronRight className="text-slate-400 h-4 w-4" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
