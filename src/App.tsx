@@ -588,7 +588,7 @@ export default function App(): JSX.Element | null {
     setView("dashboard"); // Go back to dashboard
   };
 
-  // --- GENERATE DOC (Pure function, no navigation) ---
+  // --- GENERATE DOC (Updated with "<1" default) ---
   const generateDoc = (machine: Machine) => {
     const selectedTemplate = templates[machine.inspectionType];
     if (!selectedTemplate) {
@@ -618,6 +618,10 @@ export default function App(): JSX.Element | null {
       finalData["preset kvp"] = machine.data["preset_kvp"];
       finalData["preset mas"] = machine.data["preset_mas"];
       finalData["preset time"] = machine.data["preset_time"];
+
+      // FIX: Default to "<1" if empty
+      if (!finalData["operator location"])
+        finalData["operator location"] = "<1";
     }
 
     if (machine.inspectionType === "general") {
@@ -631,6 +635,9 @@ export default function App(): JSX.Element | null {
       finalData["mas3"] = machine.data["g3_preset_mas"] || "20";
       finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
       finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
+
+      // FIX: Default to "<1" if empty
+      if (!finalData["g6_scatter"]) finalData["g6_scatter"] = "<1";
 
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = parseFloat(finalData["mas1"]);
