@@ -15,7 +15,7 @@ import {
   UploadCloud,
   Key,
   XCircle,
-  AlertCircle, // Added icon for the dashboard status
+  AlertCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -608,11 +608,17 @@ export default function App(): JSX.Element | null {
   // --- COMPLETION HANDLER ---
   const markAsComplete = () => {
     if (!activeMachineId) return;
-    // Just mark as complete and go back to dashboard
+
     setMachines((prev) =>
-      prev.map((m) =>
-        m.id === activeMachineId ? { ...m, isComplete: true } : m
-      )
+      prev.map((m) => {
+        if (m.id === activeMachineId) {
+          // FIX: If we click Green Complete, we MUST remove any existing "No Data" reason.
+          // This allows the gray badge to disappear.
+          const { noDataReason, ...cleanData } = m.data;
+          return { ...m, isComplete: true, data: cleanData };
+        }
+        return m;
+      })
     );
     setActiveMachineId(null);
     setView("dashboard"); // Go back to dashboard
