@@ -14,6 +14,7 @@ import {
   FileText,
   UploadCloud,
   Key,
+  XCircle, // Added for the No Data button icon
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -211,7 +212,7 @@ const GENERAL_STEPS = [
     settingsGroup: "g1",
     showSettings: true,
     defaultPresets: { kvp: "70", mas: "10", time: "" },
-    indices: ["kvp", "mR", "time"],
+    indices: ["kvp", "mR", "time", "fields"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
   },
   {
@@ -298,6 +299,7 @@ export default function App(): JSX.Element | null {
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+  const [showNoDataModal, setShowNoDataModal] = useState(false); // NEW STATE FOR MODAL
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
@@ -575,6 +577,32 @@ export default function App(): JSX.Element | null {
     );
   };
 
+  // --- NEW HANDLER FOR NO DATA ---
+  const handleNoData = (reason: "operational" | "facility") => {
+    if (!activeMachineId) return;
+
+    const message =
+      reason === "operational"
+        ? "MACHINE NOT OPERATIONAL"
+        : "MACHINE NOT IN FACILITY";
+
+    setMachines((prev) =>
+      prev.map((m) =>
+        m.id === activeMachineId
+          ? {
+              ...m,
+              isComplete: true,
+              data: { ...m.data, noDataReason: message }, // Store reason
+            }
+          : m
+      )
+    );
+
+    setShowNoDataModal(false);
+    setActiveMachineId(null);
+    setView("dashboard");
+  };
+
   // --- COMPLETION HANDLER ---
   const markAsComplete = () => {
     if (!activeMachineId) return;
@@ -588,7 +616,7 @@ export default function App(): JSX.Element | null {
     setView("dashboard"); // Go back to dashboard
   };
 
-  // --- GENERATE DOC (Updated with "<1" default) ---
+  // --- GENERATE DOC (Updated with No Data logic) ---
   const generateDoc = (machine: Machine) => {
     const selectedTemplate = templates[machine.inspectionType];
     if (!selectedTemplate) {
@@ -614,71 +642,83 @@ export default function App(): JSX.Element | null {
       ...machine.data,
     };
 
-    if (machine.inspectionType === "dental") {
-      finalData["preset kvp"] = machine.data["preset_kvp"];
-      finalData["preset mas"] = machine.data["preset_mas"];
-      finalData["preset time"] = machine.data["preset_time"];
-
-      // FIX: Default to "<1" if empty
-      if (!finalData["operator location"])
-        finalData["operator location"] = "<1";
-    }
-
-    if (machine.inspectionType === "general") {
-      finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
-      finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
-      finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
-      finalData["preset_kvp2"] = machine.data["g2_preset_kvp"] || "70";
-      finalData["mas2"] = machine.data["g2_preset_mas"] || "16";
-      finalData["preset_time2"] = machine.data["g2_preset_time"] || "";
-      finalData["preset_kvp3"] = machine.data["g3_preset_kvp"] || "70";
-      finalData["mas3"] = machine.data["g3_preset_mas"] || "20";
-      finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
-      finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
-
-      // FIX: Default to "<1" if empty
-      if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
-
-      const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
-      const mas1 = parseFloat(finalData["mas1"]);
-      finalData["g1_calc"] =
-        g1_mr > 0 && mas1 > 0 ? (g1_mr / mas1).toFixed(2) : "";
-
-      const mas2 = parseFloat(finalData["mas2"]);
-      const r1 = parseFloat(machine.data["g2a_mr"] || "0");
-      const r2 = parseFloat(machine.data["g2b_mr"] || "0");
-      const r3 = parseFloat(machine.data["g2c_mr"] || "0");
-      const r4 = parseFloat(machine.data["g2d_mr"] || "0");
-
-      let count = 0,
-        sum = 0;
-      if (r1 > 0) {
-        sum += r1;
-        count++;
+    // CHECK: IS THIS A "NO DATA" MACHINE?
+    if (machine.data.noDataReason) {
+      // Logic for skipped machines
+      if (machine.inspectionType === "dental") {
+        finalData["preset kvp"] = machine.data.noDataReason;
+      } else {
+        finalData["note"] = machine.data.noDataReason; // Gen Rad goes to {note}
       }
-      if (r2 > 0) {
-        sum += r2;
-        count++;
-      }
-      if (r3 > 0) {
-        sum += r3;
-        count++;
-      }
-      if (r4 > 0) {
-        sum += r4;
-        count++;
+    } else {
+      // Logic for Standard Inspection (Calculations & Defaults)
+
+      if (machine.inspectionType === "dental") {
+        finalData["preset kvp"] = machine.data["preset_kvp"];
+        finalData["preset mas"] = machine.data["preset_mas"];
+        finalData["preset time"] = machine.data["preset_time"];
+
+        // FIX: Default to "<1" if empty
+        if (!finalData["operator location"])
+          finalData["operator location"] = "<1";
       }
 
-      if (count > 0) {
-        const avg = sum / count;
-        finalData["g2_avg"] = avg.toFixed(2);
-        if (mas2 > 0) finalData["g2_calc"] = (avg / mas2).toFixed(2);
-      }
+      if (machine.inspectionType === "general") {
+        finalData["preset_kvp1"] = machine.data["g1_preset_kvp"] || "70";
+        finalData["mas1"] = machine.data["g1_preset_mas"] || "10";
+        finalData["preset_time1"] = machine.data["g1_preset_time"] || "";
+        finalData["preset_kvp2"] = machine.data["g2_preset_kvp"] || "70";
+        finalData["mas2"] = machine.data["g2_preset_mas"] || "16";
+        finalData["preset_time2"] = machine.data["g2_preset_time"] || "";
+        finalData["preset_kvp3"] = machine.data["g3_preset_kvp"] || "70";
+        finalData["mas3"] = machine.data["g3_preset_mas"] || "20";
+        finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
+        finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
-      const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
-      const mas3 = parseFloat(finalData["mas3"]);
-      finalData["g3_calc"] =
-        g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
+        // FIX: Default to "<1" if empty (Scatter Operator)
+        if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
+
+        const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
+        const mas1 = parseFloat(finalData["mas1"]);
+        finalData["g1_calc"] =
+          g1_mr > 0 && mas1 > 0 ? (g1_mr / mas1).toFixed(2) : "";
+
+        const mas2 = parseFloat(finalData["mas2"]);
+        const r1 = parseFloat(machine.data["g2a_mr"] || "0");
+        const r2 = parseFloat(machine.data["g2b_mr"] || "0");
+        const r3 = parseFloat(machine.data["g2c_mr"] || "0");
+        const r4 = parseFloat(machine.data["g2d_mr"] || "0");
+
+        let count = 0,
+          sum = 0;
+        if (r1 > 0) {
+          sum += r1;
+          count++;
+        }
+        if (r2 > 0) {
+          sum += r2;
+          count++;
+        }
+        if (r3 > 0) {
+          sum += r3;
+          count++;
+        }
+        if (r4 > 0) {
+          sum += r4;
+          count++;
+        }
+
+        if (count > 0) {
+          const avg = sum / count;
+          finalData["g2_avg"] = avg.toFixed(2);
+          if (mas2 > 0) finalData["g2_calc"] = (avg / mas2).toFixed(2);
+        }
+
+        const g3_mr = parseFloat(machine.data["g3_mr"] || "0");
+        const mas3 = parseFloat(finalData["mas3"]);
+        finalData["g3_calc"] =
+          g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
+      }
     }
 
     createWordDoc(
@@ -848,7 +888,7 @@ export default function App(): JSX.Element | null {
   // --- MOBILE FORM VIEW ---
   if (view === "mobile-form" && activeMachine)
     return (
-      <div className="min-h-screen bg-slate-50 pb-24 font-sans">
+      <div className="min-h-screen bg-slate-50 pb-24 font-sans relative">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
@@ -1106,14 +1146,64 @@ export default function App(): JSX.Element | null {
             </div>
           ))}
         </div>
-        <div className="fixed bottom-0 w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
-          <button
-            onClick={markAsComplete}
-            className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg flex justify-center gap-2 active:scale-95 transition-transform"
-          >
-            <CheckCircle className="h-5 w-5" /> Complete Inspection
-          </button>
+
+        {/* --- FOOTER (Updated with No Data Button) --- */}
+        <div className="fixed bottom-0 w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-30">
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowNoDataModal(true)}
+              className="px-6 py-4 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl active:scale-95 transition-transform border border-red-200 flex flex-col items-center justify-center leading-none"
+            >
+              <XCircle size={20} className="mb-1" />
+              <span className="text-[10px]">No Data</span>
+            </button>
+
+            <button
+              onClick={markAsComplete}
+              className="flex-1 py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform"
+            >
+              <CheckCircle className="h-5 w-5" /> Complete Inspection
+            </button>
+          </div>
         </div>
+
+        {/* --- NO DATA MODAL --- */}
+        {showNoDataModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-6 text-center border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800">
+                  Reason for No Data
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Select why this machine was not inspected.
+                </p>
+              </div>
+              <div className="p-4 flex flex-col gap-3">
+                <button
+                  onClick={() => handleNoData("operational")}
+                  className="p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 text-left active:scale-95 transition-transform"
+                >
+                  1. Machine Not Operational
+                </button>
+                <button
+                  onClick={() => handleNoData("facility")}
+                  className="p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 text-left active:scale-95 transition-transform"
+                >
+                  2. Machine Not In Facility
+                </button>
+              </div>
+              <div className="p-4 pt-0">
+                <button
+                  onClick={() => setShowNoDataModal(false)}
+                  className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
 
@@ -1182,7 +1272,6 @@ export default function App(): JSX.Element | null {
               <div
                 key={m.id}
                 onClick={() => {
-                  // REMOVED THE "if(m.isComplete) return;" BLOCK HERE
                   setActiveMachineId(m.id);
                   setView("mobile-form");
                 }}
@@ -1208,19 +1297,15 @@ export default function App(): JSX.Element | null {
                   </div>
                 </div>
                 {m.isComplete ? (
-                  <div className="flex items-center gap-2">
-                    {/* Added a small edit icon for clarity */}
-                    <div className="p-2 text-slate-300"></div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation(); // Keeps the download button separate from the row click
-                        generateDoc(m);
-                      }}
-                      className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
-                    >
-                      <Download size={18} />
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      generateDoc(m);
+                    }}
+                    className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
+                  >
+                    <Download size={18} />
+                  </button>
                 ) : (
                   <div className="bg-slate-100 p-1.5 rounded-full">
                     <ChevronRight className="text-slate-400 h-4 w-4" />
