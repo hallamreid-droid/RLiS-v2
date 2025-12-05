@@ -14,7 +14,7 @@ import {
   FileText,
   UploadCloud,
   Key,
-  XCircle, // Added for the No Data button icon
+  XCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -144,6 +144,7 @@ const createWordDoc = (
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
+      nullGetter: () => "", // Safety net: replace any missing tags with empty string
     });
     doc.render(data);
     const out = doc.getZip().generate({
@@ -299,7 +300,7 @@ export default function App(): JSX.Element | null {
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
-  const [showNoDataModal, setShowNoDataModal] = useState(false); // NEW STATE FOR MODAL
+  const [showNoDataModal, setShowNoDataModal] = useState(false);
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
@@ -642,13 +643,95 @@ export default function App(): JSX.Element | null {
       ...machine.data,
     };
 
-    // CHECK: IS THIS A "NO DATA" MACHINE?
+    // --- FIX: DEFAULTS FOR TUBES ---
+    // If tube_no is empty, default to "1"
+    if (!finalData["tube_no"]) finalData["tube_no"] = "1";
+    // If num_tubes is empty (general only), default to "1"
+    if (machine.inspectionType === "general" && !finalData["num_tubes"])
+      finalData["num_tubes"] = "1";
+
+    // --- CHECK: IS THIS A "NO DATA" MACHINE? ---
     if (machine.data.noDataReason) {
-      // Logic for skipped machines
+      // Step 1: Blank out all possible fields to prevent "undefined"
+      const blankFields = (keys: string[]) =>
+        keys.forEach((k) => (finalData[k] = ""));
+
       if (machine.inspectionType === "dental") {
+        blankFields([
+          "kvp",
+          "mR1",
+          "time1",
+          "hvl",
+          "mR2",
+          "time2",
+          "mR3",
+          "time3",
+          "mR4",
+          "time4",
+          "6 foot",
+          "operator location",
+          "preset_kvp",
+          "preset_mas",
+          "preset_time",
+          "preset kvp",
+          "preset mas",
+          "preset time",
+        ]);
+        // Step 2: Set the reason
         finalData["preset kvp"] = machine.data.noDataReason;
       } else {
-        finalData["note"] = machine.data.noDataReason; // Gen Rad goes to {note}
+        // General
+        blankFields([
+          "g1_kvp",
+          "g1_mr",
+          "g1_time",
+          "g2a_kvp",
+          "g2a_mr",
+          "g2a_time",
+          "g2b_kvp",
+          "g2b_mr",
+          "g2b_time",
+          "g2c_kvp",
+          "g2c_mr",
+          "g2c_time",
+          "g2d_kvp",
+          "g2d_mr",
+          "g2d_time",
+          "g3_kvp",
+          "g3_mr",
+          "g3_time",
+          "g4_kvp",
+          "g4_hvl",
+          "g5_scatter",
+          "g6_scatter",
+          "g1_preset_kvp",
+          "g1_preset_mas",
+          "g1_preset_time",
+          "g2_preset_kvp",
+          "g2_preset_mas",
+          "g2_preset_time",
+          "g3_preset_kvp",
+          "g3_preset_mas",
+          "g3_preset_time",
+          "g4_preset_mas",
+          "preset_kvp1",
+          "mas1",
+          "preset_time1",
+          "preset_kvp2",
+          "mas2",
+          "preset_time2",
+          "preset_kvp3",
+          "mas3",
+          "preset_time3",
+          "mas4",
+          "g1_calc",
+          "g2_avg",
+          "g2_calc",
+          "g3_calc",
+          "note",
+        ]);
+        // Step 2: Set the reason
+        finalData["note"] = machine.data.noDataReason;
       }
     } else {
       // Logic for Standard Inspection (Calculations & Defaults)
@@ -675,7 +758,9 @@ export default function App(): JSX.Element | null {
         finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
         finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
-        // FIX: Default to "<1" if empty (Scatter Operator)
+        // FIX: Default to "<1" if empty (Step 6 Scatter Operator)
+        if (!finalData["g6_scatter"]) finalData["g6_scatter"] = "<1";
+        // Also added g5_scatter just in case, though you only asked for operator
         if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
 
         const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
