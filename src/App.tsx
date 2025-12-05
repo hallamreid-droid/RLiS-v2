@@ -15,6 +15,7 @@ import {
   UploadCloud,
   Key,
   XCircle,
+  AlertCircle, // Added icon for the dashboard status
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -973,7 +974,7 @@ export default function App(): JSX.Element | null {
   // --- MOBILE FORM VIEW ---
   if (view === "mobile-form" && activeMachine)
     return (
-      <div className="min-h-screen bg-slate-50 pb-24 font-sans relative">
+      <div className="min-h-screen bg-slate-50 font-sans relative">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
@@ -1232,8 +1233,8 @@ export default function App(): JSX.Element | null {
           ))}
         </div>
 
-        {/* --- FOOTER (Updated with No Data Button) --- */}
-        <div className="fixed bottom-0 w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-30">
+        {/* --- FOOTER (Updated: Not Fixed, Bottom of Page) --- */}
+        <div className="w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)] mt-6">
           <div className="flex gap-3">
             <button
               onClick={() => setShowNoDataModal(true)}
@@ -1382,15 +1383,29 @@ export default function App(): JSX.Element | null {
                   </div>
                 </div>
                 {m.isComplete ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      generateDoc(m);
-                    }}
-                    className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
-                  >
-                    <Download size={18} />
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {/* --- NEW STATUS INDICATOR --- */}
+                    {m.data.noDataReason && (
+                      <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                        <AlertCircle size={10} className="text-slate-500" />
+                        <span className="text-[9px] font-bold text-slate-500 uppercase">
+                          {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
+                            ? "NOT OPERATIONAL"
+                            : "NOT IN FACILITY"}
+                        </span>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        generateDoc(m);
+                      }}
+                      className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
+                    >
+                      <Download size={18} />
+                    </button>
+                  </div>
                 ) : (
                   <div className="bg-slate-100 p-1.5 rounded-full">
                     <ChevronRight className="text-slate-400 h-4 w-4" />
