@@ -637,7 +637,7 @@ export default function App(): JSX.Element | null {
       finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
       // FIX: Default to "<1" if empty
-      if (!finalData["g6_scatter"]) finalData["g6_scatter"] = "<1";
+      if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
 
       const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
       const mas1 = parseFloat(finalData["mas1"]);
@@ -1210,9 +1210,7 @@ export default function App(): JSX.Element | null {
                 {m.isComplete ? (
                   <div className="flex items-center gap-2">
                     {/* Added a small edit icon for clarity */}
-                    <div className="p-2 text-slate-300">
-                      <Edit3 size={16} />
-                    </div>
+                    <div className="p-2 text-slate-300"></div>
                     <button
                       onClick={(e) => {
                         e.stopPropagation(); // Keeps the download button separate from the row click
