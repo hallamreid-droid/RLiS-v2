@@ -342,7 +342,6 @@ const FLUORO_STEPS = [
     label: "3. Physicist Data",
     desc: "Manual Entry from Physicist Report",
     isManualEntry: true,
-    // ADDED "phvl_kvp" here so users can input the kVp for the Physicist HVL
     fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
     indices: [],
   },
@@ -849,14 +848,8 @@ export default function App(): JSX.Element | null {
           "pr/min",
           "phvl",
           "name_and_date",
-          "ma_boost",
-          "kvp_boost",
-          "r/min_boost",
-          "pkvp_boost",
-          "pma_boost",
-          "pr/min_boost",
         ]);
-        finalData["kvp"] = machine.data.noDataReason;
+        finalData["kvp"] = machine.data.noDataReason; // Put reason in first available field
       }
     } else {
       // --- STANDARD LOGIC ---
@@ -959,6 +952,17 @@ export default function App(): JSX.Element | null {
           finalData["pkvp_boost"] = machine.data["pkvp_boost"];
           finalData["pma_boost"] = machine.data["pma_boost"];
           finalData["pr/min_boost"] = machine.data["pr/min_boost"];
+        } else {
+          // --- FIX: CLEAR BOOST DATA IF HLC IS UNCHECKED ---
+          const boostFields = [
+            "ma_boost",
+            "kvp_boost",
+            "r/min_boost",
+            "pkvp_boost",
+            "pma_boost",
+            "pr/min_boost",
+          ];
+          boostFields.forEach((f) => (finalData[f] = ""));
         }
       }
     }
