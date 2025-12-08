@@ -425,10 +425,8 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Use "gemini-1.5-flash-latest" to avoid 404 errors on v1beta
-      const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash-latest",
-      });
+      // FIXED: Use "gemini-1.5-flash" (Standard, stable version)
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
       const text = result.response
@@ -597,10 +595,8 @@ export default function App(): JSX.Element | null {
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Use "gemini-1.5-flash-latest" to avoid 404 errors on v1beta
-      const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash-latest",
-      });
+      // FIXED: Use "gemini-1.5-flash" (Standard, stable version)
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
         Analyze this image of a RaySafe x-ray measurement screen.
