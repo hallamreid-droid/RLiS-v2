@@ -446,7 +446,7 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Use "gemini-2.0-flash" as requested
+      // FIXED: Use "gemini-2.0-flash" per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
@@ -1499,33 +1499,32 @@ export default function App(): JSX.Element | null {
                   </div>
                 </div>
                 {/* Only show camera if not analytical or pure manual step */}
-                {activeMachine.inspectionType !== "analytical" &&
-                  !step.isManualEntry && (
-                    <label
-                      className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                        isScanning
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : "bg-blue-600 text-white hover:bg-blue-700"
-                      }`}
-                    >
-                      {isScanning ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Camera size={14} />
-                      )}{" "}
-                      {isScanning ? " scanning..." : "Scan"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={(e) =>
-                          handleScanClick(e, step.fields, step.indices)
-                        }
-                        disabled={isScanning}
-                      />
-                    </label>
-                  )}
+                {!step.isManualEntry && (
+                  <label
+                    className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
+                      isScanning
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                  >
+                    {isScanning ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Camera size={14} />
+                    )}{" "}
+                    {isScanning ? " scanning..." : "Scan"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) =>
+                        handleScanClick(e, step.fields, step.indices)
+                      }
+                      disabled={isScanning}
+                    />
+                  </label>
+                )}
               </div>
 
               {/* Step-Specific Settings (Gen Rad / Fluoro) */}
