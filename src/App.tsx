@@ -507,7 +507,9 @@ export default function App(): JSX.Element | null {
           if (
             lowerRaw.includes("diffraction") ||
             lowerRaw.includes("fluorescence") ||
-            formType.includes("analytical")
+            formType.includes("analytical") ||
+            credType.includes("fluorescence") ||
+            credType.includes("diffraction")
           ) {
             inspectionType = "analytical";
           } else if (
