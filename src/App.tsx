@@ -342,7 +342,8 @@ const FLUORO_STEPS = [
     label: "3. Physicist Data",
     desc: "Manual Entry from Physicist Report",
     isManualEntry: true,
-    fields: ["pkvp", "pma", "pr/min", "phvl", "name_and_date"],
+    // ADDED "phvl_kvp" here so users can input the kVp for the Physicist HVL
+    fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
     indices: [],
   },
 ];
@@ -446,7 +447,6 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Switched to gemini-2.0-flash per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
@@ -616,7 +616,6 @@ export default function App(): JSX.Element | null {
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Switched to gemini-2.0-flash per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
@@ -850,8 +849,14 @@ export default function App(): JSX.Element | null {
           "pr/min",
           "phvl",
           "name_and_date",
+          "ma_boost",
+          "kvp_boost",
+          "r/min_boost",
+          "pkvp_boost",
+          "pma_boost",
+          "pr/min_boost",
         ]);
-        finalData["kvp"] = machine.data.noDataReason; // Put reason in first available field
+        finalData["kvp"] = machine.data.noDataReason;
       }
     } else {
       // --- STANDARD LOGIC ---
@@ -930,13 +935,20 @@ export default function App(): JSX.Element | null {
         // Map inputs from steps
         finalData["ma"] = machine.data["f1_preset_mas"]; // Manual mA
 
-        // HVL logic
+        // HVL logic: combine Value + KVP
         const hvlVal = machine.data["hvl"] || "";
         const hvlKvp = machine.data["f2_preset_kvp"] || "80";
         if (hvlVal) {
           finalData["hvl"] = `${hvlVal} @ ${hvlKvp}`;
         } else {
           finalData["hvl"] = "";
+        }
+
+        // PHYSICIST HVL LOGIC
+        const physHvl = machine.data["phvl"] || "";
+        const physHvlKvp = machine.data["phvl_kvp"] || "";
+        if (physHvl) {
+          finalData["phvl"] = `${physHvl} @ ${physHvlKvp}`;
         }
 
         // HLC / BOOST MAPPING
