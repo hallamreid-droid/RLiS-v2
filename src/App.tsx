@@ -343,7 +343,7 @@ const FLUORO_STEPS = [
     desc: "Manual Entry from Physicist Report",
     isManualEntry: true,
     fields: ["pkvp", "pma", "pr/min", "phvl", "name_and_date"],
-    indices: [],
+    indices: [], // <--- ADDED EMPTY INDICES ARRAY HERE TO FIX TYPE ERROR
   },
 ];
 
@@ -425,7 +425,6 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Updated to gemini-2.0-flash
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
@@ -595,7 +594,6 @@ export default function App(): JSX.Element | null {
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Updated to gemini-2.0-flash
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
