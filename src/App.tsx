@@ -342,7 +342,7 @@ const FLUORO_STEPS = [
     label: "3. Physicist Data",
     desc: "Manual Entry from Physicist Report",
     isManualEntry: true,
-    fields: ["pkvp", "pma", "pr/min", "phvl", "name_and_date"],
+    fields: ["pkvp", "pma", "pr/min", "phvl", "name and date"],
     indices: [], // <--- ADDED EMPTY INDICES ARRAY HERE TO FIX TYPE ERROR
   },
 ];
