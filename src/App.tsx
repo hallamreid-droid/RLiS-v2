@@ -19,7 +19,7 @@ import {
   Archive,
   Building2,
   MapPin,
-  Microscope, // Icon for Analytical
+  Microscope,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -474,10 +474,6 @@ export default function App(): JSX.Element | null {
         })
         .map((row: any, index: number) => {
           const rawString = row["Entity Name"] || "";
-          const lowerRaw = rawString.toLowerCase();
-          const formType = (row["Inspection Form"] || "").toLowerCase();
-          const credType = (row["Credential Type"] || "").toLowerCase();
-
           let fullDetails = "Unknown Machine";
           let facility = rawString;
           let make = "",
@@ -501,22 +497,24 @@ export default function App(): JSX.Element | null {
             }
           }
 
-          // --- DETERMINE INSPECTION TYPE ---
+          // --- REVISED LOGIC FOR CREDENTIAL TYPE ---
+          const credTypeRaw = row["Credential Type"] || "";
+          const credType = credTypeRaw.toLowerCase();
+
           let inspectionType: InspectionType = "dental"; // Default
 
-          if (
-            lowerRaw.includes("diffraction") ||
-            lowerRaw.includes("fluorescence") ||
-            formType.includes("analytical") ||
+          if (credType.includes("intraoral")) {
+            inspectionType = "dental";
+          } else if (credType.includes("radiographic")) {
+            inspectionType = "general";
+          } else if (
             credType.includes("fluorescence") ||
             credType.includes("diffraction")
           ) {
             inspectionType = "analytical";
-          } else if (
-            credType.includes("radiograph") ||
-            lowerRaw.includes("medical")
-          ) {
-            inspectionType = "general";
+          } else {
+            // Fallback default
+            inspectionType = "dental";
           }
 
           return {
@@ -525,7 +523,7 @@ export default function App(): JSX.Element | null {
             make,
             model,
             serial,
-            type: credType || row["Inspection Form"] || "Unknown",
+            type: credTypeRaw, // Store raw for display
             inspectionType,
             location: row["Credential #"] || facility, // Credential ID
             registrantName: facility, // Entity Name
@@ -682,7 +680,7 @@ export default function App(): JSX.Element | null {
       date: new Date().toLocaleDateString(),
       details: machine.fullDetails,
       credential: machine.location,
-      type: machine.type,
+      type: (machine.type || "").toUpperCase(), // FORCE UPPERCASE
       ...machine.data,
     };
 
@@ -770,8 +768,6 @@ export default function App(): JSX.Element | null {
         finalData["note"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "analytical") {
         blankFields(["scatter_6ft", "scatter_operator"]);
-        // For analytical, we might put the reason in scatter_6ft or another field,
-        // but usually the templates are simpler. Let's put it in "scatter_6ft".
         finalData["scatter_6ft"] = machine.data.noDataReason;
       }
     } else {
