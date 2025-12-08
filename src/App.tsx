@@ -17,8 +17,9 @@ import {
   XCircle,
   AlertCircle,
   Archive,
-  Building2, // Icon for Facility
-  MapPin, // Icon for Location/Credential
+  Building2,
+  MapPin,
+  Microscope, // Icon for Analytical
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -77,7 +78,7 @@ const deleteTemplateFromDB = async (type: string) => {
 };
 
 // --- TYPES ---
-type InspectionType = "dental" | "general";
+type InspectionType = "dental" | "general" | "analytical";
 
 type Machine = {
   id: string;
@@ -87,8 +88,8 @@ type Machine = {
   serial: string;
   type: string;
   inspectionType: InspectionType;
-  location: string; // This holds the Credential #
-  registrantName: string; // This holds the Entity Name
+  location: string;
+  registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -297,15 +298,31 @@ const GENERAL_STEPS = [
   },
 ];
 
+// --- ANALYTICAL STEPS (XRF/XRD) ---
+const ANALYTICAL_STEPS = [
+  {
+    id: "a1",
+    label: "1. Scatter (6ft)",
+    desc: "Order: Dose",
+    fields: ["scatter_6ft"],
+    indices: ["mR"],
+  },
+  {
+    id: "a2",
+    label: "2. Scatter (Operator)",
+    desc: "Order: Dose",
+    fields: ["scatter_operator"],
+    indices: ["mR"],
+  },
+];
+
 export default function App(): JSX.Element | null {
-  // --- UPDATED VIEW STATE: Now supports 'facility-list' and 'machine-list'
   const [view, setView] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
   >("facility-list");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
 
-  // NAVIGATION STATES
   const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
     null
   );
@@ -315,10 +332,11 @@ export default function App(): JSX.Element | null {
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
-  >({ dental: null, general: null });
+  >({ dental: null, general: null, analytical: null });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
     general: "No Template",
+    analytical: "No Template",
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -414,6 +432,12 @@ export default function App(): JSX.Element | null {
 
       if (name.includes("dental")) type = "dental";
       else if (name.includes("gen") || name.includes("rad")) type = "general";
+      else if (
+        name.includes("analytical") ||
+        name.includes("diffraction") ||
+        name.includes("fluorescence")
+      )
+        type = "analytical";
 
       if (type) {
         const reader = new FileReader();
@@ -450,6 +474,10 @@ export default function App(): JSX.Element | null {
         })
         .map((row: any, index: number) => {
           const rawString = row["Entity Name"] || "";
+          const lowerRaw = rawString.toLowerCase();
+          const formType = (row["Inspection Form"] || "").toLowerCase();
+          const credType = (row["Credential Type"] || "").toLowerCase();
+
           let fullDetails = "Unknown Machine";
           let facility = rawString;
           let make = "",
@@ -473,11 +501,21 @@ export default function App(): JSX.Element | null {
             }
           }
 
-          const credentialType = row["Credential Type"] || "";
-          const isGeneral = credentialType.toLowerCase().includes("radiograph");
-          const inspectionType: InspectionType = isGeneral
-            ? "general"
-            : "dental";
+          // --- DETERMINE INSPECTION TYPE ---
+          let inspectionType: InspectionType = "dental"; // Default
+
+          if (
+            lowerRaw.includes("diffraction") ||
+            lowerRaw.includes("fluorescence") ||
+            formType.includes("analytical")
+          ) {
+            inspectionType = "analytical";
+          } else if (
+            credType.includes("radiograph") ||
+            lowerRaw.includes("medical")
+          ) {
+            inspectionType = "general";
+          }
 
           return {
             id: `mach_${Date.now()}_${index}`,
@@ -485,7 +523,7 @@ export default function App(): JSX.Element | null {
             make,
             model,
             serial,
-            type: credentialType || row["Inspection Form"] || "Unknown",
+            type: credType || row["Inspection Form"] || "Unknown",
             inspectionType,
             location: row["Credential #"] || facility, // Credential ID
             registrantName: facility, // Entity Name
@@ -495,7 +533,6 @@ export default function App(): JSX.Element | null {
         });
       if (newMachines.length === 0) alert("No machines found.");
       else {
-        // APPEND new machines instead of replacing, so we can have multiple facilities
         setMachines((prev) => [...prev, ...newMachines]);
         alert(`Added ${newMachines.length} machines.`);
       }
@@ -612,7 +649,7 @@ export default function App(): JSX.Element | null {
 
     setShowNoDataModal(false);
     setActiveMachineId(null);
-    setView("machine-list"); // Go back to machine list
+    setView("machine-list");
   };
 
   const markAsComplete = () => {
@@ -628,7 +665,7 @@ export default function App(): JSX.Element | null {
       })
     );
     setActiveMachineId(null);
-    setView("machine-list"); // Go back to machine list
+    setView("machine-list");
   };
 
   // --- DATA PREPARATION HELPER ---
@@ -651,6 +688,7 @@ export default function App(): JSX.Element | null {
     if (machine.inspectionType === "general" && !finalData["num_tubes"])
       finalData["num_tubes"] = "1";
 
+    // --- NO DATA LOGIC ---
     if (machine.data.noDataReason) {
       const blankFields = (keys: string[]) =>
         keys.forEach((k) => (finalData[k] = ""));
@@ -677,7 +715,7 @@ export default function App(): JSX.Element | null {
           "preset time",
         ]);
         finalData["preset kvp"] = machine.data.noDataReason;
-      } else {
+      } else if (machine.inspectionType === "general") {
         blankFields([
           "g1_kvp",
           "g1_mr",
@@ -728,13 +766,18 @@ export default function App(): JSX.Element | null {
           "note",
         ]);
         finalData["note"] = machine.data.noDataReason;
+      } else if (machine.inspectionType === "analytical") {
+        blankFields(["scatter_6ft", "scatter_operator"]);
+        // For analytical, we might put the reason in scatter_6ft or another field,
+        // but usually the templates are simpler. Let's put it in "scatter_6ft".
+        finalData["scatter_6ft"] = machine.data.noDataReason;
       }
     } else {
+      // --- STANDARD LOGIC ---
       if (machine.inspectionType === "dental") {
         finalData["preset kvp"] = machine.data["preset_kvp"];
         finalData["preset mas"] = machine.data["preset_mas"];
         finalData["preset time"] = machine.data["preset_time"];
-
         if (!finalData["operator location"])
           finalData["operator location"] = "<1";
       }
@@ -795,17 +838,21 @@ export default function App(): JSX.Element | null {
         finalData["g3_calc"] =
           g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
       }
+
+      if (machine.inspectionType === "analytical") {
+        if (!finalData["scatter_6ft"]) finalData["scatter_6ft"] = "<1";
+        if (!finalData["scatter_operator"])
+          finalData["scatter_operator"] = "<1";
+      }
     }
     return finalData;
   };
 
   // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
   const handleDownloadZip = () => {
-    // Filter machines by the current active facility
     const facilityMachines = machines.filter(
       (m) => m.registrantName === activeFacilityName
     );
-
     if (facilityMachines.length === 0) return;
 
     const zip = new PizZip();
@@ -813,7 +860,6 @@ export default function App(): JSX.Element | null {
     try {
       let zipFilename = "Inspections.zip";
       const entityName = activeFacilityName || "Facility";
-
       const safeName = entityName
         .replace(/[^a-z0-9]/gi, "_")
         .replace(/_{2,}/g, "_");
@@ -866,8 +912,6 @@ export default function App(): JSX.Element | null {
   };
 
   // --- FACILITY HELPERS ---
-
-  // Group machines by Registrant Name (Facility)
   const getFacilities = () => {
     const groups: {
       [key: string]: {
@@ -877,12 +921,11 @@ export default function App(): JSX.Element | null {
         complete: number;
       };
     } = {};
-
     machines.forEach((m) => {
       if (!groups[m.registrantName]) {
         groups[m.registrantName] = {
           name: m.registrantName,
-          id: m.location, // Initial ID from first machine found, assumes sharing Credential
+          id: m.location,
           count: 0,
           complete: 0,
         };
@@ -890,7 +933,6 @@ export default function App(): JSX.Element | null {
       groups[m.registrantName].count++;
       if (m.isComplete) groups[m.registrantName].complete++;
     });
-
     return Object.values(groups);
   };
 
@@ -902,10 +944,13 @@ export default function App(): JSX.Element | null {
   };
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
-  const currentSteps =
-    activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS;
 
-  // Get list of machines for the active facility
+  // DETERMINE STEPS BASED ON TYPE
+  let currentSteps = DENTAL_STEPS;
+  if (activeMachine?.inspectionType === "general") currentSteps = GENERAL_STEPS;
+  if (activeMachine?.inspectionType === "analytical")
+    currentSteps = ANALYTICAL_STEPS;
+
   const activeFacilityMachines = machines.filter(
     (m) => m.registrantName === activeFacilityName
   );
@@ -923,7 +968,6 @@ export default function App(): JSX.Element | null {
   }, [view, activeMachineId]);
 
   // --- UI ROUTER ---
-
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -974,6 +1018,7 @@ export default function App(): JSX.Element | null {
             </label>
           </div>
           <div className="space-y-2">
+            {/* DENTAL */}
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
                 templates.dental
@@ -1013,6 +1058,7 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
+            {/* GENERAL */}
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
                 templates.general
@@ -1052,6 +1098,48 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
+            {/* ANALYTICAL */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.analytical
+                  ? "bg-orange-50 border-orange-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.analytical
+                      ? "bg-orange-200 text-orange-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <Microscope size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.analytical
+                        ? "text-orange-900"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    Analytical Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.analytical}
+                  </p>
+                </div>
+              </div>
+              {templates.analytical && (
+                <button
+                  onClick={(e) => removeTemplate("analytical", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1064,7 +1152,7 @@ export default function App(): JSX.Element | null {
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
-              onClick={() => setView("machine-list")} // Go back to facility detail
+              onClick={() => setView("machine-list")}
               className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
             >
               <ArrowLeft className="text-slate-600" />
@@ -1079,6 +1167,8 @@ export default function App(): JSX.Element | null {
                 className={`uppercase font-bold px-2 rounded ${
                   activeMachine.inspectionType === "general"
                     ? "bg-purple-100 text-purple-700"
+                    : activeMachine.inspectionType === "analytical"
+                    ? "bg-orange-100 text-orange-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -1125,7 +1215,9 @@ export default function App(): JSX.Element | null {
                   onChange={(e) => updateField("tube_no", e.target.value)}
                 />
               </div>
-              {activeMachine.inspectionType === "dental" ? (
+
+              {/* CONDITIONAL SETTINGS BASED ON TYPE */}
+              {activeMachine.inspectionType === "dental" && (
                 <>
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
@@ -1167,7 +1259,8 @@ export default function App(): JSX.Element | null {
                     />
                   </div>
                 </>
-              ) : (
+              )}
+              {activeMachine.inspectionType === "general" && (
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase">
                     # of Tubes
@@ -1180,11 +1273,12 @@ export default function App(): JSX.Element | null {
                   />
                 </div>
               )}
+              {/* Analytical has no extra settings besides Tube #, so we leave blank here */}
             </div>
           </div>
 
           {/* AI DEBUG AREA */}
-          {lastScannedText && (
+          {activeMachine.inspectionType !== "analytical" && lastScannedText && (
             <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
               <div className="font-bold mb-1 text-slate-700">AI Response:</div>
               <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
@@ -1206,31 +1300,36 @@ export default function App(): JSX.Element | null {
                     {step.desc}
                   </div>
                 </div>
-                <label
-                  className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                    isScanning
-                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
-                  }`}
-                >
-                  {isScanning ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Camera size={14} />
-                  )}{" "}
-                  {isScanning ? " scanning..." : "Scan"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) =>
-                      handleScanClick(e, step.fields, step.indices)
-                    }
-                    disabled={isScanning}
-                  />
-                </label>
+                {/* Only show camera if not analytical (Analytical is manual entry usually) */}
+                {activeMachine.inspectionType !== "analytical" && (
+                  <label
+                    className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
+                      isScanning
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                  >
+                    {isScanning ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Camera size={14} />
+                    )}{" "}
+                    {isScanning ? " scanning..." : "Scan"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) =>
+                        handleScanClick(e, step.fields, step.indices)
+                      }
+                      disabled={isScanning}
+                    />
+                  </label>
+                )}
               </div>
+
+              {/* Step-Specific Settings (Gen Rad Only) */}
               {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
                   <div className="flex-1">
@@ -1297,6 +1396,7 @@ export default function App(): JSX.Element | null {
                   )}
                 </div>
               )}
+
               <div className="grid grid-cols-2 gap-4">
                 {step.fields.map((k: string) => (
                   <div key={k}>
@@ -1386,7 +1486,7 @@ export default function App(): JSX.Element | null {
         <header className="flex justify-between items-center mb-8">
           <div className="flex gap-2 items-center">
             <button
-              onClick={() => setView("facility-list")} // Back to Dashboard
+              onClick={() => setView("facility-list")}
               className="bg-white p-2 rounded-lg border border-slate-200 hover:bg-slate-50"
             >
               <ArrowLeft className="text-slate-600 h-6 w-6" />
@@ -1425,7 +1525,6 @@ export default function App(): JSX.Element | null {
                 >
                   <div>
                     <div className="font-bold text-sm text-slate-800">
-                      {/* Machine List now shows Credential + Details */}
                       {m.location}
                     </div>
                     <div className="flex gap-2 items-center mt-1">
@@ -1433,6 +1532,8 @@ export default function App(): JSX.Element | null {
                         className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
                           m.inspectionType === "general"
                             ? "bg-purple-100 text-purple-700"
+                            : m.inspectionType === "analytical"
+                            ? "bg-orange-100 text-orange-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
