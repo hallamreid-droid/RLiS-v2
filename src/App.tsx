@@ -342,10 +342,31 @@ const FLUORO_STEPS = [
     label: "3. Physicist Data",
     desc: "Manual Entry from Physicist Report",
     isManualEntry: true,
-    fields: ["pkvp", "pma", "pr/min", "phvl", "name and date"],
-    indices: [], // <--- ADDED EMPTY INDICES ARRAY HERE TO FIX TYPE ERROR
+    fields: ["pkvp", "pma", "pr/min", "phvl", "name_and_date"],
+    indices: [],
   },
 ];
+
+// --- HLC STEPS (Dynamic Additions) ---
+const FLUORO_BOOST_MEASURE_STEP = {
+  id: "f1_boost",
+  label: "1b. Max Exposure (Boost)",
+  desc: "Set Boost mA. Measure kVp & Rate.",
+  showSettings: true,
+  settingsGroup: "f1_boost",
+  defaultPresets: { mas: "Boost mA", kvp: null, time: null },
+  fields: ["kvp_boost", "r/min_boost"],
+  indices: ["kvp", "mR"],
+};
+
+const FLUORO_BOOST_PHYSICIST_STEP = {
+  id: "f3_boost",
+  label: "3b. Physicist Data (Boost)",
+  desc: "Manual Entry (Boost Data)",
+  isManualEntry: true,
+  fields: ["pkvp_boost", "pma_boost", "pr/min_boost"],
+  indices: [],
+};
 
 export default function App(): JSX.Element | null {
   const [view, setView] = useState<
@@ -425,6 +446,7 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
+      // FIXED: Switched to gemini-2.0-flash per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
@@ -594,6 +616,7 @@ export default function App(): JSX.Element | null {
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
+      // FIXED: Switched to gemini-2.0-flash per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
@@ -906,17 +929,24 @@ export default function App(): JSX.Element | null {
       if (machine.inspectionType === "fluoroscope") {
         // Map inputs from steps
         finalData["ma"] = machine.data["f1_preset_mas"]; // Manual mA
-        // kvp from step 1 scan
-        // r/min from step 1 scan
 
-        // HVL logic: [measured hvl] @ [inputted kvp or 80]
+        // HVL logic
         const hvlVal = machine.data["hvl"] || "";
         const hvlKvp = machine.data["f2_preset_kvp"] || "80";
-
         if (hvlVal) {
           finalData["hvl"] = `${hvlVal} @ ${hvlKvp}`;
         } else {
           finalData["hvl"] = "";
+        }
+
+        // HLC / BOOST MAPPING
+        if (machine.data["has_hlc"] === "true") {
+          finalData["ma_boost"] = machine.data["f1_boost_preset_mas"];
+          finalData["kvp_boost"] = machine.data["kvp_boost"];
+          finalData["r/min_boost"] = machine.data["r/min_boost"];
+          finalData["pkvp_boost"] = machine.data["pkvp_boost"];
+          finalData["pma_boost"] = machine.data["pma_boost"];
+          finalData["pr/min_boost"] = machine.data["pr/min_boost"];
         }
       }
     }
@@ -1025,8 +1055,20 @@ export default function App(): JSX.Element | null {
   if (activeMachine?.inspectionType === "general") currentSteps = GENERAL_STEPS;
   if (activeMachine?.inspectionType === "analytical")
     currentSteps = ANALYTICAL_STEPS;
-  if (activeMachine?.inspectionType === "fluoroscope")
-    currentSteps = FLUORO_STEPS;
+  if (activeMachine?.inspectionType === "fluoroscope") {
+    const hasHLC = activeMachine.data["has_hlc"] === "true";
+    if (hasHLC) {
+      currentSteps = [
+        FLUORO_STEPS[0],
+        FLUORO_BOOST_MEASURE_STEP,
+        FLUORO_STEPS[1],
+        FLUORO_STEPS[2],
+        FLUORO_BOOST_PHYSICIST_STEP,
+      ];
+    } else {
+      currentSteps = FLUORO_STEPS;
+    }
+  }
 
   const activeFacilityMachines = machines.filter(
     (m) => m.registrantName === activeFacilityName
@@ -1474,7 +1516,9 @@ export default function App(): JSX.Element | null {
                   <div className="flex-1">
                     <label className="text-[8px] uppercase font-bold text-slate-400">
                       {/* Customize Label for Fluoro Step 1 */}
-                      {step.id === "f1" ? "Set mA" : "Set kVp"}
+                      {step.id === "f1" || step.id === "f1_boost"
+                        ? "Set mA"
+                        : "Set kVp"}
                     </label>
                     <input
                       className="w-full bg-white border rounded px-1 text-xs"
@@ -1484,14 +1528,18 @@ export default function App(): JSX.Element | null {
                       value={
                         activeMachine.data[
                           `${step.settingsGroup}_preset_${
-                            step.id === "f1" ? "mas" : "kvp"
+                            step.id === "f1" || step.id === "f1_boost"
+                              ? "mas"
+                              : "kvp"
                           }`
                         ] || ""
                       }
                       onChange={(e) =>
                         updateField(
                           `${step.settingsGroup}_preset_${
-                            step.id === "f1" ? "mas" : "kvp"
+                            step.id === "f1" || step.id === "f1_boost"
+                              ? "mas"
+                              : "kvp"
                           }`,
                           e.target.value
                         )
