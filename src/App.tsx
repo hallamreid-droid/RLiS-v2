@@ -16,6 +16,11 @@ import {
   Key,
   XCircle,
   AlertCircle,
+  Mail,
+  Eye,
+  MoreVertical,
+  X,
+  Archive, // Icon for the zip button
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -135,6 +140,7 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
+// --- MISSING FUNCTION ADDED HERE ---
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -145,7 +151,7 @@ const createWordDoc = (
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      nullGetter: () => "", // Safety net: replace any missing tags with empty string
+      nullGetter: () => "",
     });
     doc.render(data);
     const out = doc.getZip().generate({
@@ -299,9 +305,13 @@ export default function App(): JSX.Element | null {
     "dashboard"
   );
   const [apiKey, setApiKey] = useState<string>("");
+  const [email, setEmail] = useState<string>("");
+
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+
   const [showNoDataModal, setShowNoDataModal] = useState(false);
+  const [actionMachine, setActionMachine] = useState<Machine | null>(null);
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
@@ -325,6 +335,9 @@ export default function App(): JSX.Element | null {
 
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
+
+    const savedEmail = localStorage.getItem("rayScanEmail");
+    if (savedEmail) setEmail(savedEmail);
 
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) {
@@ -392,6 +405,12 @@ export default function App(): JSX.Element | null {
     const val = e.target.value;
     setApiKey(val);
     localStorage.setItem("rayScanApiKey", val);
+  };
+
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setEmail(val);
+    localStorage.setItem("rayScanEmail", val);
   };
 
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -579,7 +598,6 @@ export default function App(): JSX.Element | null {
     );
   };
 
-  // --- NEW HANDLER FOR NO DATA ---
   const handleNoData = (reason: "operational" | "facility") => {
     if (!activeMachineId) return;
 
@@ -594,7 +612,7 @@ export default function App(): JSX.Element | null {
           ? {
               ...m,
               isComplete: true,
-              data: { ...m.data, noDataReason: message }, // Store reason
+              data: { ...m.data, noDataReason: message },
             }
           : m
       )
@@ -605,15 +623,12 @@ export default function App(): JSX.Element | null {
     setView("dashboard");
   };
 
-  // --- COMPLETION HANDLER ---
   const markAsComplete = () => {
     if (!activeMachineId) return;
 
     setMachines((prev) =>
       prev.map((m) => {
         if (m.id === activeMachineId) {
-          // FIX: If we click Green Complete, we MUST remove any existing "No Data" reason.
-          // This allows the gray badge to disappear.
           const { noDataReason, ...cleanData } = m.data;
           return { ...m, isComplete: true, data: cleanData };
         }
@@ -621,21 +636,11 @@ export default function App(): JSX.Element | null {
       })
     );
     setActiveMachineId(null);
-    setView("dashboard"); // Go back to dashboard
+    setView("dashboard");
   };
 
-  // --- GENERATE DOC (Updated with No Data logic) ---
-  const generateDoc = (machine: Machine) => {
-    const selectedTemplate = templates[machine.inspectionType];
-    if (!selectedTemplate) {
-      alert(
-        `Please upload the ${
-          machine.inspectionType === "dental" ? "Dental" : "Gen Rad"
-        } Template in Settings!`
-      );
-      return;
-    }
-
+  // --- DATA PREPARATION HELPER (Used by Single & Bulk) ---
+  const getMachineData = (machine: Machine) => {
     let finalData: any = {
       inspector: "RH",
       make: machine.make,
@@ -650,16 +655,11 @@ export default function App(): JSX.Element | null {
       ...machine.data,
     };
 
-    // --- FIX: DEFAULTS FOR TUBES ---
-    // If tube_no is empty, default to "1"
     if (!finalData["tube_no"]) finalData["tube_no"] = "1";
-    // If num_tubes is empty (general only), default to "1"
     if (machine.inspectionType === "general" && !finalData["num_tubes"])
       finalData["num_tubes"] = "1";
 
-    // --- CHECK: IS THIS A "NO DATA" MACHINE? ---
     if (machine.data.noDataReason) {
-      // Step 1: Blank out all possible fields to prevent "undefined"
       const blankFields = (keys: string[]) =>
         keys.forEach((k) => (finalData[k] = ""));
 
@@ -684,10 +684,8 @@ export default function App(): JSX.Element | null {
           "preset mas",
           "preset time",
         ]);
-        // Step 2: Set the reason
         finalData["preset kvp"] = machine.data.noDataReason;
       } else {
-        // General
         blankFields([
           "g1_kvp",
           "g1_mr",
@@ -737,18 +735,14 @@ export default function App(): JSX.Element | null {
           "g3_calc",
           "note",
         ]);
-        // Step 2: Set the reason
         finalData["note"] = machine.data.noDataReason;
       }
     } else {
-      // Logic for Standard Inspection (Calculations & Defaults)
-
       if (machine.inspectionType === "dental") {
         finalData["preset kvp"] = machine.data["preset_kvp"];
         finalData["preset mas"] = machine.data["preset_mas"];
         finalData["preset time"] = machine.data["preset_time"];
 
-        // FIX: Default to "<1" if empty
         if (!finalData["operator location"])
           finalData["operator location"] = "<1";
       }
@@ -765,9 +759,7 @@ export default function App(): JSX.Element | null {
         finalData["preset_time3"] = machine.data["g3_preset_time"] || "";
         finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
-        // FIX: Default to "<1" if empty (Step 6 Scatter Operator)
         if (!finalData["g6_scatter"]) finalData["g6_scatter"] = "<1";
-        // Also added g5_scatter just in case, though you only asked for operator
         if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
 
         const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
@@ -812,6 +804,97 @@ export default function App(): JSX.Element | null {
           g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
       }
     }
+    return finalData;
+  };
+
+  // --- BULK EMAIL HANDLER (ZIP) ---
+  const handleBulkEmail = () => {
+    if (!email) {
+      alert("Please set an email address in Settings first.");
+      return;
+    }
+
+    // 1. Create Zip
+    const zip = new PizZip();
+
+    try {
+      // DETERMINE FILENAME
+      let zipFilename = "All_Inspections.zip";
+      let entityName = "Facility";
+
+      if (machines.length > 0 && machines[0].registrantName) {
+        entityName = machines[0].registrantName;
+        // Clean up the name: replace non-alphanumeric chars with underscores
+        const safeName = entityName
+          .replace(/[^a-z0-9]/gi, "_")
+          .replace(/_{2,}/g, "_");
+        zipFilename = `${safeName}_Machine_Pages.zip`;
+      }
+
+      machines.forEach((machine) => {
+        if (!machine.isComplete) return;
+
+        const templateBuffer = templates[machine.inspectionType];
+        if (!templateBuffer) return;
+
+        const data = getMachineData(machine);
+
+        // Generate Doc Blob
+        const zipDoc = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zipDoc, {
+          paragraphLoop: true,
+          linebreaks: true,
+          nullGetter: () => "",
+        });
+        doc.render(data);
+        const blob = doc.getZip().generate({ type: "arraybuffer" });
+
+        // Add to main zip
+        zip.file(`Inspection_${machine.location}.docx`, blob);
+      });
+
+      // 2. Download Zip with Dynamic Name
+      const content = zip.generate({ type: "blob" });
+      saveAs(content, zipFilename);
+
+      // 3. Open Mail
+      const subject = `${entityName} Machine Pages`;
+      const body = `Attached is the zip file containing inspection reports for ${entityName}.\n\n(Please attach '${zipFilename}' manually)`;
+      window.location.href = `mailto:${email}?subject=${encodeURIComponent(
+        subject
+      )}&body=${encodeURIComponent(body)}`;
+    } catch (e) {
+      console.error(e);
+      alert("Error generating bulk zip. Check templates.");
+    }
+  };
+
+  const handleEmailAction = (machine: Machine) => {
+    generateDoc(machine);
+    if (!email) {
+      alert("Please save an email address in Settings first.");
+      return;
+    }
+    const subject = `Inspection_${machine.location}`;
+    const body = `Attached is the inspection report for ${machine.location}.\n\n(Please attach the downloaded file manually)`;
+
+    window.location.href = `mailto:${email}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body)}`;
+  };
+
+  const generateDoc = (machine: Machine) => {
+    const selectedTemplate = templates[machine.inspectionType];
+    if (!selectedTemplate) {
+      alert(
+        `Please upload the ${
+          machine.inspectionType === "dental" ? "Dental" : "Gen Rad"
+        } Template in Settings!`
+      );
+      return;
+    }
+
+    const finalData = getMachineData(machine);
 
     createWordDoc(
       selectedTemplate,
@@ -870,6 +953,18 @@ export default function App(): JSX.Element | null {
             <p className="text-[11px] text-slate-400 mt-2">
               Key is saved locally in your browser.
             </p>
+            {/* --- NEW EMAIL INPUT --- */}
+            <div className="flex items-center gap-2 mb-3 mt-6">
+              <Mail className="text-blue-500" size={20} />
+              <h3 className="font-bold text-slate-700">Email for Reports</h3>
+            </div>
+            <input
+              type="email"
+              value={email}
+              onChange={handleEmailChange}
+              placeholder="supervisor@state.nv.gov"
+              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
           </div>
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
@@ -1239,7 +1334,7 @@ export default function App(): JSX.Element | null {
           ))}
         </div>
 
-        {/* --- FOOTER (Updated: Not Fixed, Bottom of Page) --- */}
+        {/* --- FOOTER --- */}
         <div className="w-full p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)] mt-6">
           <div className="flex gap-3">
             <button
@@ -1301,7 +1396,7 @@ export default function App(): JSX.Element | null {
 
   // --- DASHBOARD VIEW (DEFAULT) ---
   return (
-    <div className="min-h-screen bg-slate-50 p-4 font-sans">
+    <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
       <header className="flex justify-between items-center mb-8">
         <div className="flex gap-2 items-center">
           <div className="bg-blue-600 p-2 rounded-lg">
@@ -1338,7 +1433,7 @@ export default function App(): JSX.Element | null {
           </label>
         </div>
       </div>
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
         <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
             Machine List
@@ -1390,7 +1485,6 @@ export default function App(): JSX.Element | null {
                 </div>
                 {m.isComplete ? (
                   <div className="flex items-center gap-3">
-                    {/* --- NEW STATUS INDICATOR --- */}
                     {m.data.noDataReason && (
                       <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200">
                         <AlertCircle size={10} className="text-slate-500" />
@@ -1402,14 +1496,15 @@ export default function App(): JSX.Element | null {
                       </div>
                     )}
 
+                    {/* --- ACTION CARD TRIGGER --- */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        generateDoc(m);
+                        setActionMachine(m); // OPEN ACTION CARD
                       }}
                       className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
                     >
-                      <Download size={18} />
+                      <MoreVertical size={18} />
                     </button>
                   </div>
                 ) : (
@@ -1422,6 +1517,84 @@ export default function App(): JSX.Element | null {
           </div>
         )}
       </div>
+
+      {/* --- BULK EMAIL ALL BUTTON --- */}
+      {machines.length > 0 && machines.every((m) => m.isComplete) && (
+        <button
+          onClick={handleBulkEmail}
+          className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex justify-center items-center gap-3 active:scale-95 transition-transform"
+        >
+          <div className="bg-blue-500 p-2 rounded-full">
+            <Archive size={24} className="text-white" />
+          </div>
+          <div className="text-left">
+            <div className="leading-tight">Email All Reports</div>
+            <div className="text-[11px] text-blue-200 font-normal">
+              Download Zip & Open Mail
+            </div>
+          </div>
+        </button>
+      )}
+
+      {/* --- ACTION CARD MODAL --- */}
+      {actionMachine && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden mb-4 sm:mb-0">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800">
+                  {actionMachine.location}
+                </h3>
+                <p className="text-xs text-slate-400">Select an action</p>
+              </div>
+              <button
+                onClick={() => setActionMachine(null)}
+                className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-600"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-2">
+              <button
+                onClick={() => {
+                  setActiveMachineId(actionMachine.id);
+                  setView("mobile-form");
+                  setActionMachine(null);
+                }}
+                className="w-full p-4 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 font-bold text-left"
+              >
+                <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                  <Eye size={20} />
+                </div>
+                View / Edit Inspection
+              </button>
+              <button
+                onClick={() => generateDoc(actionMachine)}
+                className="w-full p-4 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 font-bold text-left"
+              >
+                <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">
+                  <Download size={20} />
+                </div>
+                Download Word Doc
+              </button>
+              <button
+                onClick={() => handleEmailAction(actionMachine)}
+                className="w-full p-4 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 font-bold text-left"
+              >
+                <div className="bg-purple-100 p-2 rounded-full text-purple-600">
+                  <Mail size={20} />
+                </div>
+                <div>
+                  <div>Email Report</div>
+                  <div className="text-[10px] text-slate-400 font-normal">
+                    Opens mail app (attach file manually)
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
