@@ -20,6 +20,7 @@ import {
   Building2,
   MapPin,
   Microscope,
+  Activity, // Icon for Fluoroscope
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -78,7 +79,7 @@ const deleteTemplateFromDB = async (type: string) => {
 };
 
 // --- TYPES ---
-type InspectionType = "dental" | "general" | "analytical";
+type InspectionType = "dental" | "general" | "analytical" | "fluoroscope";
 
 type Machine = {
   id: string;
@@ -298,7 +299,6 @@ const GENERAL_STEPS = [
   },
 ];
 
-// --- ANALYTICAL STEPS (XRF/XRD) ---
 const ANALYTICAL_STEPS = [
   {
     id: "a1",
@@ -313,6 +313,37 @@ const ANALYTICAL_STEPS = [
     desc: "Order: Dose",
     fields: ["scatter_operator"],
     indices: ["mR"],
+  },
+];
+
+const FLUORO_STEPS = [
+  {
+    id: "f1",
+    label: "1. Max Exposure",
+    desc: "Set mA manually. Measure kVp & Rate.",
+    showSettings: true,
+    settingsGroup: "f1",
+    defaultPresets: { mas: "Manual mA", kvp: null, time: null },
+    fields: ["kvp", "r/min"],
+    indices: ["kvp", "mR"],
+  },
+  {
+    id: "f2",
+    label: "2. HVL Check",
+    desc: "Set kVp manually (usu. 80). Measure HVL.",
+    showSettings: true,
+    settingsGroup: "f2",
+    defaultPresets: { kvp: "80", mas: null, time: null },
+    fields: ["hvl"],
+    indices: ["hvl"],
+  },
+  {
+    id: "f3",
+    label: "3. Physicist Data",
+    desc: "Manual Entry from Physicist Report",
+    isManualEntry: true,
+    fields: ["pkvp", "pma", "pr/min", "phvl", "name_and_date"],
+    indices: [], // <--- ADDED EMPTY INDICES ARRAY HERE TO FIX TYPE ERROR
   },
 ];
 
@@ -332,11 +363,12 @@ export default function App(): JSX.Element | null {
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
-  >({ dental: null, general: null, analytical: null });
+  >({ dental: null, general: null, analytical: null, fluoroscope: null });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
     general: "No Template",
     analytical: "No Template",
+    fluoroscope: "No Template",
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -438,6 +470,8 @@ export default function App(): JSX.Element | null {
         name.includes("fluorescence")
       )
         type = "analytical";
+      else if (name.includes("fluoro") || name.includes("c-arm"))
+        type = "fluoroscope";
 
       if (type) {
         const reader = new FileReader();
@@ -474,6 +508,11 @@ export default function App(): JSX.Element | null {
         })
         .map((row: any, index: number) => {
           const rawString = row["Entity Name"] || "";
+          const lowerRaw = rawString.toLowerCase();
+          const formType = (row["Inspection Form"] || "").toLowerCase();
+          const credTypeRaw = row["Credential Type"] || "";
+          const credType = credTypeRaw.toLowerCase();
+
           let fullDetails = "Unknown Machine";
           let facility = rawString;
           let make = "",
@@ -497,10 +536,7 @@ export default function App(): JSX.Element | null {
             }
           }
 
-          // --- REVISED LOGIC FOR CREDENTIAL TYPE ---
-          const credTypeRaw = row["Credential Type"] || "";
-          const credType = credTypeRaw.toLowerCase();
-
+          // --- DETERMINE INSPECTION TYPE ---
           let inspectionType: InspectionType = "dental"; // Default
 
           if (credType.includes("intraoral")) {
@@ -512,6 +548,12 @@ export default function App(): JSX.Element | null {
             credType.includes("diffraction")
           ) {
             inspectionType = "analytical";
+          } else if (
+            credType.includes("fluoroscope") ||
+            credType.includes("c-arm") ||
+            credType.includes("fluoro")
+          ) {
+            inspectionType = "fluoroscope";
           } else {
             // Fallback default
             inspectionType = "dental";
@@ -523,7 +565,7 @@ export default function App(): JSX.Element | null {
             make,
             model,
             serial,
-            type: credTypeRaw, // Store raw for display
+            type: credTypeRaw,
             inspectionType,
             location: row["Credential #"] || facility, // Credential ID
             registrantName: facility, // Entity Name
@@ -556,8 +598,9 @@ export default function App(): JSX.Element | null {
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
         Analyze this image of a RaySafe x-ray measurement screen.
-        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al).
+        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al), Dose Rate (R/min or mGy/s).
         Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
+        If dose rate is found, put it in "mR".
       `;
       const result = await model.generateContent([prompt, imagePart as any]);
       const text = result.response
@@ -680,12 +723,16 @@ export default function App(): JSX.Element | null {
       date: new Date().toLocaleDateString(),
       details: machine.fullDetails,
       credential: machine.location,
-      type: (machine.type || "").toUpperCase(), // FORCE UPPERCASE
+      type: (machine.type || "").toUpperCase(),
       ...machine.data,
     };
 
     if (!finalData["tube_no"]) finalData["tube_no"] = "1";
-    if (machine.inspectionType === "general" && !finalData["num_tubes"])
+    if (
+      (machine.inspectionType === "general" ||
+        machine.inspectionType === "fluoroscope") &&
+      !finalData["num_tubes"]
+    )
       finalData["num_tubes"] = "1";
 
     // --- NO DATA LOGIC ---
@@ -769,6 +816,19 @@ export default function App(): JSX.Element | null {
       } else if (machine.inspectionType === "analytical") {
         blankFields(["scatter_6ft", "scatter_operator"]);
         finalData["scatter_6ft"] = machine.data.noDataReason;
+      } else if (machine.inspectionType === "fluoroscope") {
+        blankFields([
+          "ma",
+          "kvp",
+          "r/min",
+          "hvl",
+          "pkvp",
+          "pma",
+          "pr/min",
+          "phvl",
+          "name_and_date",
+        ]);
+        finalData["kvp"] = machine.data.noDataReason; // Put reason in first available field
       }
     } else {
       // --- STANDARD LOGIC ---
@@ -841,6 +901,23 @@ export default function App(): JSX.Element | null {
         if (!finalData["scatter_6ft"]) finalData["scatter_6ft"] = "<1";
         if (!finalData["scatter_operator"])
           finalData["scatter_operator"] = "<1";
+      }
+
+      if (machine.inspectionType === "fluoroscope") {
+        // Map inputs from steps
+        finalData["ma"] = machine.data["f1_preset_mas"]; // Manual mA
+        // kvp from step 1 scan
+        // r/min from step 1 scan
+
+        // HVL logic: [measured hvl] @ [inputted kvp or 80]
+        const hvlVal = machine.data["hvl"] || "";
+        const hvlKvp = machine.data["f2_preset_kvp"] || "80";
+
+        if (hvlVal) {
+          finalData["hvl"] = `${hvlVal} @ ${hvlKvp}`;
+        } else {
+          finalData["hvl"] = "";
+        }
       }
     }
     return finalData;
@@ -948,6 +1025,8 @@ export default function App(): JSX.Element | null {
   if (activeMachine?.inspectionType === "general") currentSteps = GENERAL_STEPS;
   if (activeMachine?.inspectionType === "analytical")
     currentSteps = ANALYTICAL_STEPS;
+  if (activeMachine?.inspectionType === "fluoroscope")
+    currentSteps = FLUORO_STEPS;
 
   const activeFacilityMachines = machines.filter(
     (m) => m.registrantName === activeFacilityName
@@ -1138,6 +1217,46 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
+            {/* FLUOROSCOPE */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.fluoroscope
+                  ? "bg-blue-50 border-blue-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.fluoroscope
+                      ? "bg-blue-200 text-blue-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <Activity size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.fluoroscope ? "text-blue-900" : "text-slate-500"
+                    }`}
+                  >
+                    Fluoroscope Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.fluoroscope}
+                  </p>
+                </div>
+              </div>
+              {templates.fluoroscope && (
+                <button
+                  onClick={(e) => removeTemplate("fluoroscope", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1167,6 +1286,8 @@ export default function App(): JSX.Element | null {
                     ? "bg-purple-100 text-purple-700"
                     : activeMachine.inspectionType === "analytical"
                     ? "bg-orange-100 text-orange-700"
+                    : activeMachine.inspectionType === "fluoroscope"
+                    ? "bg-indigo-100 text-indigo-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -1258,7 +1379,8 @@ export default function App(): JSX.Element | null {
                   </div>
                 </>
               )}
-              {activeMachine.inspectionType === "general" && (
+              {(activeMachine.inspectionType === "general" ||
+                activeMachine.inspectionType === "fluoroscope") && (
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase">
                     # of Tubes
@@ -1271,7 +1393,25 @@ export default function App(): JSX.Element | null {
                   />
                 </div>
               )}
-              {/* Analytical has no extra settings besides Tube #, so we leave blank here */}
+
+              {activeMachine.inspectionType === "fluoroscope" && (
+                <div className="col-span-2 flex items-center gap-2 mt-2 bg-indigo-50 p-2 rounded border border-indigo-100">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 text-indigo-600 rounded"
+                    checked={activeMachine.data["has_hlc"] === "true"}
+                    onChange={(e) =>
+                      updateField(
+                        "has_hlc",
+                        e.target.checked ? "true" : "false"
+                      )
+                    }
+                  />
+                  <span className="text-xs font-bold text-indigo-800">
+                    Has High Level Control (HLC)?
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1298,99 +1438,113 @@ export default function App(): JSX.Element | null {
                     {step.desc}
                   </div>
                 </div>
-                {/* Only show camera if not analytical (Analytical is manual entry usually) */}
-                {activeMachine.inspectionType !== "analytical" && (
-                  <label
-                    className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                      isScanning
-                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700"
-                    }`}
-                  >
-                    {isScanning ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Camera size={14} />
-                    )}{" "}
-                    {isScanning ? " scanning..." : "Scan"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) =>
-                        handleScanClick(e, step.fields, step.indices)
-                      }
-                      disabled={isScanning}
-                    />
-                  </label>
-                )}
+                {/* Only show camera if not analytical or pure manual step */}
+                {activeMachine.inspectionType !== "analytical" &&
+                  !step.isManualEntry && (
+                    <label
+                      className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
+                        isScanning
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                    >
+                      {isScanning ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Camera size={14} />
+                      )}{" "}
+                      {isScanning ? " scanning..." : "Scan"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) =>
+                          handleScanClick(e, step.fields, step.indices)
+                        }
+                        disabled={isScanning}
+                      />
+                    </label>
+                  )}
               </div>
 
-              {/* Step-Specific Settings (Gen Rad Only) */}
+              {/* Step-Specific Settings (Gen Rad / Fluoro) */}
               {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
                   <div className="flex-1">
                     <label className="text-[8px] uppercase font-bold text-slate-400">
-                      Set kVp
+                      {/* Customize Label for Fluoro Step 1 */}
+                      {step.id === "f1" ? "Set mA" : "Set kVp"}
                     </label>
                     <input
                       className="w-full bg-white border rounded px-1 text-xs"
-                      placeholder={step.defaultPresets.kvp}
+                      placeholder={
+                        step.defaultPresets.kvp || step.defaultPresets.mas
+                      }
                       value={
                         activeMachine.data[
-                          `${step.settingsGroup}_preset_kvp`
+                          `${step.settingsGroup}_preset_${
+                            step.id === "f1" ? "mas" : "kvp"
+                          }`
                         ] || ""
                       }
                       onChange={(e) =>
                         updateField(
-                          `${step.settingsGroup}_preset_kvp`,
+                          `${step.settingsGroup}_preset_${
+                            step.id === "f1" ? "mas" : "kvp"
+                          }`,
                           e.target.value
                         )
                       }
                     />
                   </div>
-                  <div className="flex-1">
-                    <label className="text-[8px] uppercase font-bold text-slate-400">
-                      Set mAs
-                    </label>
-                    <input
-                      className="w-full bg-white border rounded px-1 text-xs"
-                      placeholder={step.defaultPresets.mas}
-                      value={
-                        activeMachine.data[
-                          `${step.settingsGroup}_preset_mas`
-                        ] || ""
-                      }
-                      onChange={(e) =>
-                        updateField(
-                          `${step.settingsGroup}_preset_mas`,
-                          e.target.value
-                        )
-                      }
-                    />
-                  </div>
-                  {step.defaultPresets.time !== null && (
-                    <div className="flex-1">
-                      <label className="text-[8px] uppercase font-bold text-slate-400">
-                        Set Time
-                      </label>
-                      <input
-                        className="w-full bg-white border rounded px-1 text-xs"
-                        placeholder="-"
-                        value={
-                          activeMachine.data[
-                            `${step.settingsGroup}_preset_time`
-                          ] || ""
-                        }
-                        onChange={(e) =>
-                          updateField(
-                            `${step.settingsGroup}_preset_time`,
-                            e.target.value
-                          )
-                        }
-                      />
-                    </div>
+
+                  {/* General Rad extra fields */}
+                  {activeMachine.inspectionType === "general" && (
+                    <>
+                      <div className="flex-1">
+                        <label className="text-[8px] uppercase font-bold text-slate-400">
+                          Set mAs
+                        </label>
+                        <input
+                          className="w-full bg-white border rounded px-1 text-xs"
+                          placeholder={step.defaultPresets.mas}
+                          value={
+                            activeMachine.data[
+                              `${step.settingsGroup}_preset_mas`
+                            ] || ""
+                          }
+                          onChange={(e) =>
+                            updateField(
+                              `${step.settingsGroup}_preset_mas`,
+                              e.target.value
+                            )
+                          }
+                        />
+                      </div>
+                      {step.defaultPresets.time !== null && (
+                        <div className="flex-1">
+                          <label className="text-[8px] uppercase font-bold text-slate-400">
+                            Set Time
+                          </label>
+                          <input
+                            className="w-full bg-white border rounded px-1 text-xs"
+                            placeholder="-"
+                            value={
+                              activeMachine.data[
+                                `${step.settingsGroup}_preset_time`
+                              ] || ""
+                            }
+                            onChange={(e) =>
+                              updateField(
+                                `${step.settingsGroup}_preset_time`,
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1532,6 +1686,8 @@ export default function App(): JSX.Element | null {
                             ? "bg-purple-100 text-purple-700"
                             : m.inspectionType === "analytical"
                             ? "bg-orange-100 text-orange-700"
+                            : m.inspectionType === "fluoroscope"
+                            ? "bg-indigo-100 text-indigo-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
