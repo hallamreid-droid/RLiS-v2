@@ -826,7 +826,7 @@ export default function App(): JSX.Element | null {
           "pma",
           "pr/min",
           "phvl",
-          "name and date",
+          "name_and_date",
         ]);
         finalData["kvp"] = machine.data.noDataReason; // Put reason in first available field
       }
