@@ -16,10 +16,6 @@ import {
   Key,
   XCircle,
   AlertCircle,
-  Mail,
-  Eye,
-  MoreVertical,
-  X,
   Archive, // Icon for the zip button
 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -140,7 +136,6 @@ const parseExcel = (file: File, callback: (data: any[]) => void) => {
   reader.readAsArrayBuffer(file);
 };
 
-// --- MISSING FUNCTION ADDED HERE ---
 const createWordDoc = (
   templateBuffer: ArrayBuffer,
   data: any,
@@ -305,13 +300,10 @@ export default function App(): JSX.Element | null {
     "dashboard"
   );
   const [apiKey, setApiKey] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
-
   const [machines, setMachines] = useState<Machine[]>([]);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   const [showNoDataModal, setShowNoDataModal] = useState(false);
-  const [actionMachine, setActionMachine] = useState<Machine | null>(null);
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
@@ -335,9 +327,6 @@ export default function App(): JSX.Element | null {
 
     const savedKey = localStorage.getItem("rayScanApiKey");
     if (savedKey) setApiKey(savedKey);
-
-    const savedEmail = localStorage.getItem("rayScanEmail");
-    if (savedEmail) setEmail(savedEmail);
 
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) {
@@ -405,12 +394,6 @@ export default function App(): JSX.Element | null {
     const val = e.target.value;
     setApiKey(val);
     localStorage.setItem("rayScanApiKey", val);
-  };
-
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setEmail(val);
-    localStorage.setItem("rayScanEmail", val);
   };
 
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -807,14 +790,8 @@ export default function App(): JSX.Element | null {
     return finalData;
   };
 
-  // --- BULK EMAIL HANDLER (ZIP) ---
-  const handleBulkEmail = () => {
-    if (!email) {
-      alert("Please set an email address in Settings first.");
-      return;
-    }
-
-    // 1. Create Zip
+  // --- DOWNLOAD ZIP HANDLER ---
+  const handleDownloadZip = () => {
     const zip = new PizZip();
 
     try {
@@ -853,34 +830,13 @@ export default function App(): JSX.Element | null {
         zip.file(`Inspection_${machine.location}.docx`, blob);
       });
 
-      // 2. Download Zip with Dynamic Name
+      // Download Zip
       const content = zip.generate({ type: "blob" });
       saveAs(content, zipFilename);
-
-      // 3. Open Mail
-      const subject = `${entityName} Machine Pages`;
-      const body = `Attached is the zip file containing inspection reports for ${entityName}.\n\n(Please attach '${zipFilename}' manually)`;
-      window.location.href = `mailto:${email}?subject=${encodeURIComponent(
-        subject
-      )}&body=${encodeURIComponent(body)}`;
     } catch (e) {
       console.error(e);
       alert("Error generating bulk zip. Check templates.");
     }
-  };
-
-  const handleEmailAction = (machine: Machine) => {
-    generateDoc(machine);
-    if (!email) {
-      alert("Please save an email address in Settings first.");
-      return;
-    }
-    const subject = `Inspection_${machine.location}`;
-    const body = `Attached is the inspection report for ${machine.location}.\n\n(Please attach the downloaded file manually)`;
-
-    window.location.href = `mailto:${email}?subject=${encodeURIComponent(
-      subject
-    )}&body=${encodeURIComponent(body)}`;
   };
 
   const generateDoc = (machine: Machine) => {
@@ -953,18 +909,6 @@ export default function App(): JSX.Element | null {
             <p className="text-[11px] text-slate-400 mt-2">
               Key is saved locally in your browser.
             </p>
-            {/* --- NEW EMAIL INPUT --- */}
-            <div className="flex items-center gap-2 mb-3 mt-6">
-              <Mail className="text-blue-500" size={20} />
-              <h3 className="font-bold text-slate-700">Email for Reports</h3>
-            </div>
-            <input
-              type="email"
-              value={email}
-              onChange={handleEmailChange}
-              placeholder="supervisor@state.nv.gov"
-              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            />
           </div>
           <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
@@ -1496,15 +1440,14 @@ export default function App(): JSX.Element | null {
                       </div>
                     )}
 
-                    {/* --- ACTION CARD TRIGGER --- */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActionMachine(m); // OPEN ACTION CARD
+                        generateDoc(m);
                       }}
                       className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
                     >
-                      <MoreVertical size={18} />
+                      <Download size={18} />
                     </button>
                   </div>
                 ) : (
@@ -1518,82 +1461,22 @@ export default function App(): JSX.Element | null {
         )}
       </div>
 
-      {/* --- BULK EMAIL ALL BUTTON --- */}
+      {/* --- BULK DOWNLOAD ALL BUTTON --- */}
       {machines.length > 0 && machines.every((m) => m.isComplete) && (
         <button
-          onClick={handleBulkEmail}
+          onClick={handleDownloadZip}
           className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex justify-center items-center gap-3 active:scale-95 transition-transform"
         >
           <div className="bg-blue-500 p-2 rounded-full">
             <Archive size={24} className="text-white" />
           </div>
           <div className="text-left">
-            <div className="leading-tight">Email All Reports</div>
+            <div className="leading-tight">Download All (Zip)</div>
             <div className="text-[11px] text-blue-200 font-normal">
-              Download Zip & Open Mail
+              Inspections Complete
             </div>
           </div>
         </button>
-      )}
-
-      {/* --- ACTION CARD MODAL --- */}
-      {actionMachine && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden mb-4 sm:mb-0">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <div>
-                <h3 className="font-bold text-slate-800">
-                  {actionMachine.location}
-                </h3>
-                <p className="text-xs text-slate-400">Select an action</p>
-              </div>
-              <button
-                onClick={() => setActionMachine(null)}
-                className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-600"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="p-2">
-              <button
-                onClick={() => {
-                  setActiveMachineId(actionMachine.id);
-                  setView("mobile-form");
-                  setActionMachine(null);
-                }}
-                className="w-full p-4 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 font-bold text-left"
-              >
-                <div className="bg-blue-100 p-2 rounded-full text-blue-600">
-                  <Eye size={20} />
-                </div>
-                View / Edit Inspection
-              </button>
-              <button
-                onClick={() => generateDoc(actionMachine)}
-                className="w-full p-4 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 font-bold text-left"
-              >
-                <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">
-                  <Download size={20} />
-                </div>
-                Download Word Doc
-              </button>
-              <button
-                onClick={() => handleEmailAction(actionMachine)}
-                className="w-full p-4 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition-colors text-slate-700 font-bold text-left"
-              >
-                <div className="bg-purple-100 p-2 rounded-full text-purple-600">
-                  <Mail size={20} />
-                </div>
-                <div>
-                  <div>Email Report</div>
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Opens mail app (attach file manually)
-                  </div>
-                </div>
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
