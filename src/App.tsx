@@ -20,7 +20,7 @@ import {
   Building2,
   MapPin,
   Microscope,
-  Activity, // Icon for Fluoroscope
+  Activity,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -343,7 +343,7 @@ const FLUORO_STEPS = [
     desc: "Manual Entry from Physicist Report",
     isManualEntry: true,
     fields: ["pkvp", "pma", "pr/min", "phvl", "name_and_date"],
-    indices: [], // <--- ADDED EMPTY INDICES ARRAY HERE TO FIX TYPE ERROR
+    indices: [],
   },
 ];
 
@@ -425,7 +425,8 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      // SWITCHED TO 1.5 FLASH (PRODUCTION MODEL) TO AVOID RATE LIMITS
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
       const text = result.response
@@ -594,7 +595,8 @@ export default function App(): JSX.Element | null {
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      // SWITCHED TO 1.5 FLASH (PRODUCTION MODEL) TO AVOID RATE LIMITS
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
         Analyze this image of a RaySafe x-ray measurement screen.
