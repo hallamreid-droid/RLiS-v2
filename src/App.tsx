@@ -16,7 +16,9 @@ import {
   Key,
   XCircle,
   AlertCircle,
-  Archive, // Icon for the zip button
+  Archive,
+  Building2, // Icon for Facility
+  MapPin, // Icon for Location/Credential
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -85,8 +87,8 @@ type Machine = {
   serial: string;
   type: string;
   inspectionType: InspectionType;
-  location: string;
-  registrantName: string;
+  location: string; // This holds the Credential #
+  registrantName: string; // This holds the Entity Name
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -296,11 +298,17 @@ const GENERAL_STEPS = [
 ];
 
 export default function App(): JSX.Element | null {
-  const [view, setView] = useState<"dashboard" | "mobile-form" | "settings">(
-    "dashboard"
-  );
+  // --- UPDATED VIEW STATE: Now supports 'facility-list' and 'machine-list'
+  const [view, setView] = useState<
+    "facility-list" | "machine-list" | "mobile-form" | "settings"
+  >("facility-list");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
+
+  // NAVIGATION STATES
+  const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
+    null
+  );
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   const [showNoDataModal, setShowNoDataModal] = useState(false);
@@ -479,16 +487,17 @@ export default function App(): JSX.Element | null {
             serial,
             type: credentialType || row["Inspection Form"] || "Unknown",
             inspectionType,
-            location: row["Credential #"] || facility,
-            registrantName: facility,
+            location: row["Credential #"] || facility, // Credential ID
+            registrantName: facility, // Entity Name
             data: {},
             isComplete: false,
           };
         });
       if (newMachines.length === 0) alert("No machines found.");
       else {
-        setMachines(newMachines);
-        alert(`Loaded ${newMachines.length} machines.`);
+        // APPEND new machines instead of replacing, so we can have multiple facilities
+        setMachines((prev) => [...prev, ...newMachines]);
+        alert(`Added ${newMachines.length} machines.`);
       }
     });
   };
@@ -603,7 +612,7 @@ export default function App(): JSX.Element | null {
 
     setShowNoDataModal(false);
     setActiveMachineId(null);
-    setView("dashboard");
+    setView("machine-list"); // Go back to machine list
   };
 
   const markAsComplete = () => {
@@ -619,10 +628,10 @@ export default function App(): JSX.Element | null {
       })
     );
     setActiveMachineId(null);
-    setView("dashboard");
+    setView("machine-list"); // Go back to machine list
   };
 
-  // --- DATA PREPARATION HELPER (Used by Single & Bulk) ---
+  // --- DATA PREPARATION HELPER ---
   const getMachineData = (machine: Machine) => {
     let finalData: any = {
       inspector: "RH",
@@ -790,25 +799,27 @@ export default function App(): JSX.Element | null {
     return finalData;
   };
 
-  // --- DOWNLOAD ZIP HANDLER ---
+  // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
   const handleDownloadZip = () => {
+    // Filter machines by the current active facility
+    const facilityMachines = machines.filter(
+      (m) => m.registrantName === activeFacilityName
+    );
+
+    if (facilityMachines.length === 0) return;
+
     const zip = new PizZip();
 
     try {
-      // DETERMINE FILENAME
-      let zipFilename = "All_Inspections.zip";
-      let entityName = "Facility";
+      let zipFilename = "Inspections.zip";
+      const entityName = activeFacilityName || "Facility";
 
-      if (machines.length > 0 && machines[0].registrantName) {
-        entityName = machines[0].registrantName;
-        // Clean up the name: replace non-alphanumeric chars with underscores
-        const safeName = entityName
-          .replace(/[^a-z0-9]/gi, "_")
-          .replace(/_{2,}/g, "_");
-        zipFilename = `${safeName}_Machine_Pages.zip`;
-      }
+      const safeName = entityName
+        .replace(/[^a-z0-9]/gi, "_")
+        .replace(/_{2,}/g, "_");
+      zipFilename = `${safeName}_Machine_Pages.zip`;
 
-      machines.forEach((machine) => {
+      facilityMachines.forEach((machine) => {
         if (!machine.isComplete) return;
 
         const templateBuffer = templates[machine.inspectionType];
@@ -816,7 +827,6 @@ export default function App(): JSX.Element | null {
 
         const data = getMachineData(machine);
 
-        // Generate Doc Blob
         const zipDoc = new PizZip(templateBuffer);
         const doc = new Docxtemplater(zipDoc, {
           paragraphLoop: true,
@@ -826,11 +836,9 @@ export default function App(): JSX.Element | null {
         doc.render(data);
         const blob = doc.getZip().generate({ type: "arraybuffer" });
 
-        // Add to main zip
         zip.file(`Inspection_${machine.location}.docx`, blob);
       });
 
-      // Download Zip
       const content = zip.generate({ type: "blob" });
       saveAs(content, zipFilename);
     } catch (e) {
@@ -849,9 +857,7 @@ export default function App(): JSX.Element | null {
       );
       return;
     }
-
     const finalData = getMachineData(machine);
-
     createWordDoc(
       selectedTemplate,
       finalData,
@@ -859,16 +865,50 @@ export default function App(): JSX.Element | null {
     );
   };
 
-  const clearAll = () => {
-    if (window.confirm("Delete all machines?")) {
-      setMachines([]);
-      localStorage.removeItem("rayScanMachines");
+  // --- FACILITY HELPERS ---
+
+  // Group machines by Registrant Name (Facility)
+  const getFacilities = () => {
+    const groups: {
+      [key: string]: {
+        name: string;
+        id: string;
+        count: number;
+        complete: number;
+      };
+    } = {};
+
+    machines.forEach((m) => {
+      if (!groups[m.registrantName]) {
+        groups[m.registrantName] = {
+          name: m.registrantName,
+          id: m.location, // Initial ID from first machine found, assumes sharing Credential
+          count: 0,
+          complete: 0,
+        };
+      }
+      groups[m.registrantName].count++;
+      if (m.isComplete) groups[m.registrantName].complete++;
+    });
+
+    return Object.values(groups);
+  };
+
+  const deleteFacility = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete facility "${name}" and all its machines?`)) {
+      setMachines((prev) => prev.filter((m) => m.registrantName !== name));
     }
   };
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
   const currentSteps =
     activeMachine?.inspectionType === "general" ? GENERAL_STEPS : DENTAL_STEPS;
+
+  // Get list of machines for the active facility
+  const activeFacilityMachines = machines.filter(
+    (m) => m.registrantName === activeFacilityName
+  );
 
   useEffect(() => {
     if (view === "mobile-form" && activeMachine && apiKey) {
@@ -883,11 +923,12 @@ export default function App(): JSX.Element | null {
   }, [view, activeMachineId]);
 
   // --- UI ROUTER ---
+
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
         <button
-          onClick={() => setView("dashboard")}
+          onClick={() => setView("facility-list")}
           className="mb-6 flex gap-2 font-bold text-slate-600 active:scale-95 transition-transform"
         >
           <ArrowLeft /> Back
@@ -1016,14 +1057,14 @@ export default function App(): JSX.Element | null {
       </div>
     );
 
-  // --- MOBILE FORM VIEW ---
+  // --- MOBILE FORM VIEW (INSPECTION) ---
   if (view === "mobile-form" && activeMachine)
     return (
       <div className="min-h-screen bg-slate-50 font-sans relative">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
-              onClick={() => setView("dashboard")}
+              onClick={() => setView("machine-list")} // Go back to facility detail
               className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
             >
               <ArrowLeft className="text-slate-600" />
@@ -1338,7 +1379,128 @@ export default function App(): JSX.Element | null {
       </div>
     );
 
-  // --- DASHBOARD VIEW (DEFAULT) ---
+  // --- MACHINE LIST VIEW (Specific Facility) ---
+  if (view === "machine-list")
+    return (
+      <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
+        <header className="flex justify-between items-center mb-8">
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={() => setView("facility-list")} // Back to Dashboard
+              className="bg-white p-2 rounded-lg border border-slate-200 hover:bg-slate-50"
+            >
+              <ArrowLeft className="text-slate-600 h-6 w-6" />
+            </button>
+            <div className="flex flex-col">
+              <h1 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                Facility
+              </h1>
+              <div className="text-lg font-bold text-slate-800 leading-tight">
+                {activeFacilityName}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+          <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Machines ({activeFacilityMachines.length})
+            </span>
+          </div>
+          {activeFacilityMachines.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">
+              No machines found for this facility.
+            </div>
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              {activeFacilityMachines.map((m) => (
+                <div
+                  key={m.id}
+                  onClick={() => {
+                    setActiveMachineId(m.id);
+                    setView("mobile-form");
+                  }}
+                  className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  <div>
+                    <div className="font-bold text-sm text-slate-800">
+                      {/* Machine List now shows Credential + Details */}
+                      {m.location}
+                    </div>
+                    <div className="flex gap-2 items-center mt-1">
+                      <span
+                        className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                          m.inspectionType === "general"
+                            ? "bg-purple-100 text-purple-700"
+                            : "bg-blue-100 text-blue-700"
+                        }`}
+                      >
+                        {m.inspectionType}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {m.fullDetails}
+                      </span>
+                    </div>
+                  </div>
+                  {m.isComplete ? (
+                    <div className="flex items-center gap-3">
+                      {m.data.noDataReason && (
+                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                          <AlertCircle size={10} className="text-slate-500" />
+                          <span className="text-[9px] font-bold text-slate-500 uppercase">
+                            {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
+                              ? "NOT OPERATIONAL"
+                              : "NOT IN FACILITY"}
+                          </span>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          generateDoc(m);
+                        }}
+                        className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
+                      >
+                        <Download size={18} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-100 p-1.5 rounded-full">
+                      <ChevronRight className="text-slate-400 h-4 w-4" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* --- BULK DOWNLOAD ALL BUTTON (SCOPED TO FACILITY) --- */}
+        {activeFacilityMachines.length > 0 &&
+          activeFacilityMachines.every((m) => m.isComplete) && (
+            <button
+              onClick={handleDownloadZip}
+              className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex justify-center items-center gap-3 active:scale-95 transition-transform"
+            >
+              <div className="bg-blue-500 p-2 rounded-full">
+                <Archive size={24} className="text-white" />
+              </div>
+              <div className="text-left">
+                <div className="leading-tight">Download All (Zip)</div>
+                <div className="text-[11px] text-blue-200 font-normal">
+                  For {activeFacilityName}
+                </div>
+              </div>
+            </button>
+          )}
+      </div>
+    );
+
+  // --- DASHBOARD VIEW (FACILITY LIST) ---
+  const facilities = getFacilities();
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
       <header className="flex justify-between items-center mb-8">
@@ -1357,10 +1519,10 @@ export default function App(): JSX.Element | null {
       </header>
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
         <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
-          {machines.length}
+          {facilities.length}
         </div>
         <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
-          Machines Loaded
+          Facilities Loaded
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="col-span-2 bg-slate-50 text-slate-600 py-6 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
@@ -1380,104 +1542,55 @@ export default function App(): JSX.Element | null {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
         <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Machine List
+            Facility List
           </span>
-          {machines.length > 0 && (
-            <button
-              onClick={clearAll}
-              className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
         </div>
-        {machines.length === 0 ? (
+        {facilities.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">
-            No machines loaded.
+            No facilities loaded.
             <br />
             Import an ALiS Excel file to begin.
           </div>
         ) : (
           <div className="max-h-96 overflow-y-auto">
-            {machines.map((m) => (
+            {facilities.map((fac) => (
               <div
-                key={m.id}
+                key={fac.name}
                 onClick={() => {
-                  setActiveMachineId(m.id);
-                  setView("mobile-form");
+                  setActiveFacilityName(fac.name);
+                  setView("machine-list");
                 }}
                 className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
               >
                 <div>
-                  <div className="font-bold text-sm text-slate-800">
-                    {m.location}
+                  <div className="flex gap-2 items-center mb-1">
+                    <Building2 size={16} className="text-blue-500" />
+                    <div className="font-bold text-sm text-slate-800">
+                      {fac.name}
+                    </div>
                   </div>
-                  <div className="flex gap-2 items-center mt-1">
-                    <span
-                      className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        m.inspectionType === "general"
-                          ? "bg-purple-100 text-purple-700"
-                          : "bg-blue-100 text-blue-700"
-                      }`}
-                    >
-                      {m.inspectionType}
-                    </span>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex items-center gap-1 text-slate-400 text-xs">
+                      <MapPin size={12} /> {fac.id}
+                    </div>
+                    <span className="text-xs text-slate-300">•</span>
                     <span className="text-xs text-slate-500">
-                      {m.fullDetails}
+                      {fac.complete}/{fac.count} Machines
                     </span>
                   </div>
                 </div>
-                {m.isComplete ? (
-                  <div className="flex items-center gap-3">
-                    {m.data.noDataReason && (
-                      <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                        <AlertCircle size={10} className="text-slate-500" />
-                        <span className="text-[9px] font-bold text-slate-500 uppercase">
-                          {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
-                            ? "NOT OPERATIONAL"
-                            : "NOT IN FACILITY"}
-                        </span>
-                      </div>
-                    )}
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        generateDoc(m);
-                      }}
-                      className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
-                    >
-                      <Download size={18} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="bg-slate-100 p-1.5 rounded-full">
-                    <ChevronRight className="text-slate-400 h-4 w-4" />
-                  </div>
-                )}
+                <button
+                  onClick={(e) => deleteFacility(fac.name, e)}
+                  className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
-
-      {/* --- BULK DOWNLOAD ALL BUTTON --- */}
-      {machines.length > 0 && machines.every((m) => m.isComplete) && (
-        <button
-          onClick={handleDownloadZip}
-          className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex justify-center items-center gap-3 active:scale-95 transition-transform"
-        >
-          <div className="bg-blue-500 p-2 rounded-full">
-            <Archive size={24} className="text-white" />
-          </div>
-          <div className="text-left">
-            <div className="leading-tight">Download All (Zip)</div>
-            <div className="text-[11px] text-blue-200 font-normal">
-              Inspections Complete
-            </div>
-          </div>
-        </button>
-      )}
     </div>
   );
 }
