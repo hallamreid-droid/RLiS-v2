@@ -21,7 +21,8 @@ import {
   MapPin,
   Microscope,
   Activity,
-  Scan, // Icon for CT
+  Scan,
+  Briefcase, // Icon for Cabinet/Baggage
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -85,7 +86,8 @@ type InspectionType =
   | "general"
   | "analytical"
   | "fluoroscope"
-  | "ct";
+  | "ct"
+  | "cabinet";
 
 type Machine = {
   id: string;
@@ -379,6 +381,30 @@ const CT_STEPS = [
   },
 ];
 
+const CABINET_STEPS = [
+  {
+    id: "cab1",
+    label: "1. Entrance Scatter",
+    desc: "Scan Dose (Default <1)",
+    fields: ["entrance"],
+    indices: ["mR"],
+  },
+  {
+    id: "cab2",
+    label: "2. Exit Scatter",
+    desc: "Scan Dose (Default <1)",
+    fields: ["exit"],
+    indices: ["mR"],
+  },
+  {
+    id: "cab3",
+    label: "3. Operator Scatter",
+    desc: "Scan Dose (Default <1)",
+    fields: ["operator_scatter"],
+    indices: ["mR"],
+  },
+];
+
 // --- HLC STEPS (Dynamic Additions) ---
 const FLUORO_BOOST_MEASURE_STEP = {
   id: "f1_boost",
@@ -422,6 +448,7 @@ export default function App(): JSX.Element | null {
     analytical: null,
     fluoroscope: null,
     ct: null,
+    cabinet: null,
   });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
@@ -429,6 +456,7 @@ export default function App(): JSX.Element | null {
     analytical: "No Template",
     fluoroscope: "No Template",
     ct: "No Template",
+    cabinet: "No Template",
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -485,7 +513,6 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Use "gemini-2.0-flash" per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
@@ -539,6 +566,12 @@ export default function App(): JSX.Element | null {
         name.includes("tomography")
       )
         type = "ct";
+      else if (
+        name.includes("cabinet") ||
+        name.includes("baggage") ||
+        name.includes("security")
+      )
+        type = "cabinet";
 
       if (type) {
         const reader = new FileReader();
@@ -608,6 +641,11 @@ export default function App(): JSX.Element | null {
 
           if (credType.includes("ct") || credType.includes("tomography")) {
             inspectionType = "ct";
+          } else if (
+            credType.includes("cabinet") ||
+            credType.includes("security")
+          ) {
+            inspectionType = "cabinet";
           } else if (credType.includes("intraoral")) {
             inspectionType = "dental";
           } else if (credType.includes("radiographic")) {
@@ -663,7 +701,6 @@ export default function App(): JSX.Element | null {
     setIsScanning(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // FIXED: Use "gemini-2.0-flash" per request
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const imagePart = await fileToGenerativePart(file);
       const prompt = `
@@ -800,8 +837,7 @@ export default function App(): JSX.Element | null {
     if (!finalData["tube_no"]) finalData["tube_no"] = "1";
     if (
       (machine.inspectionType === "general" ||
-        machine.inspectionType === "fluoroscope" ||
-        machine.inspectionType === "ct") &&
+        machine.inspectionType === "fluoroscope") &&
       !finalData["num_tubes"]
     )
       finalData["num_tubes"] = "1";
@@ -898,8 +934,14 @@ export default function App(): JSX.Element | null {
           "pr/min",
           "phvl",
           "name_and_date",
+          "ma_boost",
+          "kvp_boost",
+          "r/min_boost",
+          "pkvp_boost",
+          "pma_boost",
+          "pr/min_boost",
         ]);
-        finalData["kvp"] = machine.data.noDataReason; // Put reason in first available field
+        finalData["kvp"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "ct") {
         blankFields([
           "time",
@@ -911,6 +953,9 @@ export default function App(): JSX.Element | null {
           "pdate",
         ]);
         finalData["time"] = machine.data.noDataReason;
+      } else if (machine.inspectionType === "cabinet") {
+        blankFields(["entrance", "exit", "operator_scatter"]);
+        finalData["entrance"] = machine.data.noDataReason;
       }
     } else {
       // --- STANDARD LOGIC ---
@@ -1036,6 +1081,13 @@ export default function App(): JSX.Element | null {
         if (!finalData["operator_scatter"])
           finalData["operator_scatter"] = "<1";
       }
+
+      if (machine.inspectionType === "cabinet") {
+        if (!finalData["entrance"]) finalData["entrance"] = "<1";
+        if (!finalData["exit"]) finalData["exit"] = "<1";
+        if (!finalData["operator_scatter"])
+          finalData["operator_scatter"] = "<1";
+      }
     }
     return finalData;
   };
@@ -1157,6 +1209,7 @@ export default function App(): JSX.Element | null {
     }
   }
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
+  if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
 
   const activeFacilityMachines = machines.filter(
     (m) => m.registrantName === activeFacilityName
@@ -1425,6 +1478,46 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
+            {/* CABINET */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.cabinet
+                  ? "bg-stone-50 border-stone-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.cabinet
+                      ? "bg-stone-200 text-stone-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <Briefcase size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.cabinet ? "text-stone-900" : "text-slate-500"
+                    }`}
+                  >
+                    Cabinet/Baggage Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.cabinet}
+                  </p>
+                </div>
+              </div>
+              {templates.cabinet && (
+                <button
+                  onClick={(e) => removeTemplate("cabinet", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1458,6 +1551,8 @@ export default function App(): JSX.Element | null {
                     ? "bg-indigo-100 text-indigo-700"
                     : activeMachine.inspectionType === "ct"
                     ? "bg-teal-100 text-teal-700"
+                    : activeMachine.inspectionType === "cabinet"
+                    ? "bg-stone-100 text-stone-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -1864,6 +1959,10 @@ export default function App(): JSX.Element | null {
                             ? "bg-orange-100 text-orange-700"
                             : m.inspectionType === "fluoroscope"
                             ? "bg-indigo-100 text-indigo-700"
+                            : m.inspectionType === "ct"
+                            ? "bg-teal-100 text-teal-700"
+                            : m.inspectionType === "cabinet"
+                            ? "bg-stone-100 text-stone-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
