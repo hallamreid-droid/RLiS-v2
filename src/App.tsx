@@ -22,7 +22,8 @@ import {
   Microscope,
   Activity,
   Scan,
-  Briefcase, // Icon for Cabinet/Baggage
+  Briefcase,
+  Bone, // Icon for Bone Density
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -87,7 +88,8 @@ type InspectionType =
   | "analytical"
   | "fluoroscope"
   | "ct"
-  | "cabinet";
+  | "cabinet"
+  | "bone_density";
 
 type Machine = {
   id: string;
@@ -324,6 +326,23 @@ const ANALYTICAL_STEPS = [
   },
 ];
 
+const BONE_DENSITY_STEPS = [
+  {
+    id: "bd1",
+    label: "1. Scatter (6ft)",
+    desc: "Order: Dose (Default <1)",
+    fields: ["scatter_6ft"],
+    indices: ["mR"],
+  },
+  {
+    id: "bd2",
+    label: "2. Scatter (Operator)",
+    desc: "Order: Dose (Default <1)",
+    fields: ["scatter_operator"],
+    indices: ["mR"],
+  },
+];
+
 const FLUORO_STEPS = [
   {
     id: "f1",
@@ -449,6 +468,7 @@ export default function App(): JSX.Element | null {
     fluoroscope: null,
     ct: null,
     cabinet: null,
+    bone_density: null,
   });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
@@ -457,6 +477,7 @@ export default function App(): JSX.Element | null {
     fluoroscope: "No Template",
     ct: "No Template",
     cabinet: "No Template",
+    bone_density: "No Template",
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -552,6 +573,7 @@ export default function App(): JSX.Element | null {
 
       if (name.includes("dental")) type = "dental";
       else if (name.includes("gen") || name.includes("rad")) type = "general";
+      else if (name.includes("bone")) type = "bone_density";
       else if (
         name.includes("analytical") ||
         name.includes("diffraction") ||
@@ -639,7 +661,12 @@ export default function App(): JSX.Element | null {
           // --- DETERMINE INSPECTION TYPE ---
           let inspectionType: InspectionType = "dental"; // Default
 
-          if (credType.includes("ct") || credType.includes("tomography")) {
+          if (credType.includes("bone")) {
+            inspectionType = "bone_density";
+          } else if (
+            credType.includes("ct") ||
+            credType.includes("tomography")
+          ) {
             inspectionType = "ct";
           } else if (
             credType.includes("cabinet") ||
@@ -837,7 +864,8 @@ export default function App(): JSX.Element | null {
     if (!finalData["tube_no"]) finalData["tube_no"] = "1";
     if (
       (machine.inspectionType === "general" ||
-        machine.inspectionType === "fluoroscope") &&
+        machine.inspectionType === "fluoroscope" ||
+        machine.inspectionType === "ct") &&
       !finalData["num_tubes"]
     )
       finalData["num_tubes"] = "1";
@@ -920,7 +948,10 @@ export default function App(): JSX.Element | null {
           "note",
         ]);
         finalData["note"] = machine.data.noDataReason;
-      } else if (machine.inspectionType === "analytical") {
+      } else if (
+        machine.inspectionType === "analytical" ||
+        machine.inspectionType === "bone_density"
+      ) {
         blankFields(["scatter_6ft", "scatter_operator"]);
         finalData["scatter_6ft"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "fluoroscope") {
@@ -1024,7 +1055,10 @@ export default function App(): JSX.Element | null {
           g3_mr > 0 && mas3 > 0 ? (g3_mr / mas3).toFixed(2) : "";
       }
 
-      if (machine.inspectionType === "analytical") {
+      if (
+        machine.inspectionType === "analytical" ||
+        machine.inspectionType === "bone_density"
+      ) {
         if (!finalData["scatter_6ft"]) finalData["scatter_6ft"] = "<1";
         if (!finalData["scatter_operator"])
           finalData["scatter_operator"] = "<1";
@@ -1194,6 +1228,8 @@ export default function App(): JSX.Element | null {
   if (activeMachine?.inspectionType === "general") currentSteps = GENERAL_STEPS;
   if (activeMachine?.inspectionType === "analytical")
     currentSteps = ANALYTICAL_STEPS;
+  if (activeMachine?.inspectionType === "bone_density")
+    currentSteps = BONE_DENSITY_STEPS;
   if (activeMachine?.inspectionType === "fluoroscope") {
     const hasHLC = activeMachine.data["has_hlc"] === "true";
     if (hasHLC) {
@@ -1400,6 +1436,48 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
+            {/* BONE DENSITY */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.bone_density
+                  ? "bg-pink-50 border-pink-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.bone_density
+                      ? "bg-pink-200 text-pink-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <Bone size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.bone_density
+                        ? "text-pink-900"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    Bone Density Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.bone_density}
+                  </p>
+                </div>
+              </div>
+              {templates.bone_density && (
+                <button
+                  onClick={(e) => removeTemplate("bone_density", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
             {/* FLUOROSCOPE */}
             <div
               className={`flex items-center justify-between p-4 rounded-lg border ${
@@ -1553,6 +1631,8 @@ export default function App(): JSX.Element | null {
                     ? "bg-teal-100 text-teal-700"
                     : activeMachine.inspectionType === "cabinet"
                     ? "bg-stone-100 text-stone-700"
+                    : activeMachine.inspectionType === "bone_density"
+                    ? "bg-pink-100 text-pink-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -1682,12 +1762,20 @@ export default function App(): JSX.Element | null {
           </div>
 
           {/* AI DEBUG AREA */}
-          {activeMachine.inspectionType !== "analytical" && lastScannedText && (
-            <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
-              <div className="font-bold mb-1 text-slate-700">AI Response:</div>
-              <div className="mt-1 truncate opacity-50">{lastScannedText}</div>
-            </div>
-          )}
+          {/* Hide AI Debug for Manual-Only Types */}
+          {activeMachine.inspectionType !== "analytical" &&
+            activeMachine.inspectionType !== "bone_density" &&
+            activeMachine.inspectionType !== "cabinet" &&
+            lastScannedText && (
+              <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
+                <div className="font-bold mb-1 text-slate-700">
+                  AI Response:
+                </div>
+                <div className="mt-1 truncate opacity-50">
+                  {lastScannedText}
+                </div>
+              </div>
+            )}
 
           {/* STEPS */}
           {currentSteps.map((step: any) => (
@@ -1705,32 +1793,35 @@ export default function App(): JSX.Element | null {
                   </div>
                 </div>
                 {/* Only show camera if not analytical or pure manual step */}
-                {!step.isManualEntry && (
-                  <label
-                    className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                      isScanning
-                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700"
-                    }`}
-                  >
-                    {isScanning ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Camera size={14} />
-                    )}{" "}
-                    {isScanning ? " scanning..." : "Scan"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) =>
-                        handleScanClick(e, step.fields, step.indices)
-                      }
-                      disabled={isScanning}
-                    />
-                  </label>
-                )}
+                {!step.isManualEntry &&
+                  activeMachine.inspectionType !== "analytical" &&
+                  activeMachine.inspectionType !== "bone_density" &&
+                  activeMachine.inspectionType !== "cabinet" && (
+                    <label
+                      className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
+                        isScanning
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                    >
+                      {isScanning ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Camera size={14} />
+                      )}{" "}
+                      {isScanning ? " scanning..." : "Scan"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) =>
+                          handleScanClick(e, step.fields, step.indices)
+                        }
+                        disabled={isScanning}
+                      />
+                    </label>
+                  )}
               </div>
 
               {/* Step-Specific Settings (Gen Rad / Fluoro) */}
@@ -1963,6 +2054,8 @@ export default function App(): JSX.Element | null {
                             ? "bg-teal-100 text-teal-700"
                             : m.inspectionType === "cabinet"
                             ? "bg-stone-100 text-stone-700"
+                            : m.inspectionType === "bone_density"
+                            ? "bg-pink-100 text-pink-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
