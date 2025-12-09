@@ -1636,7 +1636,7 @@ export default function App(): JSX.Element | null {
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
-                {activeMachine.inspectionType}
+                {activeMachine.inspectionType.replace("_", " ")}
               </span>
             </div>
             <div className="flex gap-1 text-[10px] font-mono">
@@ -2059,7 +2059,7 @@ export default function App(): JSX.Element | null {
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {m.inspectionType}
+                        {m.inspectionType.replace("_", " ")}
                       </span>
                       <span className="text-xs text-slate-500">
                         {m.fullDetails}
