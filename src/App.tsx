@@ -20,7 +20,8 @@ import {
   Building2,
   MapPin,
   Microscope,
-  Activity, // Icon for Fluoroscope
+  Activity,
+  Scan, // Icon for CT
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -79,7 +80,12 @@ const deleteTemplateFromDB = async (type: string) => {
 };
 
 // --- TYPES ---
-type InspectionType = "dental" | "general" | "analytical" | "fluoroscope";
+type InspectionType =
+  | "dental"
+  | "general"
+  | "analytical"
+  | "fluoroscope"
+  | "ct";
 
 type Machine = {
   id: string;
@@ -347,6 +353,32 @@ const FLUORO_STEPS = [
   },
 ];
 
+const CT_STEPS = [
+  {
+    id: "ct1",
+    label: "1. Technique Data",
+    desc: "Manual Entry (Time, kVp, mA/mAs)",
+    isManualEntry: true,
+    fields: ["time", "kvp", "ma", "mas"],
+    indices: [],
+  },
+  {
+    id: "ct2",
+    label: "2. Scatter (Operator)",
+    desc: "Scan Dose (Usually <1)",
+    fields: ["operator_scatter"],
+    indices: ["mR"],
+  },
+  {
+    id: "ct3",
+    label: "3. Physicist Info",
+    desc: "Manual Entry",
+    isManualEntry: true,
+    fields: ["pname", "pdate"],
+    indices: [],
+  },
+];
+
 // --- HLC STEPS (Dynamic Additions) ---
 const FLUORO_BOOST_MEASURE_STEP = {
   id: "f1_boost",
@@ -384,12 +416,19 @@ export default function App(): JSX.Element | null {
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
-  >({ dental: null, general: null, analytical: null, fluoroscope: null });
+  >({
+    dental: null,
+    general: null,
+    analytical: null,
+    fluoroscope: null,
+    ct: null,
+  });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
     general: "No Template",
     analytical: "No Template",
     fluoroscope: "No Template",
+    ct: "No Template",
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -494,6 +533,12 @@ export default function App(): JSX.Element | null {
         type = "analytical";
       else if (name.includes("fluoro") || name.includes("c-arm"))
         type = "fluoroscope";
+      else if (
+        name.includes("ct ") ||
+        name.includes("computed") ||
+        name.includes("tomography")
+      )
+        type = "ct";
 
       if (type) {
         const reader = new FileReader();
@@ -561,7 +606,9 @@ export default function App(): JSX.Element | null {
           // --- DETERMINE INSPECTION TYPE ---
           let inspectionType: InspectionType = "dental"; // Default
 
-          if (credType.includes("intraoral")) {
+          if (credType.includes("ct") || credType.includes("tomography")) {
+            inspectionType = "ct";
+          } else if (credType.includes("intraoral")) {
             inspectionType = "dental";
           } else if (credType.includes("radiographic")) {
             inspectionType = "general";
@@ -753,7 +800,8 @@ export default function App(): JSX.Element | null {
     if (!finalData["tube_no"]) finalData["tube_no"] = "1";
     if (
       (machine.inspectionType === "general" ||
-        machine.inspectionType === "fluoroscope") &&
+        machine.inspectionType === "fluoroscope" ||
+        machine.inspectionType === "ct") &&
       !finalData["num_tubes"]
     )
       finalData["num_tubes"] = "1";
@@ -852,6 +900,17 @@ export default function App(): JSX.Element | null {
           "name_and_date",
         ]);
         finalData["kvp"] = machine.data.noDataReason; // Put reason in first available field
+      } else if (machine.inspectionType === "ct") {
+        blankFields([
+          "time",
+          "kvp",
+          "ma",
+          "mas",
+          "operator_scatter",
+          "pname",
+          "pdate",
+        ]);
+        finalData["time"] = machine.data.noDataReason;
       }
     } else {
       // --- STANDARD LOGIC ---
@@ -955,7 +1014,7 @@ export default function App(): JSX.Element | null {
           finalData["pma_boost"] = machine.data["pma_boost"];
           finalData["pr/min_boost"] = machine.data["pr/min_boost"];
         } else {
-          // --- FIX: CLEAR BOOST DATA IF HLC IS UNCHECKED ---
+          // Clear boost data if HLC unchecked
           const boostFields = [
             "ma_boost",
             "kvp_boost",
@@ -966,6 +1025,16 @@ export default function App(): JSX.Element | null {
           ];
           boostFields.forEach((f) => (finalData[f] = ""));
         }
+      }
+
+      if (machine.inspectionType === "ct") {
+        // Only one of mA or mAs is usually filled. Blank out the other.
+        if (!machine.data["mas"]) finalData["mas"] = "";
+        if (!machine.data["ma"]) finalData["ma"] = "";
+
+        // Default scatter to <1 if empty
+        if (!finalData["operator_scatter"])
+          finalData["operator_scatter"] = "<1";
       }
     }
     return finalData;
@@ -1087,6 +1156,7 @@ export default function App(): JSX.Element | null {
       currentSteps = FLUORO_STEPS;
     }
   }
+  if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
 
   const activeFacilityMachines = machines.filter(
     (m) => m.registrantName === activeFacilityName
@@ -1317,6 +1387,44 @@ export default function App(): JSX.Element | null {
                 </button>
               )}
             </div>
+            {/* CT */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.ct
+                  ? "bg-teal-50 border-teal-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.ct
+                      ? "bg-teal-200 text-teal-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <Scan size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.ct ? "text-teal-900" : "text-slate-500"
+                    }`}
+                  >
+                    CT Template
+                  </p>
+                  <p className="text-xs text-slate-400">{templateNames.ct}</p>
+                </div>
+              </div>
+              {templates.ct && (
+                <button
+                  onClick={(e) => removeTemplate("ct", e)}
+                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1348,6 +1456,8 @@ export default function App(): JSX.Element | null {
                     ? "bg-orange-100 text-orange-700"
                     : activeMachine.inspectionType === "fluoroscope"
                     ? "bg-indigo-100 text-indigo-700"
+                    : activeMachine.inspectionType === "ct"
+                    ? "bg-teal-100 text-teal-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -1440,7 +1550,8 @@ export default function App(): JSX.Element | null {
                 </>
               )}
               {(activeMachine.inspectionType === "general" ||
-                activeMachine.inspectionType === "fluoroscope") && (
+                activeMachine.inspectionType === "fluoroscope" ||
+                activeMachine.inspectionType === "ct") && (
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase">
                     # of Tubes
