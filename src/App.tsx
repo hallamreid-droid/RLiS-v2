@@ -1792,36 +1792,33 @@ export default function App(): JSX.Element | null {
                     {step.desc}
                   </div>
                 </div>
-                {/* Only show camera if not analytical or pure manual step */}
-                {!step.isManualEntry &&
-                  activeMachine.inspectionType !== "analytical" &&
-                  activeMachine.inspectionType !== "bone_density" &&
-                  activeMachine.inspectionType !== "cabinet" && (
-                    <label
-                      className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                        isScanning
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : "bg-blue-600 text-white hover:bg-blue-700"
-                      }`}
-                    >
-                      {isScanning ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Camera size={14} />
-                      )}{" "}
-                      {isScanning ? " scanning..." : "Scan"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={(e) =>
-                          handleScanClick(e, step.fields, step.indices)
-                        }
-                        disabled={isScanning}
-                      />
-                    </label>
-                  )}
+                {/* Only show camera if not a strictly manual step */}
+                {!step.isManualEntry && (
+                  <label
+                    className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
+                      isScanning
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                  >
+                    {isScanning ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Camera size={14} />
+                    )}{" "}
+                    {isScanning ? " scanning..." : "Scan"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) =>
+                        handleScanClick(e, step.fields, step.indices)
+                      }
+                      disabled={isScanning}
+                    />
+                  </label>
+                )}
               </div>
 
               {/* Step-Specific Settings (Gen Rad / Fluoro) */}
