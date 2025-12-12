@@ -775,40 +775,53 @@ export default function App(): JSX.Element | null {
       );
 
       let prompt = "";
+
+      // --- LOGIC SPLIT: STRICTLY SEPARATE PROMPTS ---
+
       if (scanType === "document") {
         prompt = `
-          Analyze these images of a Medical Physicist Inspection Report (it may span multiple pages).
-          Extract the following 'Previous' or 'Physicist' values found across any of the pages:
-          1. Standard Mode: kVp, mA, R/min (or EER).
-          2. Boost/HLC Mode (if present): kVp, mA, R/min.
-          3. HVL: Value (mm Al) and the kVp it was measured at.
-          4. Physicist Name and Date of inspection only (Do not include title).
-          
-          Return a JSON object with strictly these keys (use null if not found):
+          Analyze these report images. Return JSON.
+          Extract PREVIOUS/PHYSICIST values:
           {
-            "pkvp": "", "pma": "", "pr/min": "", 
-            "pkvp_boost": "", "pma_boost": "", "pr/min_boost": "", 
-            "phvl": "", "phvl_kvp": "", 
-            "name_and_date": ""
+            "pkvp": "Standard kVp",
+            "pma": "Standard mA",
+            "pr/min": "Standard Rate (R/min or mGy/min)",
+            "pkvp_boost": "Boost kVp",
+            "pma_boost": "Boost mA",
+            "pr/min_boost": "Boost Rate",
+            "phvl": "HVL Value",
+            "phvl_kvp": "HVL kVp",
+            "name_and_date": "Physicist Name & Date (No Title)"
           }
+          Use null if missing. DO NOT CONVERT UNITS. Return numbers EXACTLY as shown.
+        `;
+      } else if (activeMachine?.inspectionType === "fluoroscope") {
+        // --- FLUORO PROMPT (RATE ONLY) ---
+        prompt = `
+          Analyze this RaySafe screen. Return JSON.
+          Keys: "kvp", "mR", "time", "hvl".
+          
+          CRITICAL INSTRUCTION:
+          For "mR", you must find the DOSE RATE.
+          Look for: R/min, mGy/min, uGy/s, mGy/s.
+          Example: If screen says "4.50 R/min", return "4.50".
+          
+          IGNORE Total Dose (mR, mGy). ONLY return Rate.
+          DO NOT CONVERT UNITS. Return the number EXACTLY as displayed.
         `;
       } else {
-        const isFluoro = activeMachine?.inspectionType === "fluoroscope";
+        // --- STANDARD PROMPT (DOSE ONLY) ---
         prompt = `
-          Analyze this image of a RaySafe x-ray measurement screen.
-          Extract values for: kVp, Time, HVL, and Radiation Level.
+          Analyze this RaySafe screen. Return JSON.
+          Keys: "kvp", "mR", "time", "hvl".
           
-          Identify units carefully:
-          - Total Dose units: mR, R, uR, mGy, uGy, Gy
-          - Dose Rate units: R/min, mR/min, mGy/s, uGy/s
+          CRITICAL INSTRUCTION:
+          For "mR", you must find the TOTAL DOSE / EXPOSURE.
+          Look for: mR, R, mGy, uGy.
+          Example: If screen says "408.9 mR", return "408.9".
           
-          ${
-            isFluoro
-              ? 'PRIORITY: This is a FLUOROSCOPY inspection. You MUST extract the DOSE RATE (e.g., R/min) and put it in the "mR" key. If only Total Dose is found, return null for "mR".'
-              : 'PRIORITY: This is a STANDARD inspection (Dental/General). You MUST extract the TOTAL DOSE (e.g., mR). Do NOT use Dose Rate (R/min). Put the Total Dose in the "mR" key.'
-          }
-
-          Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
+          IGNORE Dose Rate (R/min). ONLY return Total Dose.
+          DO NOT CONVERT UNITS. Return the number EXACTLY as displayed.
         `;
       }
 
