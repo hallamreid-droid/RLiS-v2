@@ -1137,17 +1137,17 @@ export default function App(): JSX.Element | null {
     return finalData;
   };
 
-  // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
-  const handleDownloadZip = () => {
+  // --- DOWNLOAD ZIP HANDLER (SCOPED TO TARGET FACILITY) ---
+  const handleDownloadZip = (targetFacilityName: string) => {
     const facilityMachines = machines.filter(
-      (m) => m.registrantName === activeFacilityName
+      (m) => m.registrantName === targetFacilityName
     );
     if (facilityMachines.length === 0) return;
 
     const zip = new PizZip();
     try {
       let zipFilename = "Inspections.zip";
-      const entityName = activeFacilityName || "Facility";
+      const entityName = targetFacilityName || "Facility";
       const safeName = entityName
         .replace(/[^a-z0-9]/gi, "_")
         .replace(/_{2,}/g, "_");
@@ -1338,7 +1338,7 @@ export default function App(): JSX.Element | null {
                       : "bg-slate-200 text-slate-400"
                   }`}
                 >
-                  <Smile size={16} /> {/* CHANGED ICON */}
+                  <Smile size={16} />
                 </div>
                 <div>
                   <p
@@ -1378,7 +1378,7 @@ export default function App(): JSX.Element | null {
                       : "bg-slate-200 text-slate-400"
                   }`}
                 >
-                  <Zap size={16} /> {/* CHANGED ICON */}
+                  <Zap size={16} />
                 </div>
                 <div>
                   <p
@@ -1616,9 +1616,9 @@ export default function App(): JSX.Element | null {
           <div className="flex gap-3 items-center mb-1">
             <button
               onClick={() => setView("machine-list")}
-              className="bg-white p-2 rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-transform"
+              className="p-2 -ml-2 text-slate-600 hover:bg-slate-50 rounded-full active:scale-95 transition-transform"
             >
-              <ArrowLeft className="text-slate-600 h-6 w-6" />
+              <ArrowLeft size={24} />
             </button>
             <div className="font-bold text-lg text-slate-800">
               {activeMachine.location}
@@ -1950,11 +1950,7 @@ export default function App(): JSX.Element | null {
 
             <button
               onClick={markAsComplete}
-              className={`flex-1 py-4 font-bold rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform ${
-                activeMachine.isComplete
-                  ? "bg-blue-600 hover:bg-blue-700 text-white"
-                  : "bg-green-600 hover:bg-green-700 text-white"
-              }`}
+              className={`flex-1 py-4 font-bold rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform bg-green-600 hover:bg-green-700 text-white`}
             >
               <CheckCircle className="h-5 w-5" />
               {activeMachine.isComplete
@@ -2011,9 +2007,9 @@ export default function App(): JSX.Element | null {
           <div className="flex gap-2 items-center">
             <button
               onClick={() => setView("facility-list")}
-              className="bg-white p-2 rounded-lg border border-slate-200 hover:bg-slate-50"
+              className="p-2 -ml-2 text-slate-600 hover:bg-slate-50 rounded-full active:scale-95 transition-transform"
             >
-              <ArrowLeft className="text-slate-600 h-6 w-6" />
+              <ArrowLeft size={24} />
             </button>
             <div className="flex flex-col">
               <h1 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
@@ -2113,25 +2109,6 @@ export default function App(): JSX.Element | null {
             </div>
           )}
         </div>
-
-        {/* --- BULK DOWNLOAD ALL BUTTON (SCOPED TO FACILITY) --- */}
-        {activeFacilityMachines.length > 1 &&
-          activeFacilityMachines.every((m) => m.isComplete) && (
-            <button
-              onClick={handleDownloadZip}
-              className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex justify-center items-center gap-3 active:scale-95 transition-transform"
-            >
-              <div className="bg-blue-500 p-2 rounded-full">
-                <Archive size={24} className="text-white" />
-              </div>
-              <div className="text-left">
-                <div className="leading-tight">Download All (Zip)</div>
-                <div className="text-[11px] text-blue-200 font-normal">
-                  For {activeFacilityName}
-                </div>
-              </div>
-            </button>
-          )}
       </div>
     );
   // --- DASHBOARD VIEW (FACILITY LIST) ---
@@ -2234,12 +2211,27 @@ export default function App(): JSX.Element | null {
                     </div>
                   </div>
 
-                  <button
-                    onClick={(e) => deleteFacility(fac.name, e)}
-                    className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {/* NEW ZIP DOWNLOAD BUTTON */}
+                    {isCompleted && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadZip(fac.name);
+                        }}
+                        className="text-blue-400 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors"
+                      >
+                        <Archive size={18} />
+                      </button>
+                    )}
+
+                    <button
+                      onClick={(e) => deleteFacility(fac.name, e)}
+                      className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 </div>
               );
             })}
