@@ -383,7 +383,6 @@ const FLUORO_STEPS = [
     desc: "Scan the previous report (multiple pages allowed).",
     isManualEntry: false,
     scanType: "document",
-    // UPDATED FIELDS: Removed 'name_and_date', added 'pname' and 'pdate'
     fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "pname", "pdate"],
     indices: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "pname", "pdate"],
   },
@@ -410,11 +409,11 @@ const CT_STEPS = [
   {
     id: "ct3",
     label: "3. Physicist Info",
-    desc: "Manual Entry",
-    isManualEntry: true,
+    desc: "Scan report for Name & Date (no data needed).",
+    isManualEntry: false, // CHANGED TO FALSE
+    scanType: "document", // SET TO DOCUMENT
     fields: ["pname", "pdate"],
-    indices: [] as string[],
-    scanType: "screen",
+    indices: ["pname", "pdate"],
   },
 ];
 
@@ -778,21 +777,33 @@ export default function App(): JSX.Element | null {
       let prompt = "";
 
       if (scanType === "document") {
-        prompt = `
-          Analyze these report images. Return JSON.
-          
-          TASK:
-          1. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
-          2. SCAN ALL PAGES for data tables.
-          3. CRITICAL: For data values (kVp, mA, Rate), ONLY extract the data corresponding to the MAXIMUM OUTPUT SETTING at Nomral Mode and HLC (if applicable).
-             - Ignore data from lower settings (e.g. 70 kVp, 100 kVp).
-             - We want the MAXIMUM POSSIBLE OUTPUT data.
-          
-          Return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
-          Use null if missing. DO NOT CONVERT UNITS. Return exactly as shown.
-        `;
+        if (activeMachine?.inspectionType === "ct") {
+          // --- CT DOCUMENT SCAN (NAME & DATE ONLY) ---
+          prompt = `
+            Analyze these report images. Return JSON.
+            TASK: Find "Physicist Name" and "Date" of inspection.
+            IGNORE all measurement data.
+            Return keys: "pname", "pdate".
+            Use null if missing. DO NOT CONVERT UNITS.
+          `;
+        } else {
+          // --- FLUORO DOCUMENT SCAN (FULL DATA + NAME/DATE) ---
+          prompt = `
+            Analyze these report images. Return JSON.
+            
+            TASK:
+            1. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
+            2. SCAN ALL PAGES for data tables.
+            3. CRITICAL: For data values (kVp, mA, Rate), ONLY extract the data corresponding to the MAXIMUM OUTPUT SETTING (usually 120 kVp, or the highest kVp listed).
+               - Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
+               - We want the MAXIMUM POSSIBLE OUTPUT data.
+            
+            Return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
+            Use null if missing. DO NOT CONVERT UNITS. Return exactly as shown.
+          `;
+        }
       } else if (activeMachine?.inspectionType === "fluoroscope") {
-        // --- FLUORO PROMPT (RATE ONLY) ---
+        // --- FLUORO SCREEN SCAN (RATE ONLY) ---
         prompt = `
           Analyze RaySafe screen. Return JSON.
           Keys: "kvp", "mR", "time", "hvl".
@@ -804,7 +815,7 @@ export default function App(): JSX.Element | null {
           - If "4.50 R/min" -> return "4.50".
         `;
       } else {
-        // --- STANDARD PROMPT (DOSE ONLY) ---
+        // --- STANDARD SCREEN SCAN (DOSE ONLY) ---
         prompt = `
           Analyze RaySafe screen. Return JSON.
           Keys: "kvp", "mR", "time", "hvl".
