@@ -27,7 +27,9 @@ import {
   Smile,
   Zap,
   Files,
-  History, // Added History icon
+  History,
+  Clock, // Added Clock icon for history
+  Calendar, // Added Calendar icon
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -107,6 +109,7 @@ type Machine = {
   registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
+  completedAt?: number; // Added to track history
 };
 
 // --- HELPER FUNCTIONS ---
@@ -478,7 +481,7 @@ export default function App(): JSX.Element | null {
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [isTemplateDragging, setIsTemplateDragging] = useState(false); // NEW STATE
+  const [isTemplateDragging, setIsTemplateDragging] = useState(false);
 
   const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
     null
@@ -533,6 +536,7 @@ export default function App(): JSX.Element | null {
           model: m.model || "",
           serial: m.serial || "",
           data: m.data || {},
+          completedAt: m.completedAt || undefined, // Ensure field exists
         }));
         setMachines(migrated);
       } catch (e) {
@@ -590,7 +594,6 @@ export default function App(): JSX.Element | null {
     localStorage.setItem("rayScanApiKey", val);
   };
 
-  // --- REUSABLE TEMPLATE PROCESSOR ---
   const processTemplateFiles = (files: FileList | File[]) => {
     Array.from(files).forEach((file) => {
       const name = file.name.toLowerCase();
@@ -640,7 +643,6 @@ export default function App(): JSX.Element | null {
     if (files) processTemplateFiles(files);
   };
 
-  // --- TEMPLATE DRAG HANDLERS ---
   const handleTemplateDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsTemplateDragging(true);
@@ -937,6 +939,7 @@ export default function App(): JSX.Element | null {
           ? {
               ...m,
               isComplete: true,
+              completedAt: Date.now(), // Store completion time
               data: { ...m.data, noDataReason: message },
             }
           : m
@@ -954,7 +957,12 @@ export default function App(): JSX.Element | null {
       prev.map((m) => {
         if (m.id === activeMachineId) {
           const { noDataReason, ...cleanData } = m.data;
-          return { ...m, isComplete: true, data: cleanData };
+          return {
+            ...m,
+            isComplete: true,
+            completedAt: Date.now(),
+            data: cleanData,
+          };
         }
         return m;
       })
@@ -1242,16 +1250,16 @@ export default function App(): JSX.Element | null {
   };
 
   // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
-  const handleDownloadZip = () => {
+  const handleDownloadZip = (targetFacilityName: string) => {
     const facilityMachines = machines.filter(
-      (m) => m.registrantName === activeFacilityName
+      (m) => m.registrantName === targetFacilityName
     );
     if (facilityMachines.length === 0) return;
 
     const zip = new PizZip();
     try {
       let zipFilename = "Inspections.zip";
-      const entityName = activeFacilityName || "Facility";
+      const entityName = targetFacilityName || "Facility";
       const safeName = entityName
         .replace(/[^a-z0-9]/gi, "_")
         .replace(/_{2,}/g, "_");
@@ -1589,14 +1597,55 @@ export default function App(): JSX.Element | null {
 
         {/* --- HISTORY TAB --- */}
         {settingsTab === "history" && (
-          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-2xl border border-slate-200 border-dashed animate-in fade-in zoom-in duration-300">
-            <div className="bg-slate-50 p-4 rounded-full mb-3">
-              <History className="text-slate-300" size={32} />
-            </div>
-            <h3 className="text-slate-400 font-bold">History Coming Soon</h3>
-            <p className="text-slate-300 text-xs mt-1">
-              Recent inspections will appear here.
-            </p>
+          <div className="space-y-4 animate-in fade-in zoom-in duration-300">
+            {machines.filter((m) => m.isComplete).length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 bg-white rounded-2xl border border-slate-200 border-dashed">
+                <div className="bg-slate-50 p-4 rounded-full mb-3">
+                  <History className="text-slate-300" size={32} />
+                </div>
+                <h3 className="text-slate-400 font-bold">No History Yet</h3>
+                <p className="text-slate-300 text-xs mt-1">
+                  Completed inspections will appear here.
+                </p>
+              </div>
+            ) : (
+              machines
+                .filter((m) => m.isComplete)
+                .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0))
+                .slice(0, 10)
+                .map((m) => (
+                  <div
+                    key={m.id}
+                    className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500`}
+                        >
+                          {m.inspectionType}
+                        </span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <Clock size={10} />{" "}
+                          {m.completedAt
+                            ? new Date(m.completedAt).toLocaleDateString()
+                            : "Unknown"}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        {m.location}
+                      </h4>
+                      <p className="text-xs text-slate-500">{m.fullDetails}</p>
+                    </div>
+                    <button
+                      onClick={() => generateDoc(m)}
+                      className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      <Download size={18} />
+                    </button>
+                  </div>
+                ))
+            )}
           </div>
         )}
       </div>
@@ -2153,7 +2202,7 @@ export default function App(): JSX.Element | null {
           activeFacilityMachines.every((m) => m.isComplete) && (
             <div className="mt-4 flex justify-center">
               <button
-                onClick={handleDownloadZip}
+                onClick={() => handleDownloadZip(activeFacilityName!)}
                 className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2 text-sm"
               >
                 <Archive size={18} /> Download Zip
