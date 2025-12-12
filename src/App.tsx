@@ -24,8 +24,8 @@ import {
   Scan,
   Briefcase,
   Bone,
-  Smile, // Added for Dental
-  Zap, // Added for General
+  Smile,
+  Zap,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -453,7 +453,7 @@ export default function App(): JSX.Element | null {
   >("facility-list");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [isDragging, setIsDragging] = useState(false); // NEW STATE FOR DRAG DROP
+  const [isDragging, setIsDragging] = useState(false);
 
   const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
     null
@@ -619,7 +619,7 @@ export default function App(): JSX.Element | null {
     deleteTemplateFromDB(type);
   };
 
-  // --- NEW: REUSABLE DATA PROCESSOR FOR EXCEL ---
+  // --- REUSABLE DATA PROCESSOR FOR EXCEL ---
   const processImportedData = (data: any[]) => {
     const newMachines: Machine[] = data
       .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
@@ -714,7 +714,7 @@ export default function App(): JSX.Element | null {
     parseExcel(file, processImportedData);
   };
 
-  // --- NEW: DRAG AND DROP HANDLERS ---
+  // --- DRAG AND DROP HANDLERS ---
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -1616,9 +1616,9 @@ export default function App(): JSX.Element | null {
           <div className="flex gap-3 items-center mb-1">
             <button
               onClick={() => setView("machine-list")}
-              className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
+              className="bg-white p-2 rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-transform"
             >
-              <ArrowLeft className="text-slate-600" />
+              <ArrowLeft className="text-slate-600 h-6 w-6" />
             </button>
             <div className="font-bold text-lg text-slate-800">
               {activeMachine.location}
@@ -2045,7 +2045,11 @@ export default function App(): JSX.Element | null {
                     setActiveMachineId(m.id);
                     setView("mobile-form");
                   }}
-                  className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
+                  className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
+                    m.isComplete
+                      ? "bg-emerald-50 hover:bg-emerald-100"
+                      : "hover:bg-slate-50"
+                  }`}
                 >
                   <div>
                     <div className="font-bold text-sm text-slate-800">
@@ -2197,41 +2201,48 @@ export default function App(): JSX.Element | null {
           </div>
         ) : (
           <div className="max-h-96 overflow-y-auto">
-            {facilities.map((fac) => (
-              <div
-                key={fac.name}
-                onClick={() => {
-                  setActiveFacilityName(fac.name);
-                  setView("machine-list");
-                }}
-                className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                <div>
-                  <div className="flex gap-2 items-center mb-1">
-                    <Building2 size={16} className="text-blue-500" />
-                    <div className="font-bold text-sm text-slate-800">
-                      {fac.name}
-                    </div>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <div className="flex items-center gap-1 text-slate-400 text-xs">
-                      <MapPin size={12} /> {fac.id}
-                    </div>
-                    <span className="text-xs text-slate-300">•</span>
-                    <span className="text-xs text-slate-500">
-                      {fac.complete}/{fac.count} Machines
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={(e) => deleteFacility(fac.name, e)}
-                  className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+            {facilities.map((fac) => {
+              const isCompleted = fac.count > 0 && fac.complete === fac.count;
+              return (
+                <div
+                  key={fac.name}
+                  onClick={() => {
+                    setActiveFacilityName(fac.name);
+                    setView("machine-list");
+                  }}
+                  className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
+                    isCompleted
+                      ? "bg-emerald-50 hover:bg-emerald-100"
+                      : "hover:bg-slate-50"
+                  }`}
                 >
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            ))}
+                  <div>
+                    <div className="flex gap-2 items-center mb-1">
+                      <Building2 size={16} className="text-blue-500" />
+                      <div className="font-bold text-sm text-slate-800">
+                        {fac.name}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <div className="flex items-center gap-1 text-slate-400 text-xs">
+                        <MapPin size={12} /> {fac.id}
+                      </div>
+                      <span className="text-xs text-slate-300">•</span>
+                      <span className="text-xs text-slate-500">
+                        {fac.complete}/{fac.count} Machines
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => deleteFacility(fac.name, e)}
+                    className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
