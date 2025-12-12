@@ -23,10 +23,7 @@ import {
   Activity,
   Scan,
   Briefcase,
-  Bone,
-  Smile,
-  Zap,
-  Files,
+  Bone, // Icon for Bone Density
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -186,7 +183,6 @@ const DENTAL_STEPS = [
     desc: "Order: kVp, Dose, Time, HVL",
     indices: ["kvp", "mR", "time", "hvl"],
     fields: ["kvp", "mR1", "time1", "hvl"],
-    scanType: "screen",
   },
   {
     id: "scan2",
@@ -194,7 +190,6 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR2", "time2"],
     indices: ["mR", "time"],
-    scanType: "screen",
   },
   {
     id: "scan3",
@@ -202,7 +197,6 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR3", "time3"],
     indices: ["mR", "time"],
-    scanType: "screen",
   },
   {
     id: "scan4",
@@ -210,7 +204,6 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR4", "time4"],
     indices: ["mR", "time"],
-    scanType: "screen",
   },
   {
     id: "scan5",
@@ -218,7 +211,6 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd)",
     fields: ["6 foot"],
     indices: ["mR"],
-    scanType: "screen",
   },
   {
     id: "scan6",
@@ -226,7 +218,6 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd)",
     fields: ["operator location"],
     indices: ["mR"],
-    scanType: "screen",
   },
 ];
 
@@ -240,7 +231,6 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "70", mas: "10", time: "" },
     indices: ["kvp", "mR", "time", "fields"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
-    scanType: "screen",
   },
   {
     id: "g2a",
@@ -251,7 +241,6 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "70", mas: "16", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g2a_kvp", "g2a_mr", "g2a_time"],
-    scanType: "screen",
   },
   {
     id: "g2b",
@@ -261,7 +250,6 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2b_kvp", "g2b_mr", "g2b_time"],
-    scanType: "screen",
   },
   {
     id: "g2c",
@@ -271,7 +259,6 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2c_kvp", "g2c_mr", "g2c_time"],
-    scanType: "screen",
   },
   {
     id: "g2d",
@@ -281,7 +268,6 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
-    scanType: "screen",
   },
   {
     id: "g3",
@@ -292,7 +278,6 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "70", mas: "20", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
-    scanType: "screen",
   },
   {
     id: "g4",
@@ -303,7 +288,6 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "90", mas: "40", time: null },
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
-    scanType: "screen",
   },
   {
     id: "g5",
@@ -313,7 +297,6 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["mR"],
     fields: ["g5_scatter"],
-    scanType: "screen",
   },
   {
     id: "g6",
@@ -323,7 +306,6 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["mR"],
     fields: ["g6_scatter"],
-    scanType: "screen",
   },
 ];
 
@@ -334,7 +316,6 @@ const ANALYTICAL_STEPS = [
     desc: "Order: Dose",
     fields: ["scatter_6ft"],
     indices: ["mR"],
-    scanType: "screen",
   },
   {
     id: "a2",
@@ -342,7 +323,6 @@ const ANALYTICAL_STEPS = [
     desc: "Order: Dose",
     fields: ["scatter_operator"],
     indices: ["mR"],
-    scanType: "screen",
   },
 ];
 
@@ -353,7 +333,6 @@ const BONE_DENSITY_STEPS = [
     desc: "Order: Dose (Default <1)",
     fields: ["scatter_6ft"],
     indices: ["mR"],
-    scanType: "screen",
   },
   {
     id: "bd2",
@@ -361,30 +340,37 @@ const BONE_DENSITY_STEPS = [
     desc: "Order: Dose (Default <1)",
     fields: ["scatter_operator"],
     indices: ["mR"],
-    scanType: "screen",
   },
 ];
 
 const FLUORO_STEPS = [
   {
     id: "f1",
-    label: "1. Max Exposure & HVL (Standard)",
-    desc: "RaySafe: Measure kVp, Rate & HVL.",
+    label: "1. Max Exposure",
+    desc: "Set mA manually. Measure kVp & Rate.",
     showSettings: true,
     settingsGroup: "f1",
-    defaultPresets: { mas: "Manual mA", kvp: "120", time: null },
-    fields: ["kvp", "r/min", "hvl"],
-    indices: ["kvp", "mR", "hvl"],
-    scanType: "screen",
+    defaultPresets: { mas: "Manual mA", kvp: null, time: null },
+    fields: ["kvp", "r/min"],
+    indices: ["kvp", "mR"],
+  },
+  {
+    id: "f2",
+    label: "2. HVL Check",
+    desc: "Set kVp manually (usu. 80). Measure HVL.",
+    showSettings: true,
+    settingsGroup: "f2",
+    defaultPresets: { kvp: "80", mas: null, time: null },
+    fields: ["hvl"],
+    indices: ["hvl"],
   },
   {
     id: "f3",
-    label: "Physicist Report Data",
-    desc: "Scan the previous report (multiple pages allowed).",
-    isManualEntry: false,
-    scanType: "document",
+    label: "3. Physicist Data",
+    desc: "Manual Entry from Physicist Report",
+    isManualEntry: true,
     fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
-    indices: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
+    indices: [],
   },
 ];
 
@@ -395,8 +381,7 @@ const CT_STEPS = [
     desc: "Manual Entry (Time, kVp, mA/mAs)",
     isManualEntry: true,
     fields: ["time", "kvp", "ma", "mas"],
-    indices: [] as string[],
-    scanType: "screen",
+    indices: [],
   },
   {
     id: "ct2",
@@ -404,7 +389,6 @@ const CT_STEPS = [
     desc: "Scan Dose (Usually <1)",
     fields: ["operator_scatter"],
     indices: ["mR"],
-    scanType: "screen",
   },
   {
     id: "ct3",
@@ -412,8 +396,7 @@ const CT_STEPS = [
     desc: "Manual Entry",
     isManualEntry: true,
     fields: ["pname", "pdate"],
-    indices: [] as string[],
-    scanType: "screen",
+    indices: [],
   },
 ];
 
@@ -424,7 +407,6 @@ const CABINET_STEPS = [
     desc: "Scan Dose (Default <1)",
     fields: ["entrance"],
     indices: ["mR"],
-    scanType: "screen",
   },
   {
     id: "cab2",
@@ -432,7 +414,6 @@ const CABINET_STEPS = [
     desc: "Scan Dose (Default <1)",
     fields: ["exit"],
     indices: ["mR"],
-    scanType: "screen",
   },
   {
     id: "cab3",
@@ -440,7 +421,6 @@ const CABINET_STEPS = [
     desc: "Scan Dose (Default <1)",
     fields: ["operator_scatter"],
     indices: ["mR"],
-    scanType: "screen",
   },
 ];
 
@@ -451,10 +431,9 @@ const FLUORO_BOOST_MEASURE_STEP = {
   desc: "Set Boost mA. Measure kVp & Rate.",
   showSettings: true,
   settingsGroup: "f1_boost",
-  defaultPresets: { mas: "Boost mA", kvp: "120", time: null },
+  defaultPresets: { mas: "Boost mA", kvp: null, time: null },
   fields: ["kvp_boost", "r/min_boost"],
   indices: ["kvp", "mR"],
-  scanType: "screen",
 };
 
 const FLUORO_BOOST_PHYSICIST_STEP = {
@@ -463,8 +442,7 @@ const FLUORO_BOOST_PHYSICIST_STEP = {
   desc: "Manual Entry (Boost Data)",
   isManualEntry: true,
   fields: ["pkvp_boost", "pma_boost", "pr/min_boost"],
-  indices: [] as string[],
-  scanType: "screen",
+  indices: [],
 };
 
 export default function App(): JSX.Element | null {
@@ -473,7 +451,6 @@ export default function App(): JSX.Element | null {
   >("facility-list");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
 
   const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
     null
@@ -502,6 +479,7 @@ export default function App(): JSX.Element | null {
     cabinet: "No Template",
     bone_density: "No Template",
   });
+
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [isParsingDetails, setIsParsingDetails] = useState(false);
@@ -588,6 +566,7 @@ export default function App(): JSX.Element | null {
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+
     Array.from(files).forEach((file) => {
       const name = file.name.toLowerCase();
       let type: InspectionType | null = null;
@@ -639,126 +618,107 @@ export default function App(): JSX.Element | null {
     deleteTemplateFromDB(type);
   };
 
-  // --- REUSABLE DATA PROCESSOR FOR EXCEL ---
-  const processImportedData = (data: any[]) => {
-    const newMachines: Machine[] = data
-      .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
-      .filter((row: any) => {
-        const name = row["Entity Name"] || "";
-        return name.includes("(") && name.includes(")");
-      })
-      .map((row: any, index: number) => {
-        const rawString = row["Entity Name"] || "";
-        const credTypeRaw = row["Credential Type"] || "";
-        const credType = credTypeRaw.toLowerCase();
-
-        let fullDetails = "Unknown Machine";
-        let facility = rawString;
-        let make = "",
-          model = "",
-          serial = "";
-
-        if (rawString.includes("(") && rawString.includes(")")) {
-          const parts = rawString.split("(");
-          facility = parts[0].trim();
-          fullDetails = parts[1].replace(")", "");
-          const detailsParts = fullDetails.split(/-\s+/);
-          if (detailsParts.length >= 3) {
-            make = detailsParts[0].trim();
-            model = detailsParts[1].trim();
-            serial = detailsParts[2].trim();
-          } else if (detailsParts.length === 2) {
-            make = detailsParts[0].trim();
-            model = detailsParts[1].trim();
-          } else {
-            make = detailsParts[0].trim();
-          }
-        }
-
-        // --- DETERMINE INSPECTION TYPE ---
-        let inspectionType: InspectionType = "dental";
-
-        if (credType.includes("bone")) {
-          inspectionType = "bone_density";
-        } else if (credType.includes("ct") || credType.includes("tomography")) {
-          inspectionType = "ct";
-        } else if (
-          credType.includes("cabinet") ||
-          credType.includes("security")
-        ) {
-          inspectionType = "cabinet";
-        } else if (credType.includes("intraoral")) {
-          inspectionType = "dental";
-        } else if (credType.includes("radiographic")) {
-          inspectionType = "general";
-        } else if (
-          credType.includes("fluorescence") ||
-          credType.includes("diffraction")
-        ) {
-          inspectionType = "analytical";
-        } else if (
-          credType.includes("fluoroscope") ||
-          credType.includes("c-arm") ||
-          credType.includes("fluoro")
-        ) {
-          inspectionType = "fluoroscope";
-        } else {
-          inspectionType = "dental";
-        }
-
-        return {
-          id: `mach_${Date.now()}_${index}`,
-          fullDetails: fullDetails,
-          make,
-          model,
-          serial,
-          type: credTypeRaw,
-          inspectionType,
-          location: row["Credential #"] || facility,
-          registrantName: facility,
-          data: {},
-          isComplete: false,
-        };
-      });
-
-    if (newMachines.length === 0) alert("No machines found.");
-    else {
-      setMachines((prev) => [...prev, ...newMachines]);
-      alert(`Added ${newMachines.length} machines.`);
-    }
-  };
-
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    parseExcel(file, processImportedData);
-  };
+    parseExcel(file, (data) => {
+      const newMachines: Machine[] = data
+        .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
+        .filter((row: any) => {
+          const name = row["Entity Name"] || "";
+          return name.includes("(") && name.includes(")");
+        })
+        .map((row: any, index: number) => {
+          const rawString = row["Entity Name"] || "";
+          const lowerRaw = rawString.toLowerCase();
+          const formType = (row["Inspection Form"] || "").toLowerCase();
+          const credTypeRaw = row["Credential Type"] || "";
+          const credType = credTypeRaw.toLowerCase();
 
-  // --- DRAG AND DROP HANDLERS ---
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+          let fullDetails = "Unknown Machine";
+          let facility = rawString;
+          let make = "",
+            model = "",
+            serial = "";
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
+          if (rawString.includes("(") && rawString.includes(")")) {
+            const parts = rawString.split("(");
+            facility = parts[0].trim();
+            fullDetails = parts[1].replace(")", "");
+            const detailsParts = fullDetails.split(/-\s+/);
+            if (detailsParts.length >= 3) {
+              make = detailsParts[0].trim();
+              model = detailsParts[1].trim();
+              serial = detailsParts[2].trim();
+            } else if (detailsParts.length === 2) {
+              make = detailsParts[0].trim();
+              model = detailsParts[1].trim();
+            } else {
+              make = detailsParts[0].trim();
+            }
+          }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      parseExcel(file, processImportedData);
-    }
+          // --- DETERMINE INSPECTION TYPE ---
+          let inspectionType: InspectionType = "dental"; // Default
+
+          if (credType.includes("bone")) {
+            inspectionType = "bone_density";
+          } else if (
+            credType.includes("ct") ||
+            credType.includes("tomography")
+          ) {
+            inspectionType = "ct";
+          } else if (
+            credType.includes("cabinet") ||
+            credType.includes("security")
+          ) {
+            inspectionType = "cabinet";
+          } else if (credType.includes("intraoral")) {
+            inspectionType = "dental";
+          } else if (credType.includes("radiographic")) {
+            inspectionType = "general";
+          } else if (
+            credType.includes("fluorescence") ||
+            credType.includes("diffraction")
+          ) {
+            inspectionType = "analytical";
+          } else if (
+            credType.includes("fluoroscope") ||
+            credType.includes("c-arm") ||
+            credType.includes("fluoro")
+          ) {
+            inspectionType = "fluoroscope";
+          } else {
+            // Fallback default
+            inspectionType = "dental";
+          }
+
+          return {
+            id: `mach_${Date.now()}_${index}`,
+            fullDetails: fullDetails,
+            make,
+            model,
+            serial,
+            type: credTypeRaw,
+            inspectionType,
+            location: row["Credential #"] || facility, // Credential ID
+            registrantName: facility, // Entity Name
+            data: {},
+            isComplete: false,
+          };
+        });
+      if (newMachines.length === 0) alert("No machines found.");
+      else {
+        setMachines((prev) => [...prev, ...newMachines]);
+        alert(`Added ${newMachines.length} machines.`);
+      }
+    });
   };
 
   const performGeminiScan = async (
-    files: FileList | File[],
+    file: File,
     targetFields: string[],
-    indices: string[],
-    scanType: "screen" | "document" | string = "screen"
+    indices: string[]
   ) => {
     if (!apiKey) {
       alert("Please go to Settings and enter your Google API Key first.");
@@ -769,51 +729,14 @@ export default function App(): JSX.Element | null {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-      const imageParts = await Promise.all(
-        Array.from(files).map((file) => fileToGenerativePart(file))
-      );
-
-      let prompt = "";
-      if (scanType === "document") {
-        prompt = `
-          Analyze these images of a Medical Physicist Inspection Report (it may span multiple pages).
-          Extract the following 'Previous' or 'Physicist' values found across any of the pages:
-          1. Standard Mode: kVp, mA, R/min (or EER).
-          2. Boost/HLC Mode (if present): kVp, mA, R/min.
-          3. HVL: Value (mm Al) and the kVp it was measured at.
-          4. Physicist Name and Date of inspection only (Do not include title).
-          
-          Return a JSON object with strictly these keys (use null if not found):
-          {
-            "pkvp": "", "pma": "", "pr/min": "", 
-            "pkvp_boost": "", "pma_boost": "", "pr/min_boost": "", 
-            "phvl": "", "phvl_kvp": "", 
-            "name_and_date": ""
-          }
-        `;
-      } else {
-        const isFluoro = activeMachine?.inspectionType === "fluoroscope";
-        prompt = `
-          Analyze this image of a RaySafe x-ray measurement screen.
-          Extract values for: kVp, Time, HVL, and Radiation Level.
-          
-          Identify units carefully:
-          - Total Dose units: mR, R, uR, mGy, uGy, Gy
-          - Dose Rate units: R/min, mR/min, mGy/s, uGy/s
-          
-          ${
-            isFluoro
-              ? 'PRIORITY: This is a FLUOROSCOPY inspection. You MUST extract the DOSE RATE (e.g., R/min) and put it in the "mR" key. If only Total Dose is found, return null for "mR".'
-              : 'PRIORITY: This is a STANDARD inspection (Dental/General). You MUST extract the TOTAL DOSE (e.g., mR). Do NOT use Dose Rate (R/min). Put the Total Dose in the "mR" key.'
-          }
-
-          Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
-        `;
-      }
-
-      // Pass imageParts directly (without .map)
-      const result = await model.generateContent([prompt, ...imageParts]);
+      const imagePart = await fileToGenerativePart(file);
+      const prompt = `
+        Analyze this image of a RaySafe x-ray measurement screen.
+        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al), Dose Rate (R/min or mGy/s).
+        Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
+        If dose rate is found, put it in "mR".
+      `;
+      const result = await model.generateContent([prompt, imagePart as any]);
       const text = result.response
         .text()
         .replace(/```json/g, "")
@@ -828,6 +751,7 @@ export default function App(): JSX.Element | null {
         const val = data[key];
         if (val !== null && val !== undefined) updates[field] = val.toString();
       });
+
       if (Object.keys(updates).length > 0) {
         if (activeMachineId)
           setMachines((prev) =>
@@ -851,12 +775,11 @@ export default function App(): JSX.Element | null {
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
     fields: string[],
-    indices: string[],
-    scanType?: string
+    indices: string[]
   ) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      performGeminiScan(files, fields, indices, scanType || "screen");
+    const file = e.target.files?.[0];
+    if (file) {
+      performGeminiScan(file, fields, indices);
     }
   };
 
@@ -883,10 +806,12 @@ export default function App(): JSX.Element | null {
 
   const handleNoData = (reason: "operational" | "facility") => {
     if (!activeMachineId) return;
+
     const message =
       reason === "operational"
         ? "MACHINE NOT OPERATIONAL"
         : "MACHINE NOT IN FACILITY";
+
     setMachines((prev) =>
       prev.map((m) =>
         m.id === activeMachineId
@@ -906,6 +831,7 @@ export default function App(): JSX.Element | null {
 
   const markAsComplete = () => {
     if (!activeMachineId) return;
+
     setMachines((prev) =>
       prev.map((m) => {
         if (m.id === activeMachineId) {
@@ -943,10 +869,12 @@ export default function App(): JSX.Element | null {
       !finalData["num_tubes"]
     )
       finalData["num_tubes"] = "1";
+
     // --- NO DATA LOGIC ---
     if (machine.data.noDataReason) {
       const blankFields = (keys: string[]) =>
         keys.forEach((k) => (finalData[k] = ""));
+
       if (machine.inspectionType === "dental") {
         blankFields([
           "kvp",
@@ -1084,6 +1012,7 @@ export default function App(): JSX.Element | null {
 
         if (!finalData["g6_scatter"]) finalData["g6_scatter"] = "<1";
         if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
+
         const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
         const mas1 = parseFloat(finalData["mas1"]);
         finalData["g1_calc"] =
@@ -1094,6 +1023,7 @@ export default function App(): JSX.Element | null {
         const r2 = parseFloat(machine.data["g2b_mr"] || "0");
         const r3 = parseFloat(machine.data["g2c_mr"] || "0");
         const r4 = parseFloat(machine.data["g2d_mr"] || "0");
+
         let count = 0,
           sum = 0;
         if (r1 > 0) {
@@ -1136,11 +1066,11 @@ export default function App(): JSX.Element | null {
 
       if (machine.inspectionType === "fluoroscope") {
         // Map inputs from steps
-        finalData["ma"] = machine.data["f1_preset_mas"];
+        finalData["ma"] = machine.data["f1_preset_mas"]; // Manual mA
 
         // HVL logic: combine Value + KVP
         const hvlVal = machine.data["hvl"] || "";
-        const hvlKvp = machine.data["f1_preset_kvp"] || "120"; // CHANGED TO USE F1 PRESET OR 120
+        const hvlKvp = machine.data["f2_preset_kvp"] || "80";
         if (hvlVal) {
           finalData["hvl"] = `${hvlVal} @ ${hvlKvp}`;
         } else {
@@ -1177,10 +1107,10 @@ export default function App(): JSX.Element | null {
       }
 
       if (machine.inspectionType === "ct") {
-        // Only one of mA or mAs is usually filled.
-        // Blank out the other.
+        // Only one of mA or mAs is usually filled. Blank out the other.
         if (!machine.data["mas"]) finalData["mas"] = "";
         if (!machine.data["ma"]) finalData["ma"] = "";
+
         // Default scatter to <1 if empty
         if (!finalData["operator_scatter"])
           finalData["operator_scatter"] = "<1";
@@ -1204,6 +1134,7 @@ export default function App(): JSX.Element | null {
     if (facilityMachines.length === 0) return;
 
     const zip = new PizZip();
+
     try {
       let zipFilename = "Inspections.zip";
       const entityName = activeFacilityName || "Facility";
@@ -1231,6 +1162,7 @@ export default function App(): JSX.Element | null {
 
         zip.file(`Inspection_${machine.location}.docx`, blob);
       });
+
       const content = zip.generate({ type: "blob" });
       saveAs(content, zipFilename);
     } catch (e) {
@@ -1290,6 +1222,7 @@ export default function App(): JSX.Element | null {
   };
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
+
   // DETERMINE STEPS BASED ON TYPE
   let currentSteps = DENTAL_STEPS;
   if (activeMachine?.inspectionType === "general") currentSteps = GENERAL_STEPS;
@@ -1299,39 +1232,25 @@ export default function App(): JSX.Element | null {
     currentSteps = BONE_DENSITY_STEPS;
   if (activeMachine?.inspectionType === "fluoroscope") {
     const hasHLC = activeMachine.data["has_hlc"] === "true";
-
-    // BUILD FLUORO STEPS DYNAMICALLY
-    const fluoroSteps = [
-      FLUORO_STEPS[0], // 1. Max Exposure (Standard)
-    ];
-
     if (hasHLC) {
-      fluoroSteps.push(FLUORO_BOOST_MEASURE_STEP); // 2. Max Exposure (Boost)
+      currentSteps = [
+        FLUORO_STEPS[0],
+        FLUORO_BOOST_MEASURE_STEP,
+        FLUORO_STEPS[1],
+        FLUORO_STEPS[2],
+        FLUORO_BOOST_PHYSICIST_STEP,
+      ];
+    } else {
+      currentSteps = FLUORO_STEPS;
     }
-
-    // Removed old step 2 (HVL) as it's merged
-
-    // PHYSICIST DATA (Merged Step)
-    const reportStep = {
-      ...FLUORO_STEPS[1], // Was index 2, now index 1 in the constant definition list
-      label: `${hasHLC ? "3" : "2"}. Physicist Report Data`,
-      fields: [...FLUORO_STEPS[1].fields],
-      indices: [...FLUORO_STEPS[1].indices],
-    };
-
-    if (hasHLC) {
-      reportStep.fields.push("pkvp_boost", "pma_boost", "pr/min_boost");
-      reportStep.indices.push("pkvp_boost", "pma_boost", "pr/min_boost");
-    }
-
-    fluoroSteps.push(reportStep);
-    currentSteps = fluoroSteps;
   }
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
   if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
+
   const activeFacilityMachines = machines.filter(
     (m) => m.registrantName === activeFacilityName
   );
+
   useEffect(() => {
     if (view === "mobile-form" && activeMachine && apiKey) {
       if (
@@ -1361,7 +1280,6 @@ export default function App(): JSX.Element | null {
               <Key className="text-blue-500" size={20} />
               <h3 className="font-bold text-slate-700">Gemini API Key</h3>
             </div>
-
             <input
               type="text"
               value={apiKey}
@@ -1369,7 +1287,6 @@ export default function App(): JSX.Element | null {
               placeholder="Paste your AIza... key here"
               className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
             />
-
             <p className="text-[11px] text-slate-400 mt-2">
               Key is saved locally in your browser.
             </p>
@@ -1413,7 +1330,7 @@ export default function App(): JSX.Element | null {
                       : "bg-slate-200 text-slate-400"
                   }`}
                 >
-                  <Smile size={16} />
+                  <FileText size={16} />
                 </div>
                 <div>
                   <p
@@ -1453,7 +1370,7 @@ export default function App(): JSX.Element | null {
                       : "bg-slate-200 text-slate-400"
                   }`}
                 >
-                  <Zap size={16} />
+                  <FileText size={16} />
                 </div>
                 <div>
                   <p
@@ -1683,6 +1600,7 @@ export default function App(): JSX.Element | null {
         </div>
       </div>
     );
+
   // --- MOBILE FORM VIEW (INSPECTION) ---
   if (view === "mobile-form" && activeMachine)
     return (
@@ -1691,9 +1609,9 @@ export default function App(): JSX.Element | null {
           <div className="flex gap-3 items-center mb-1">
             <button
               onClick={() => setView("machine-list")}
-              className="p-2 -ml-2 text-slate-600 hover:bg-slate-50 rounded-full active:scale-95 transition-transform"
+              className="p-2 hover:bg-slate-100 rounded-full active:scale-90 transition-transform"
             >
-              <ArrowLeft size={24} />
+              <ArrowLeft className="text-slate-600" />
             </button>
             <div className="font-bold text-lg text-slate-800">
               {activeMachine.location}
@@ -1885,8 +1803,6 @@ export default function App(): JSX.Element | null {
                   >
                     {isScanning ? (
                       <Loader2 size={14} className="animate-spin" />
-                    ) : step.scanType === "document" ? (
-                      <Files size={14} />
                     ) : (
                       <Camera size={14} />
                     )}{" "}
@@ -1894,18 +1810,10 @@ export default function App(): JSX.Element | null {
                     <input
                       type="file"
                       accept="image/*"
-                      multiple={step.scanType === "document"} // ALLOW MULTIPLE FILES
-                      capture={
-                        step.scanType === "document" ? undefined : "environment"
-                      }
+                      capture="environment"
                       className="hidden"
                       onChange={(e) =>
-                        handleScanClick(
-                          e,
-                          step.fields,
-                          step.indices,
-                          step.scanType
-                        )
+                        handleScanClick(e, step.fields, step.indices)
                       }
                       disabled={isScanning}
                     />
@@ -1916,32 +1824,46 @@ export default function App(): JSX.Element | null {
               {/* Step-Specific Settings (Gen Rad / Fluoro) */}
               {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
-                  {/* SPECIALIZED INPUTS FOR FLUORO STEP 1 & BOOST */}
-                  {step.id === "f1" || step.id === "f1_boost" ? (
+                  <div className="flex-1">
+                    <label className="text-[8px] uppercase font-bold text-slate-400">
+                      {/* Customize Label for Fluoro Step 1 */}
+                      {step.id === "f1" || step.id === "f1_boost"
+                        ? "Set mA"
+                        : "Set kVp"}
+                    </label>
+                    <input
+                      className="w-full bg-white border rounded px-1 text-xs"
+                      placeholder={
+                        step.defaultPresets.kvp || step.defaultPresets.mas
+                      }
+                      value={
+                        activeMachine.data[
+                          `${step.settingsGroup}_preset_${
+                            step.id === "f1" || step.id === "f1_boost"
+                              ? "mas"
+                              : "kvp"
+                          }`
+                        ] || ""
+                      }
+                      onChange={(e) =>
+                        updateField(
+                          `${step.settingsGroup}_preset_${
+                            step.id === "f1" || step.id === "f1_boost"
+                              ? "mas"
+                              : "kvp"
+                          }`,
+                          e.target.value
+                        )
+                      }
+                    />
+                  </div>
+
+                  {/* General Rad extra fields */}
+                  {activeMachine.inspectionType === "general" && (
                     <>
                       <div className="flex-1">
                         <label className="text-[8px] uppercase font-bold text-slate-400">
-                          Set kVp
-                        </label>
-                        <input
-                          className="w-full bg-white border rounded px-1 text-xs"
-                          placeholder={step.defaultPresets.kvp}
-                          value={
-                            activeMachine.data[
-                              `${step.settingsGroup}_preset_kvp`
-                            ] || ""
-                          }
-                          onChange={(e) =>
-                            updateField(
-                              `${step.settingsGroup}_preset_kvp`,
-                              e.target.value
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-[8px] uppercase font-bold text-slate-400">
-                          Set mA
+                          Set mAs
                         </label>
                         <input
                           className="w-full bg-white border rounded px-1 text-xs"
@@ -1959,79 +1881,27 @@ export default function App(): JSX.Element | null {
                           }
                         />
                       </div>
-                    </>
-                  ) : (
-                    // STANDARD INPUTS FOR GENERAL RAD
-                    <>
-                      <div className="flex-1">
-                        <label className="text-[8px] uppercase font-bold text-slate-400">
-                          Set kVp
-                        </label>
-                        <input
-                          className="w-full bg-white border rounded px-1 text-xs"
-                          placeholder={
-                            step.defaultPresets.kvp || step.defaultPresets.mas
-                          }
-                          value={
-                            activeMachine.data[
-                              `${step.settingsGroup}_preset_kvp`
-                            ] || ""
-                          }
-                          onChange={(e) =>
-                            updateField(
-                              `${step.settingsGroup}_preset_kvp`,
-                              e.target.value
-                            )
-                          }
-                        />
-                      </div>
-
-                      {/* General Rad extra fields */}
-                      {activeMachine.inspectionType === "general" && (
-                        <>
-                          <div className="flex-1">
-                            <label className="text-[8px] uppercase font-bold text-slate-400">
-                              Set mAs
-                            </label>
-                            <input
-                              className="w-full bg-white border rounded px-1 text-xs"
-                              placeholder={step.defaultPresets.mas}
-                              value={
-                                activeMachine.data[
-                                  `${step.settingsGroup}_preset_mas`
-                                ] || ""
-                              }
-                              onChange={(e) =>
-                                updateField(
-                                  `${step.settingsGroup}_preset_mas`,
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </div>
-                          {step.defaultPresets.time !== null && (
-                            <div className="flex-1">
-                              <label className="text-[8px] uppercase font-bold text-slate-400">
-                                Set Time
-                              </label>
-                              <input
-                                className="w-full bg-white border rounded px-1 text-xs"
-                                placeholder="-"
-                                value={
-                                  activeMachine.data[
-                                    `${step.settingsGroup}_preset_time`
-                                  ] || ""
-                                }
-                                onChange={(e) =>
-                                  updateField(
-                                    `${step.settingsGroup}_preset_time`,
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </div>
-                          )}
-                        </>
+                      {step.defaultPresets.time !== null && (
+                        <div className="flex-1">
+                          <label className="text-[8px] uppercase font-bold text-slate-400">
+                            Set Time
+                          </label>
+                          <input
+                            className="w-full bg-white border rounded px-1 text-xs"
+                            placeholder="-"
+                            value={
+                              activeMachine.data[
+                                `${step.settingsGroup}_preset_time`
+                              ] || ""
+                            }
+                            onChange={(e) =>
+                              updateField(
+                                `${step.settingsGroup}_preset_time`,
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
                       )}
                     </>
                   )}
@@ -2073,12 +1943,9 @@ export default function App(): JSX.Element | null {
 
             <button
               onClick={markAsComplete}
-              className={`flex-1 py-4 font-bold rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform bg-green-600 hover:bg-green-700 text-white`}
+              className="flex-1 py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform"
             >
-              <CheckCircle className="h-5 w-5" />
-              {activeMachine.isComplete
-                ? "Update Inspection"
-                : "Complete Inspection"}
+              <CheckCircle className="h-5 w-5" /> Complete Inspection
             </button>
           </div>
         </div>
@@ -2091,19 +1958,22 @@ export default function App(): JSX.Element | null {
                 <h3 className="text-lg font-bold text-slate-800">
                   Reason for No Data
                 </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Select why this machine was not inspected.
+                </p>
               </div>
               <div className="p-4 flex flex-col gap-3">
                 <button
                   onClick={() => handleNoData("operational")}
                   className="p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 text-left active:scale-95 transition-transform"
                 >
-                  Machine Not Operational
+                  1. Machine Not Operational
                 </button>
                 <button
                   onClick={() => handleNoData("facility")}
                   className="p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 text-left active:scale-95 transition-transform"
                 >
-                  Machine Not In Facility
+                  2. Machine Not In Facility
                 </button>
               </div>
               <div className="p-4 pt-0">
@@ -2119,6 +1989,7 @@ export default function App(): JSX.Element | null {
         )}
       </div>
     );
+
   // --- MACHINE LIST VIEW (Specific Facility) ---
   if (view === "machine-list")
     return (
@@ -2127,9 +1998,9 @@ export default function App(): JSX.Element | null {
           <div className="flex gap-2 items-center">
             <button
               onClick={() => setView("facility-list")}
-              className="p-2 -ml-2 text-slate-600 hover:bg-slate-50 rounded-full active:scale-95 transition-transform"
+              className="bg-white p-2 rounded-lg border border-slate-200 hover:bg-slate-50"
             >
-              <ArrowLeft size={24} />
+              <ArrowLeft className="text-slate-600 h-6 w-6" />
             </button>
             <div className="flex flex-col">
               <h1 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
@@ -2161,11 +2032,7 @@ export default function App(): JSX.Element | null {
                     setActiveMachineId(m.id);
                     setView("mobile-form");
                   }}
-                  className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
-                    m.isComplete
-                      ? "bg-emerald-50 hover:bg-emerald-100"
-                      : "hover:bg-slate-50"
-                  }`}
+                  className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   <div>
                     <div className="font-bold text-sm text-slate-800">
@@ -2230,22 +2097,30 @@ export default function App(): JSX.Element | null {
           )}
         </div>
 
-        {/* --- BULK DOWNLOAD BUTTON (Moved to Bottom) --- */}
+        {/* --- BULK DOWNLOAD ALL BUTTON (SCOPED TO FACILITY) --- */}
         {activeFacilityMachines.length > 0 &&
           activeFacilityMachines.every((m) => m.isComplete) && (
-            <div className="mt-4 flex justify-center">
-              <button
-                onClick={handleDownloadZip}
-                className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2 text-sm"
-              >
-                <Archive size={18} /> Download Zip
-              </button>
-            </div>
+            <button
+              onClick={handleDownloadZip}
+              className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex justify-center items-center gap-3 active:scale-95 transition-transform"
+            >
+              <div className="bg-blue-500 p-2 rounded-full">
+                <Archive size={24} className="text-white" />
+              </div>
+              <div className="text-left">
+                <div className="leading-tight">Download All (Zip)</div>
+                <div className="text-[11px] text-blue-200 font-normal">
+                  For {activeFacilityName}
+                </div>
+              </div>
+            </button>
           )}
       </div>
     );
+
   // --- DASHBOARD VIEW (FACILITY LIST) ---
   const facilities = getFacilities();
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
       <header className="flex justify-between items-center mb-8">
@@ -2270,22 +2145,11 @@ export default function App(): JSX.Element | null {
           Facilities Loaded
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {/* UPDATED DRAG AND DROP LABEL */}
-          <label
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`col-span-2 py-6 rounded-xl font-bold text-sm cursor-pointer border transition-all active:scale-95
-              ${
-                isDragging
-                  ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200"
-                  : "bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200"
-              }`}
-          >
+          <label className="col-span-2 bg-slate-50 text-slate-600 py-6 rounded-xl font-bold text-sm cursor-pointer hover:bg-slate-100 border border-slate-200 transition-all active:scale-95">
             <div className="flex justify-center mb-2">
               <FileSpreadsheet size={24} className="text-emerald-600" />
             </div>
-            {isDragging ? "Drop Excel File Here" : "Upload or Drop Excel"}
+            Import Excel
             <input
               type="file"
               accept=".xlsx"
@@ -2309,50 +2173,41 @@ export default function App(): JSX.Element | null {
           </div>
         ) : (
           <div className="max-h-96 overflow-y-auto">
-            {facilities.map((fac) => {
-              const isCompleted = fac.count > 0 && fac.complete === fac.count;
-              return (
-                <div
-                  key={fac.name}
-                  onClick={() => {
-                    setActiveFacilityName(fac.name);
-                    setView("machine-list");
-                  }}
-                  className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
-                    isCompleted
-                      ? "bg-emerald-50 hover:bg-emerald-100"
-                      : "hover:bg-slate-50"
-                  }`}
-                >
-                  <div>
-                    <div className="flex gap-2 items-center mb-1">
-                      <Building2 size={16} className="text-blue-500" />
-                      <div className="font-bold text-sm text-slate-800">
-                        {fac.name}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 items-center">
-                      <div className="flex items-center gap-1 text-slate-400 text-xs">
-                        <MapPin size={12} /> {fac.id}
-                      </div>
-                      <span className="text-xs text-slate-300">•</span>
-                      <span className="text-xs text-slate-500">
-                        {fac.complete}/{fac.count} Machines
-                      </span>
+            {facilities.map((fac) => (
+              <div
+                key={fac.name}
+                onClick={() => {
+                  setActiveFacilityName(fac.name);
+                  setView("machine-list");
+                }}
+                className="p-4 border-b border-slate-50 flex justify-between items-center last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <div>
+                  <div className="flex gap-2 items-center mb-1">
+                    <Building2 size={16} className="text-blue-500" />
+                    <div className="font-bold text-sm text-slate-800">
+                      {fac.name}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={(e) => deleteFacility(fac.name, e)}
-                      className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex items-center gap-1 text-slate-400 text-xs">
+                      <MapPin size={12} /> {fac.id}
+                    </div>
+                    <span className="text-xs text-slate-300">•</span>
+                    <span className="text-xs text-slate-500">
+                      {fac.complete}/{fac.count} Machines
+                    </span>
                   </div>
                 </div>
-              );
-            })}
+
+                <button
+                  onClick={(e) => deleteFacility(fac.name, e)}
+                  className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
