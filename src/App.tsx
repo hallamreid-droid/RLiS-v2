@@ -27,6 +27,7 @@ import {
   Smile,
   Zap,
   Files,
+  History, // Added History icon
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -410,8 +411,8 @@ const CT_STEPS = [
     id: "ct3",
     label: "3. Physicist Info",
     desc: "Scan report for Name & Date (no data needed).",
-    isManualEntry: false, // CHANGED TO FALSE
-    scanType: "document", // SET TO DOCUMENT
+    isManualEntry: false,
+    scanType: "document",
     fields: ["pname", "pdate"],
     indices: ["pname", "pdate"],
   },
@@ -471,9 +472,13 @@ export default function App(): JSX.Element | null {
   const [view, setView] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
   >("facility-list");
+  const [settingsTab, setSettingsTab] = useState<
+    "api" | "templates" | "history"
+  >("api");
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isTemplateDragging, setIsTemplateDragging] = useState(false); // NEW STATE
 
   const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
     null
@@ -585,9 +590,8 @@ export default function App(): JSX.Element | null {
     localStorage.setItem("rayScanApiKey", val);
   };
 
-  const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  // --- REUSABLE TEMPLATE PROCESSOR ---
+  const processTemplateFiles = (files: FileList | File[]) => {
     Array.from(files).forEach((file) => {
       const name = file.name.toLowerCase();
       let type: InspectionType | null = null;
@@ -629,6 +633,31 @@ export default function App(): JSX.Element | null {
         reader.readAsArrayBuffer(file);
       }
     });
+  };
+
+  const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) processTemplateFiles(files);
+  };
+
+  // --- TEMPLATE DRAG HANDLERS ---
+  const handleTemplateDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsTemplateDragging(true);
+  };
+
+  const handleTemplateDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsTemplateDragging(false);
+  };
+
+  const handleTemplateDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsTemplateDragging(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processTemplateFiles(files);
+    }
   };
 
   const removeTemplate = (type: string, e: React.MouseEvent) => {
@@ -1371,11 +1400,54 @@ export default function App(): JSX.Element | null {
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
-        <div className="space-y-6">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Key className="text-blue-500" size={20} />
-              <h3 className="font-bold text-slate-700">Gemini API Key</h3>
+
+        {/* TAB NAVIGATION */}
+        <div className="flex gap-2 mb-6 p-1 bg-white border border-slate-200 rounded-xl w-fit">
+          <button
+            onClick={() => setSettingsTab("api")}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              settingsTab === "api"
+                ? "bg-blue-50 text-blue-600 shadow-sm"
+                : "text-slate-400 hover:bg-slate-50"
+            }`}
+          >
+            API Key
+          </button>
+          <button
+            onClick={() => setSettingsTab("templates")}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              settingsTab === "templates"
+                ? "bg-blue-50 text-blue-600 shadow-sm"
+                : "text-slate-400 hover:bg-slate-50"
+            }`}
+          >
+            Templates
+          </button>
+          <button
+            onClick={() => setSettingsTab("history")}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              settingsTab === "history"
+                ? "bg-blue-50 text-blue-600 shadow-sm"
+                : "text-slate-400 hover:bg-slate-50"
+            }`}
+          >
+            History
+          </button>
+        </div>
+
+        {/* --- API KEY TAB --- */}
+        {settingsTab === "api" && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-lg animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                <Key size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800">Gemini API Key</h3>
+                <p className="text-xs text-slate-400">
+                  Required for AI features
+                </p>
+              </div>
             </div>
 
             <input
@@ -1383,320 +1455,150 @@ export default function App(): JSX.Element | null {
               value={apiKey}
               onChange={handleApiKeyChange}
               placeholder="Paste your AIza... key here"
-              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full p-4 border border-slate-200 rounded-xl bg-slate-50 text-slate-600 font-mono text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all"
             />
 
-            <p className="text-[11px] text-slate-400 mt-2">
-              Key is saved locally in your browser.
+            <p className="text-[10px] text-slate-400 mt-3 flex items-center gap-1">
+              <CheckCircle size={10} /> Saved locally in your browser.
             </p>
           </div>
-          <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
-            <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
-              <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
-                <UploadCloud size={24} />
-              </div>
-              <div>
-                <p className="text-blue-800 font-bold text-lg">
-                  Upload Templates
-                </p>
-                <p className="text-blue-600 text-sm">
-                  Select all your .docx files at once
-                </p>
-              </div>
-              <input
-                type="file"
-                accept=".docx"
-                multiple
-                onChange={handleBulkTemplateUpload}
-                className="hidden"
-              />
-            </label>
-          </div>
-          <div className="space-y-2">
-            {/* DENTAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.dental
-                  ? "bg-emerald-50 border-emerald-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.dental
-                      ? "bg-emerald-200 text-emerald-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Smile size={16} />
+        )}
+
+        {/* --- TEMPLATES TAB --- */}
+        {settingsTab === "templates" && (
+          <div className="space-y-6 animate-in fade-in zoom-in duration-300">
+            {/* DRAG & DROP UPLOAD */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <label
+                onDragOver={handleTemplateDragOver}
+                onDragLeave={handleTemplateDragLeave}
+                onDrop={handleTemplateDrop}
+                className={`block w-full cursor-pointer border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                  isTemplateDragging
+                    ? "bg-blue-50 border-blue-400 ring-2 ring-blue-200"
+                    : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-12 w-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm">
+                    <UploadCloud size={24} />
+                  </div>
+                  <div>
+                    <p className="text-slate-700 font-bold text-sm">
+                      {isTemplateDragging
+                        ? "Drop files now"
+                        : "Upload Templates"}
+                    </p>
+                    <p className="text-slate-400 text-xs mt-1">
+                      Drag & drop .docx files or click to select
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.dental ? "text-emerald-900" : "text-slate-500"
-                    }`}
-                  >
-                    Dental Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.dental}
-                  </p>
-                </div>
-              </div>
-              {templates.dental && (
-                <button
-                  onClick={(e) => removeTemplate("dental", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
+                <input
+                  type="file"
+                  accept=".docx"
+                  multiple
+                  onChange={handleBulkTemplateUpload}
+                  className="hidden"
+                />
+              </label>
             </div>
-            {/* GENERAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.general
-                  ? "bg-purple-50 border-purple-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+
+            {/* TEMPLATE LIST */}
+            <div className="grid gap-3 md:grid-cols-2">
+              {[
+                {
+                  id: "dental",
+                  label: "Dental",
+                  icon: Smile,
+                  color: "emerald",
+                },
+                { id: "general", label: "General", icon: Zap, color: "purple" },
+                {
+                  id: "fluoroscope",
+                  label: "Fluoroscope",
+                  icon: Activity,
+                  color: "blue",
+                },
+                { id: "ct", label: "CT", icon: Scan, color: "teal" },
+                {
+                  id: "analytical",
+                  label: "Analytical",
+                  icon: Microscope,
+                  color: "orange",
+                },
+                {
+                  id: "bone_density",
+                  label: "Bone Density",
+                  icon: Bone,
+                  color: "pink",
+                },
+                {
+                  id: "cabinet",
+                  label: "Cabinet/Baggage",
+                  icon: Briefcase,
+                  color: "stone",
+                },
+              ].map((t) => (
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.general
-                      ? "bg-purple-200 text-purple-700"
-                      : "bg-slate-200 text-slate-400"
+                  key={t.id}
+                  className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                    templates[t.id]
+                      ? `bg-${t.color}-50 border-${t.color}-200`
+                      : "bg-white border-slate-200 opacity-70"
                   }`}
                 >
-                  <Zap size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                        templates[t.id]
+                          ? `bg-${t.color}-200 text-${t.color}-700`
+                          : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      <t.icon size={18} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates[t.id]
+                            ? `text-${t.color}-900`
+                            : "text-slate-500"
+                        }`}
+                      >
+                        {t.label} Template
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                        {templateNames[t.id]}
+                      </p>
+                    </div>
+                  </div>
+                  {templates[t.id] && (
+                    <button
+                      onClick={(e) => removeTemplate(t.id, e)}
+                      className="p-2 bg-white text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.general ? "text-purple-900" : "text-slate-500"
-                    }`}
-                  >
-                    General Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.general}
-                  </p>
-                </div>
-              </div>
-              {templates.general && (
-                <button
-                  onClick={(e) => removeTemplate("general", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* ANALYTICAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.analytical
-                  ? "bg-orange-50 border-orange-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.analytical
-                      ? "bg-orange-200 text-orange-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Microscope size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.analytical
-                        ? "text-orange-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Analytical Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.analytical}
-                  </p>
-                </div>
-              </div>
-              {templates.analytical && (
-                <button
-                  onClick={(e) => removeTemplate("analytical", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* BONE DENSITY */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.bone_density
-                  ? "bg-pink-50 border-pink-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.bone_density
-                      ? "bg-pink-200 text-pink-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Bone size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.bone_density
-                        ? "text-pink-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Bone Density Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.bone_density}
-                  </p>
-                </div>
-              </div>
-              {templates.bone_density && (
-                <button
-                  onClick={(e) => removeTemplate("bone_density", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* FLUOROSCOPE */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.fluoroscope
-                  ? "bg-blue-50 border-blue-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.fluoroscope
-                      ? "bg-blue-200 text-blue-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Activity size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.fluoroscope ? "text-blue-900" : "text-slate-500"
-                    }`}
-                  >
-                    Fluoroscope Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.fluoroscope}
-                  </p>
-                </div>
-              </div>
-              {templates.fluoroscope && (
-                <button
-                  onClick={(e) => removeTemplate("fluoroscope", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* CT */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.ct
-                  ? "bg-teal-50 border-teal-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.ct
-                      ? "bg-teal-200 text-teal-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Scan size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.ct ? "text-teal-900" : "text-slate-500"
-                    }`}
-                  >
-                    CT Template
-                  </p>
-                  <p className="text-xs text-slate-400">{templateNames.ct}</p>
-                </div>
-              </div>
-              {templates.ct && (
-                <button
-                  onClick={(e) => removeTemplate("ct", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* CABINET */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.cabinet
-                  ? "bg-stone-50 border-stone-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.cabinet
-                      ? "bg-stone-200 text-stone-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Briefcase size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.cabinet ? "text-stone-900" : "text-slate-500"
-                    }`}
-                  >
-                    Cabinet/Baggage Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.cabinet}
-                  </p>
-                </div>
-              </div>
-              {templates.cabinet && (
-                <button
-                  onClick={(e) => removeTemplate("cabinet", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
+              ))}
             </div>
           </div>
-        </div>
+        )}
+
+        {/* --- HISTORY TAB --- */}
+        {settingsTab === "history" && (
+          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-2xl border border-slate-200 border-dashed animate-in fade-in zoom-in duration-300">
+            <div className="bg-slate-50 p-4 rounded-full mb-3">
+              <History className="text-slate-300" size={32} />
+            </div>
+            <h3 className="text-slate-400 font-bold">History Coming Soon</h3>
+            <p className="text-slate-300 text-xs mt-1">
+              Recent inspections will appear here.
+            </p>
+          </div>
+        )}
       </div>
     );
   // --- MOBILE FORM VIEW (INSPECTION) ---
