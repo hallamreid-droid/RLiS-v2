@@ -1137,17 +1137,17 @@ export default function App(): JSX.Element | null {
     return finalData;
   };
 
-  // --- DOWNLOAD ZIP HANDLER (SCOPED TO TARGET FACILITY) ---
-  const handleDownloadZip = (targetFacilityName: string) => {
+  // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
+  const handleDownloadZip = () => {
     const facilityMachines = machines.filter(
-      (m) => m.registrantName === targetFacilityName
+      (m) => m.registrantName === activeFacilityName
     );
     if (facilityMachines.length === 0) return;
 
     const zip = new PizZip();
     try {
       let zipFilename = "Inspections.zip";
-      const entityName = targetFacilityName || "Facility";
+      const entityName = activeFacilityName || "Facility";
       const safeName = entityName
         .replace(/[^a-z0-9]/gi, "_")
         .replace(/_{2,}/g, "_");
@@ -1968,22 +1968,20 @@ export default function App(): JSX.Element | null {
                 <h3 className="text-lg font-bold text-slate-800">
                   Reason for No Data
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Select why this machine was not inspected.
-                </p>
+                {/* Removed Subtitle as requested */}
               </div>
               <div className="p-4 flex flex-col gap-3">
                 <button
                   onClick={() => handleNoData("operational")}
                   className="p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 text-left active:scale-95 transition-transform"
                 >
-                  1. Machine Not Operational
+                  Machine Not Operational
                 </button>
                 <button
                   onClick={() => handleNoData("facility")}
                   className="p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-700 text-left active:scale-95 transition-transform"
                 >
-                  2. Machine Not In Facility
+                  Machine Not In Facility
                 </button>
               </div>
               <div className="p-4 pt-0">
@@ -2109,6 +2107,19 @@ export default function App(): JSX.Element | null {
             </div>
           )}
         </div>
+
+        {/* --- BULK DOWNLOAD BUTTON (Moved to Bottom) --- */}
+        {activeFacilityMachines.length > 0 &&
+          activeFacilityMachines.every((m) => m.isComplete) && (
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={handleDownloadZip}
+                className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2 text-sm"
+              >
+                <Archive size={18} /> Download Zip
+              </button>
+            </div>
+          )}
       </div>
     );
   // --- DASHBOARD VIEW (FACILITY LIST) ---
@@ -2152,9 +2163,7 @@ export default function App(): JSX.Element | null {
             <div className="flex justify-center mb-2">
               <FileSpreadsheet size={24} className="text-emerald-600" />
             </div>
-            {isDragging
-              ? "Drop Excel File Here"
-              : "Import Excel or Drag & Drop"}
+            {isDragging ? "Drop Excel File Here" : "Upload or Drop Excel"}
             <input
               type="file"
               accept=".xlsx"
@@ -2212,19 +2221,6 @@ export default function App(): JSX.Element | null {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* NEW ZIP DOWNLOAD BUTTON */}
-                    {isCompleted && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDownloadZip(fac.name);
-                        }}
-                        className="text-blue-400 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors"
-                      >
-                        <Archive size={18} />
-                      </button>
-                    )}
-
                     <button
                       onClick={(e) => deleteFacility(fac.name, e)}
                       className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
