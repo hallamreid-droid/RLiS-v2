@@ -185,6 +185,7 @@ const DENTAL_STEPS = [
     desc: "Order: kVp, Dose, Time, HVL",
     indices: ["kvp", "mR", "time", "hvl"],
     fields: ["kvp", "mR1", "time1", "hvl"],
+    scanType: "screen",
   },
   {
     id: "scan2",
@@ -192,6 +193,7 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR2", "time2"],
     indices: ["mR", "time"],
+    scanType: "screen",
   },
   {
     id: "scan3",
@@ -199,6 +201,7 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR3", "time3"],
     indices: ["mR", "time"],
+    scanType: "screen",
   },
   {
     id: "scan4",
@@ -206,6 +209,7 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd), Time (3rd)",
     fields: ["mR4", "time4"],
     indices: ["mR", "time"],
+    scanType: "screen",
   },
   {
     id: "scan5",
@@ -213,6 +217,7 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd)",
     fields: ["6 foot"],
     indices: ["mR"],
+    scanType: "screen",
   },
   {
     id: "scan6",
@@ -220,6 +225,7 @@ const DENTAL_STEPS = [
     desc: "Order: Dose (2nd)",
     fields: ["operator location"],
     indices: ["mR"],
+    scanType: "screen",
   },
 ];
 
@@ -233,6 +239,7 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "70", mas: "10", time: "" },
     indices: ["kvp", "mR", "time", "fields"],
     fields: ["g1_kvp", "g1_mr", "g1_time"],
+    scanType: "screen",
   },
   {
     id: "g2a",
@@ -243,6 +250,7 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "70", mas: "16", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g2a_kvp", "g2a_mr", "g2a_time"],
+    scanType: "screen",
   },
   {
     id: "g2b",
@@ -252,6 +260,7 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2b_kvp", "g2b_mr", "g2b_time"],
+    scanType: "screen",
   },
   {
     id: "g2c",
@@ -261,6 +270,7 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2c_kvp", "g2c_mr", "g2c_time"],
+    scanType: "screen",
   },
   {
     id: "g2d",
@@ -270,6 +280,7 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["kvp", "mR", "time"],
     fields: ["g2d_kvp", "g2d_mr", "g2d_time"],
+    scanType: "screen",
   },
   {
     id: "g3",
@@ -280,6 +291,7 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "70", mas: "20", time: "" },
     indices: ["kvp", "mR", "time"],
     fields: ["g3_kvp", "g3_mr", "g3_time"],
+    scanType: "screen",
   },
   {
     id: "g4",
@@ -290,6 +302,7 @@ const GENERAL_STEPS = [
     defaultPresets: { kvp: "90", mas: "40", time: null },
     indices: ["kvp", "hvl"],
     fields: ["g4_kvp", "g4_hvl"],
+    scanType: "screen",
   },
   {
     id: "g5",
@@ -299,6 +312,7 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["mR"],
     fields: ["g5_scatter"],
+    scanType: "screen",
   },
   {
     id: "g6",
@@ -308,6 +322,7 @@ const GENERAL_STEPS = [
     showSettings: false,
     indices: ["mR"],
     fields: ["g6_scatter"],
+    scanType: "screen",
   },
 ];
 
@@ -318,6 +333,7 @@ const ANALYTICAL_STEPS = [
     desc: "Order: Dose",
     fields: ["scatter_6ft"],
     indices: ["mR"],
+    scanType: "screen",
   },
   {
     id: "a2",
@@ -325,6 +341,7 @@ const ANALYTICAL_STEPS = [
     desc: "Order: Dose",
     fields: ["scatter_operator"],
     indices: ["mR"],
+    scanType: "screen",
   },
 ];
 
@@ -335,6 +352,7 @@ const BONE_DENSITY_STEPS = [
     desc: "Order: Dose (Default <1)",
     fields: ["scatter_6ft"],
     indices: ["mR"],
+    scanType: "screen",
   },
   {
     id: "bd2",
@@ -342,37 +360,42 @@ const BONE_DENSITY_STEPS = [
     desc: "Order: Dose (Default <1)",
     fields: ["scatter_operator"],
     indices: ["mR"],
+    scanType: "screen",
   },
 ];
 
 const FLUORO_STEPS = [
   {
     id: "f1",
-    label: "1. Max Exposure",
-    desc: "Set mA manually. Measure kVp & Rate.",
+    label: "1. Max Exposure (Standard)",
+    desc: "RaySafe: Set mA manually. Measure kVp & Rate.",
     showSettings: true,
     settingsGroup: "f1",
     defaultPresets: { mas: "Manual mA", kvp: null, time: null },
     fields: ["kvp", "r/min"],
     indices: ["kvp", "mR"],
+    scanType: "screen",
   },
   {
     id: "f2",
-    label: "2. HVL Check",
-    desc: "Set kVp manually (usu. 80). Measure HVL.",
+    label: "HVL Check", // Numbering dynamic
+    desc: "RaySafe: Set kVp manually (usu. 80). Measure HVL.",
     showSettings: true,
     settingsGroup: "f2",
     defaultPresets: { kvp: "80", mas: null, time: null },
     fields: ["hvl"],
     indices: ["hvl"],
+    scanType: "screen",
   },
   {
     id: "f3",
-    label: "3. Physicist Data",
-    desc: "Manual Entry from Physicist Report",
-    isManualEntry: true,
+    label: "Physicist Report Data", // Numbering dynamic
+    desc: "Scan the previous report to auto-fill.",
+    isManualEntry: false, // Changed to allow scan
+    scanType: "document", // New Type
+    // Base fields (Standard)
     fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
-    indices: [],
+    indices: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
   },
 ];
 
@@ -383,7 +406,8 @@ const CT_STEPS = [
     desc: "Manual Entry (Time, kVp, mA/mAs)",
     isManualEntry: true,
     fields: ["time", "kvp", "ma", "mas"],
-    indices: [],
+    indices: [] as string[], // Cast to avoid never[]
+    scanType: "screen", // Added for consistency
   },
   {
     id: "ct2",
@@ -391,6 +415,7 @@ const CT_STEPS = [
     desc: "Scan Dose (Usually <1)",
     fields: ["operator_scatter"],
     indices: ["mR"],
+    scanType: "screen",
   },
   {
     id: "ct3",
@@ -398,7 +423,8 @@ const CT_STEPS = [
     desc: "Manual Entry",
     isManualEntry: true,
     fields: ["pname", "pdate"],
-    indices: [],
+    indices: [] as string[], // Cast to avoid never[]
+    scanType: "screen", // Added for consistency
   },
 ];
 
@@ -409,6 +435,7 @@ const CABINET_STEPS = [
     desc: "Scan Dose (Default <1)",
     fields: ["entrance"],
     indices: ["mR"],
+    scanType: "screen",
   },
   {
     id: "cab2",
@@ -416,6 +443,7 @@ const CABINET_STEPS = [
     desc: "Scan Dose (Default <1)",
     fields: ["exit"],
     indices: ["mR"],
+    scanType: "screen",
   },
   {
     id: "cab3",
@@ -423,6 +451,7 @@ const CABINET_STEPS = [
     desc: "Scan Dose (Default <1)",
     fields: ["operator_scatter"],
     indices: ["mR"],
+    scanType: "screen",
   },
 ];
 
@@ -436,6 +465,7 @@ const FLUORO_BOOST_MEASURE_STEP = {
   defaultPresets: { mas: "Boost mA", kvp: null, time: null },
   fields: ["kvp_boost", "r/min_boost"],
   indices: ["kvp", "mR"],
+  scanType: "screen",
 };
 
 const FLUORO_BOOST_PHYSICIST_STEP = {
@@ -444,7 +474,8 @@ const FLUORO_BOOST_PHYSICIST_STEP = {
   desc: "Manual Entry (Boost Data)",
   isManualEntry: true,
   fields: ["pkvp_boost", "pma_boost", "pr/min_boost"],
-  indices: [],
+  indices: [] as string[], // Cast to avoid never[]
+  scanType: "screen", // Added for consistency
 };
 
 export default function App(): JSX.Element | null {
@@ -737,7 +768,8 @@ export default function App(): JSX.Element | null {
   const performGeminiScan = async (
     file: File,
     targetFields: string[],
-    indices: string[]
+    indices: string[],
+    scanType: "screen" | "document" | string = "screen"
   ) => {
     if (!apiKey) {
       alert("Please go to Settings and enter your Google API Key first.");
@@ -749,12 +781,34 @@ export default function App(): JSX.Element | null {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const imagePart = await fileToGenerativePart(file);
-      const prompt = `
-        Analyze this image of a RaySafe x-ray measurement screen.
-        Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al), Dose Rate (R/min or mGy/s).
-        Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
-        If dose rate is found, put it in "mR".
-      `;
+
+      let prompt = "";
+      if (scanType === "document") {
+        prompt = `
+          Analyze this image of a Medical Physicist Inspection Report.
+          Extract the following 'Previous' or 'Physicist' values:
+          1. Standard Mode: kVp, mA, R/min (or EER).
+          2. Boost/HLC Mode (if present): kVp, mA, R/min.
+          3. HVL: Value (mm Al) and the kVp it was measured at.
+          4. Physicist Name and Date of inspection.
+          
+          Return a JSON object with strictly these keys (use null if not found):
+          {
+            "pkvp": "", "pma": "", "pr/min": "", 
+            "pkvp_boost": "", "pma_boost": "", "pr/min_boost": "", 
+            "phvl": "", "phvl_kvp": "", 
+            "name_and_date": ""
+          }
+        `;
+      } else {
+        prompt = `
+          Analyze this image of a RaySafe x-ray measurement screen.
+          Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al), Dose Rate (R/min or mGy/s).
+          Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
+          If dose rate is found, put it in "mR".
+        `;
+      }
+
       const result = await model.generateContent([prompt, imagePart as any]);
       const text = result.response
         .text()
@@ -793,11 +847,12 @@ export default function App(): JSX.Element | null {
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
     fields: string[],
-    indices: string[]
+    indices: string[],
+    scanType?: string
   ) => {
     const file = e.target.files?.[0];
     if (file) {
-      performGeminiScan(file, fields, indices);
+      performGeminiScan(file, fields, indices, scanType || "screen");
     }
   };
 
@@ -1240,17 +1295,36 @@ export default function App(): JSX.Element | null {
     currentSteps = BONE_DENSITY_STEPS;
   if (activeMachine?.inspectionType === "fluoroscope") {
     const hasHLC = activeMachine.data["has_hlc"] === "true";
+
+    // BUILD FLUORO STEPS DYNAMICALLY
+    const fluoroSteps = [
+      FLUORO_STEPS[0], // 1. Max Exposure (Standard)
+    ];
+
     if (hasHLC) {
-      currentSteps = [
-        FLUORO_STEPS[0],
-        FLUORO_BOOST_MEASURE_STEP,
-        FLUORO_STEPS[1],
-        FLUORO_STEPS[2],
-        FLUORO_BOOST_PHYSICIST_STEP,
-      ];
-    } else {
-      currentSteps = FLUORO_STEPS;
+      fluoroSteps.push(FLUORO_BOOST_MEASURE_STEP); // 2. Max Exposure (Boost)
     }
+
+    fluoroSteps.push({
+      ...FLUORO_STEPS[1],
+      label: `${hasHLC ? "3" : "2"}. HVL Check`, // Renumber dynamically
+    });
+
+    // PHYSICIST DATA (Merged Step)
+    const reportStep = {
+      ...FLUORO_STEPS[2],
+      label: `${hasHLC ? "4" : "3"}. Physicist Report Data`,
+      fields: [...FLUORO_STEPS[2].fields],
+      indices: [...FLUORO_STEPS[2].indices],
+    };
+
+    if (hasHLC) {
+      reportStep.fields.push("pkvp_boost", "pma_boost", "pr/min_boost");
+      reportStep.indices.push("pkvp_boost", "pma_boost", "pr/min_boost");
+    }
+
+    fluoroSteps.push(reportStep);
+    currentSteps = fluoroSteps;
   }
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
   if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
@@ -1820,7 +1894,12 @@ export default function App(): JSX.Element | null {
                       capture="environment"
                       className="hidden"
                       onChange={(e) =>
-                        handleScanClick(e, step.fields, step.indices)
+                        handleScanClick(
+                          e,
+                          step.fields,
+                          step.indices,
+                          step.scanType
+                        )
                       }
                       disabled={isScanning}
                     />
