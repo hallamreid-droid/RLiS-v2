@@ -776,56 +776,47 @@ export default function App(): JSX.Element | null {
 
       let prompt = "";
 
-      // --- LOGIC SPLIT: STRICTLY SEPARATE PROMPTS ---
-
       if (scanType === "document") {
         prompt = `
           Analyze these report images. Return JSON.
-          Extract PREVIOUS/PHYSICIST values:
-          {
-            "pkvp": "Standard kVp",
-            "pma": "Standard mA",
-            "pr/min": "Standard Rate (R/min or mGy/min)",
-            "pkvp_boost": "Boost kVp",
-            "pma_boost": "Boost mA",
-            "pr/min_boost": "Boost Rate",
-            "phvl": "HVL Value",
-            "phvl_kvp": "HVL kVp",
-            "name_and_date": "Physicist Name & Date (No Title)"
-          }
-          Use null if missing. DO NOT CONVERT UNITS. Return numbers EXACTLY as shown.
+          
+          TASK:
+          1. Find "Physicist Name" and "Date" (usually Page 1).
+          2. SCAN ALL PAGES for data tables. Data is often on Page 2 or 3.
+          3. Extract PREVIOUS/PHYSICIST values:
+             - Standard: kVp, mA, Rate (R/min or mGy/min).
+             - Boost (if HLC): kVp, mA, Rate.
+             - HVL: Value (mm Al) and kVp.
+          
+          Return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "name_and_date".
+          Use null if missing. DO NOT CONVERT UNITS. Return exactly as shown.
         `;
       } else if (activeMachine?.inspectionType === "fluoroscope") {
         // --- FLUORO PROMPT (RATE ONLY) ---
         prompt = `
-          Analyze this RaySafe screen. Return JSON.
+          Analyze RaySafe screen. Return JSON.
           Keys: "kvp", "mR", "time", "hvl".
           
-          CRITICAL INSTRUCTION:
-          For "mR", you must find the DOSE RATE.
-          Look for: R/min, mGy/min, uGy/s, mGy/s.
-          Example: If screen says "4.50 R/min", return "4.50".
-          
-          IGNORE Total Dose (mR, mGy). ONLY return Rate.
-          DO NOT CONVERT UNITS. Return the number EXACTLY as displayed.
+          CRITICAL:
+          - For "mR", find DOSE RATE (R/min, mGy/min, uGy/s).
+          - IGNORE Total Dose (mR, mGy).
+          - DO NOT CONVERT UNITS. Return number exactly as shown.
+          - If "4.50 R/min" -> return "4.50".
         `;
       } else {
         // --- STANDARD PROMPT (DOSE ONLY) ---
         prompt = `
-          Analyze this RaySafe screen. Return JSON.
+          Analyze RaySafe screen. Return JSON.
           Keys: "kvp", "mR", "time", "hvl".
           
-          CRITICAL INSTRUCTION:
-          For "mR", you must find the TOTAL DOSE / EXPOSURE.
-          Look for: mR, R, mGy, uGy.
-          Example: If screen says "408.9 mR", return "408.9".
-          
-          IGNORE Dose Rate (R/min). ONLY return Total Dose.
-          DO NOT CONVERT UNITS. Return the number EXACTLY as displayed.
+          CRITICAL:
+          - For "mR", find TOTAL DOSE (mR, R, mGy, uGy).
+          - IGNORE Rate (R/min).
+          - DO NOT CONVERT UNITS. Return number exactly as shown.
+          - If "408.9 mR" -> return "408.9".
         `;
       }
 
-      // Pass imageParts directly (without .map)
       const result = await model.generateContent([prompt, ...imageParts]);
       const text = result.response
         .text()
