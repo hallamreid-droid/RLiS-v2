@@ -26,7 +26,7 @@ import {
   Bone,
   Smile,
   Zap,
-  Files, // Added icon for multi-page
+  Files,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -451,7 +451,7 @@ const FLUORO_BOOST_MEASURE_STEP = {
   desc: "Set Boost mA. Measure kVp & Rate.",
   showSettings: true,
   settingsGroup: "f1_boost",
-  defaultPresets: { mas: "Boost mA", kvp: "120", time: null }, // Set defaults
+  defaultPresets: { mas: "Boost mA", kvp: "120", time: null },
   fields: ["kvp_boost", "r/min_boost"],
   indices: ["kvp", "mR"],
   scanType: "screen",
@@ -770,8 +770,6 @@ export default function App(): JSX.Element | null {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-      // PROCESS ALL FILES
-      // This returns an array of objects: [{ inlineData: {...} }, { inlineData: {...} }]
       const imageParts = await Promise.all(
         Array.from(files).map((file) => fileToGenerativePart(file))
       );
@@ -795,18 +793,27 @@ export default function App(): JSX.Element | null {
           }
         `;
       } else {
+        const isFluoro = activeMachine?.inspectionType === "fluoroscope";
         prompt = `
           Analyze this image of a RaySafe x-ray measurement screen.
-          Extract: kVp, mR (Exposure/Dose), Time (ms/s), HVL (mm Al), Dose Rate (R/min or mGy/s).
+          Extract values for: kVp, Time, HVL, and Radiation Level.
+          
+          Identify units carefully:
+          - Total Dose units: mR, R, uR, mGy, uGy, Gy
+          - Dose Rate units: R/min, mR/min, mGy/s, uGy/s
+          
+          ${
+            isFluoro
+              ? 'PRIORITY: This is a FLUOROSCOPY inspection. You MUST extract the DOSE RATE (e.g., R/min) and put it in the "mR" key. If only Total Dose is found, return null for "mR".'
+              : 'PRIORITY: This is a STANDARD inspection (Dental/General). You MUST extract the TOTAL DOSE (e.g., mR). Do NOT use Dose Rate (R/min). Put the Total Dose in the "mR" key.'
+          }
+
           Return JSON object with keys: "kvp", "mR", "time", "hvl". Use null if not found.
-          If dose rate is found, put it in "mR".
         `;
       }
 
-      // FIX: Removed .map(p => p.inlineData).
-      // imageParts is already in the correct format required by the SDK.
+      // Pass imageParts directly (without .map)
       const result = await model.generateContent([prompt, ...imageParts]);
-
       const text = result.response
         .text()
         .replace(/```json/g, "")
