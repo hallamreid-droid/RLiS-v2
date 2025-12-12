@@ -28,8 +28,8 @@ import {
   Zap,
   Files,
   History,
-  Clock, // Added Clock icon for history
-  Calendar, // Added Calendar icon
+  Clock,
+  FolderCheck,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -109,7 +109,7 @@ type Machine = {
   registrantName: string;
   data: { [key: string]: string };
   isComplete: boolean;
-  completedAt?: number; // Added to track history
+  completedAt?: number;
 };
 
 // --- HELPER FUNCTIONS ---
@@ -536,7 +536,7 @@ export default function App(): JSX.Element | null {
           model: m.model || "",
           serial: m.serial || "",
           data: m.data || {},
-          completedAt: m.completedAt || undefined, // Ensure field exists
+          completedAt: m.completedAt || undefined,
         }));
         setMachines(migrated);
       } catch (e) {
@@ -1249,7 +1249,7 @@ export default function App(): JSX.Element | null {
     return finalData;
   };
 
-  // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
+  // --- DOWNLOAD ZIP HANDLER (SCOPED TO TARGET FACILITY) ---
   const handleDownloadZip = (targetFacilityName: string) => {
     const facilityMachines = machines.filter(
       (m) => m.registrantName === targetFacilityName
@@ -1290,6 +1290,46 @@ export default function App(): JSX.Element | null {
       console.error(e);
       alert("Error generating bulk zip. Check templates.");
     }
+  };
+
+  // --- HISTORY HELPERS ---
+  const getHistoryFacilities = () => {
+    const completedMachines = machines.filter((m) => m.isComplete);
+    if (completedMachines.length === 0) return [];
+
+    // Group by Facility
+    const facilityMap = new Map<
+      string,
+      {
+        name: string;
+        completedAt: number;
+        count: number;
+      }
+    >();
+
+    completedMachines.forEach((m) => {
+      const existing = facilityMap.get(m.registrantName);
+      const timestamp = m.completedAt || 0;
+
+      if (existing) {
+        // Update timestamp if this machine is newer
+        if (timestamp > existing.completedAt) {
+          existing.completedAt = timestamp;
+        }
+        existing.count++;
+      } else {
+        facilityMap.set(m.registrantName, {
+          name: m.registrantName,
+          completedAt: timestamp,
+          count: 1,
+        });
+      }
+    });
+
+    // Convert map to array and sort by date descending
+    return Array.from(facilityMap.values())
+      .sort((a, b) => b.completedAt - a.completedAt)
+      .slice(0, 10); // LIMIT TO 10
   };
 
   const generateDoc = (machine: Machine) => {
@@ -1595,56 +1635,50 @@ export default function App(): JSX.Element | null {
           </div>
         )}
 
-        {/* --- HISTORY TAB --- */}
+        {/* --- HISTORY TAB (FACILITY BASED) --- */}
         {settingsTab === "history" && (
           <div className="space-y-4 animate-in fade-in zoom-in duration-300">
-            {machines.filter((m) => m.isComplete).length === 0 ? (
+            {getHistoryFacilities().length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 bg-white rounded-2xl border border-slate-200 border-dashed">
                 <div className="bg-slate-50 p-4 rounded-full mb-3">
                   <History className="text-slate-300" size={32} />
                 </div>
                 <h3 className="text-slate-400 font-bold">No History Yet</h3>
                 <p className="text-slate-300 text-xs mt-1">
-                  Completed inspections will appear here.
+                  Completed facilities will appear here.
                 </p>
               </div>
             ) : (
-              machines
-                .filter((m) => m.isComplete)
-                .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0))
-                .slice(0, 10)
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500`}
-                        >
-                          {m.inspectionType}
-                        </span>
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
-                          <Clock size={10} />{" "}
-                          {m.completedAt
-                            ? new Date(m.completedAt).toLocaleDateString()
-                            : "Unknown"}
-                        </span>
+              getHistoryFacilities().map((fac) => (
+                <div
+                  key={fac.name}
+                  className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center hover:bg-slate-50 transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-1.5 text-blue-600 font-bold text-sm">
+                        <FolderCheck size={16} /> {fac.name}
                       </div>
-                      <h4 className="font-bold text-slate-800 text-sm">
-                        {m.location}
-                      </h4>
-                      <p className="text-xs text-slate-500">{m.fullDetails}</p>
                     </div>
-                    <button
-                      onClick={() => generateDoc(m)}
-                      className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                    >
-                      <Download size={18} />
-                    </button>
+                    <div className="flex gap-3 text-xs text-slate-400 mt-1">
+                      <span className="flex items-center gap-1">
+                        <Clock size={12} />{" "}
+                        {new Date(fac.completedAt).toLocaleDateString()}
+                      </span>
+                      <span>•</span>
+                      <span>
+                        {fac.count} Machine{fac.count > 1 ? "s" : ""}
+                      </span>
+                    </div>
                   </div>
-                ))
+                  <button
+                    onClick={() => handleDownloadZip(fac.name)}
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-xs font-bold"
+                  >
+                    <Download size={14} /> Download Zip
+                  </button>
+                </div>
+              ))
             )}
           </div>
         )}
