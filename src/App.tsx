@@ -26,6 +26,7 @@ import {
   Bone,
   Smile,
   Zap,
+  Files, // Added icon for multi-page
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -379,7 +380,7 @@ const FLUORO_STEPS = [
   {
     id: "f3",
     label: "Physicist Report Data",
-    desc: "Scan the previous report to auto-fill.",
+    desc: "Scan the previous report (multiple pages allowed).",
     isManualEntry: false,
     scanType: "document",
     fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
@@ -450,7 +451,7 @@ const FLUORO_BOOST_MEASURE_STEP = {
   desc: "Set Boost mA. Measure kVp & Rate.",
   showSettings: true,
   settingsGroup: "f1_boost",
-  defaultPresets: { mas: "Boost mA", kvp: "", time: null }, // CHANGED FROM null TO ""
+  defaultPresets: { mas: "Boost mA", kvp: "120", time: null }, // Set defaults
   fields: ["kvp_boost", "r/min_boost"],
   indices: ["kvp", "mR"],
   scanType: "screen",
@@ -754,7 +755,7 @@ export default function App(): JSX.Element | null {
   };
 
   const performGeminiScan = async (
-    file: File,
+    files: FileList | File[],
     targetFields: string[],
     indices: string[],
     scanType: "screen" | "document" | string = "screen"
@@ -768,13 +769,18 @@ export default function App(): JSX.Element | null {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-      const imagePart = await fileToGenerativePart(file);
+
+      // PROCESS ALL FILES
+      // This returns an array of objects: [{ inlineData: {...} }, { inlineData: {...} }]
+      const imageParts = await Promise.all(
+        Array.from(files).map((file) => fileToGenerativePart(file))
+      );
 
       let prompt = "";
       if (scanType === "document") {
         prompt = `
-          Analyze this image of a Medical Physicist Inspection Report.
-          Extract the following 'Previous' or 'Physicist' values:
+          Analyze these images of a Medical Physicist Inspection Report (it may span multiple pages).
+          Extract the following 'Previous' or 'Physicist' values found across any of the pages:
           1. Standard Mode: kVp, mA, R/min (or EER).
           2. Boost/HLC Mode (if present): kVp, mA, R/min.
           3. HVL: Value (mm Al) and the kVp it was measured at.
@@ -797,7 +803,10 @@ export default function App(): JSX.Element | null {
         `;
       }
 
-      const result = await model.generateContent([prompt, imagePart as any]);
+      // FIX: Removed .map(p => p.inlineData).
+      // imageParts is already in the correct format required by the SDK.
+      const result = await model.generateContent([prompt, ...imageParts]);
+
       const text = result.response
         .text()
         .replace(/```json/g, "")
@@ -838,9 +847,9 @@ export default function App(): JSX.Element | null {
     indices: string[],
     scanType?: string
   ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      performGeminiScan(file, fields, indices, scanType || "screen");
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      performGeminiScan(files, fields, indices, scanType || "screen");
     }
   };
 
@@ -1869,6 +1878,8 @@ export default function App(): JSX.Element | null {
                   >
                     {isScanning ? (
                       <Loader2 size={14} className="animate-spin" />
+                    ) : step.scanType === "document" ? (
+                      <Files size={14} />
                     ) : (
                       <Camera size={14} />
                     )}{" "}
@@ -1876,7 +1887,10 @@ export default function App(): JSX.Element | null {
                     <input
                       type="file"
                       accept="image/*"
-                      capture="environment"
+                      multiple={step.scanType === "document"} // ALLOW MULTIPLE FILES
+                      capture={
+                        step.scanType === "document" ? undefined : "environment"
+                      }
                       className="hidden"
                       onChange={(e) =>
                         handleScanClick(
@@ -1895,46 +1909,32 @@ export default function App(): JSX.Element | null {
               {/* Step-Specific Settings (Gen Rad / Fluoro) */}
               {step.showSettings && (
                 <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
-                  <div className="flex-1">
-                    <label className="text-[8px] uppercase font-bold text-slate-400">
-                      {/* Customize Label for Fluoro Step 1 */}
-                      {step.id === "f1" || step.id === "f1_boost"
-                        ? "Set mA"
-                        : "Set kVp"}
-                    </label>
-                    <input
-                      className="w-full bg-white border rounded px-1 text-xs"
-                      placeholder={
-                        step.defaultPresets.kvp || step.defaultPresets.mas
-                      }
-                      value={
-                        activeMachine.data[
-                          `${step.settingsGroup}_preset_${
-                            step.id === "f1" || step.id === "f1_boost"
-                              ? "mas"
-                              : "kvp"
-                          }`
-                        ] || ""
-                      }
-                      onChange={(e) =>
-                        updateField(
-                          `${step.settingsGroup}_preset_${
-                            step.id === "f1" || step.id === "f1_boost"
-                              ? "mas"
-                              : "kvp"
-                          }`,
-                          e.target.value
-                        )
-                      }
-                    />
-                  </div>
-
-                  {/* General Rad extra fields */}
-                  {activeMachine.inspectionType === "general" && (
+                  {/* SPECIALIZED INPUTS FOR FLUORO STEP 1 & BOOST */}
+                  {step.id === "f1" || step.id === "f1_boost" ? (
                     <>
                       <div className="flex-1">
                         <label className="text-[8px] uppercase font-bold text-slate-400">
-                          Set mAs
+                          Set kVp
+                        </label>
+                        <input
+                          className="w-full bg-white border rounded px-1 text-xs"
+                          placeholder={step.defaultPresets.kvp}
+                          value={
+                            activeMachine.data[
+                              `${step.settingsGroup}_preset_kvp`
+                            ] || ""
+                          }
+                          onChange={(e) =>
+                            updateField(
+                              `${step.settingsGroup}_preset_kvp`,
+                              e.target.value
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[8px] uppercase font-bold text-slate-400">
+                          Set mA
                         </label>
                         <input
                           className="w-full bg-white border rounded px-1 text-xs"
@@ -1952,27 +1952,79 @@ export default function App(): JSX.Element | null {
                           }
                         />
                       </div>
-                      {step.defaultPresets.time !== null && (
-                        <div className="flex-1">
-                          <label className="text-[8px] uppercase font-bold text-slate-400">
-                            Set Time
-                          </label>
-                          <input
-                            className="w-full bg-white border rounded px-1 text-xs"
-                            placeholder="-"
-                            value={
-                              activeMachine.data[
-                                `${step.settingsGroup}_preset_time`
-                              ] || ""
-                            }
-                            onChange={(e) =>
-                              updateField(
-                                `${step.settingsGroup}_preset_time`,
-                                e.target.value
-                              )
-                            }
-                          />
-                        </div>
+                    </>
+                  ) : (
+                    // STANDARD INPUTS FOR GENERAL RAD
+                    <>
+                      <div className="flex-1">
+                        <label className="text-[8px] uppercase font-bold text-slate-400">
+                          Set kVp
+                        </label>
+                        <input
+                          className="w-full bg-white border rounded px-1 text-xs"
+                          placeholder={
+                            step.defaultPresets.kvp || step.defaultPresets.mas
+                          }
+                          value={
+                            activeMachine.data[
+                              `${step.settingsGroup}_preset_kvp`
+                            ] || ""
+                          }
+                          onChange={(e) =>
+                            updateField(
+                              `${step.settingsGroup}_preset_kvp`,
+                              e.target.value
+                            )
+                          }
+                        />
+                      </div>
+
+                      {/* General Rad extra fields */}
+                      {activeMachine.inspectionType === "general" && (
+                        <>
+                          <div className="flex-1">
+                            <label className="text-[8px] uppercase font-bold text-slate-400">
+                              Set mAs
+                            </label>
+                            <input
+                              className="w-full bg-white border rounded px-1 text-xs"
+                              placeholder={step.defaultPresets.mas}
+                              value={
+                                activeMachine.data[
+                                  `${step.settingsGroup}_preset_mas`
+                                ] || ""
+                              }
+                              onChange={(e) =>
+                                updateField(
+                                  `${step.settingsGroup}_preset_mas`,
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </div>
+                          {step.defaultPresets.time !== null && (
+                            <div className="flex-1">
+                              <label className="text-[8px] uppercase font-bold text-slate-400">
+                                Set Time
+                              </label>
+                              <input
+                                className="w-full bg-white border rounded px-1 text-xs"
+                                placeholder="-"
+                                value={
+                                  activeMachine.data[
+                                    `${step.settingsGroup}_preset_time`
+                                  ] || ""
+                                }
+                                onChange={(e) =>
+                                  updateField(
+                                    `${step.settingsGroup}_preset_time`,
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
                     </>
                   )}
