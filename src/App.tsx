@@ -784,7 +784,7 @@ export default function App(): JSX.Element | null {
           TASK:
           1. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
           2. SCAN ALL PAGES for data tables.
-          3. CRITICAL: For data values (kVp, mA, Rate), ONLY extract the data corresponding to the MAXIMUM OUTPUT SETTING (usually 120 kVp, or the highest kVp listed).
+          3. CRITICAL: For data values (kVp, mA, Rate), ONLY extract the data corresponding to the MAXIMUM OUTPUT SETTING at Nomral Mode and HLC (if applicable).
              - Ignore data from lower settings (e.g. 70 kVp, 100 kVp).
              - We want the MAXIMUM POSSIBLE OUTPUT data.
           
