@@ -367,33 +367,21 @@ const BONE_DENSITY_STEPS = [
 const FLUORO_STEPS = [
   {
     id: "f1",
-    label: "1. Max Exposure (Standard)",
-    desc: "RaySafe: Set mA manually. Measure kVp & Rate.",
+    label: "1. Max Exposure & HVL (Standard)",
+    desc: "RaySafe: Measure kVp, Rate & HVL.",
     showSettings: true,
     settingsGroup: "f1",
-    defaultPresets: { mas: "Manual mA", kvp: null, time: null },
-    fields: ["kvp", "r/min"],
-    indices: ["kvp", "mR"],
-    scanType: "screen",
-  },
-  {
-    id: "f2",
-    label: "HVL Check", // Numbering dynamic
-    desc: "RaySafe: Set kVp manually (usu. 80). Measure HVL.",
-    showSettings: true,
-    settingsGroup: "f2",
-    defaultPresets: { kvp: "80", mas: null, time: null },
-    fields: ["hvl"],
-    indices: ["hvl"],
+    defaultPresets: { mas: "Manual mA", kvp: "120", time: null },
+    fields: ["kvp", "r/min", "hvl"],
+    indices: ["kvp", "mR", "hvl"],
     scanType: "screen",
   },
   {
     id: "f3",
-    label: "Physicist Report Data", // Numbering dynamic
+    label: "Physicist Report Data",
     desc: "Scan the previous report to auto-fill.",
-    isManualEntry: false, // Changed to allow scan
-    scanType: "document", // New Type
-    // Base fields (Standard)
+    isManualEntry: false,
+    scanType: "document",
     fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
     indices: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "name_and_date"],
   },
@@ -406,8 +394,8 @@ const CT_STEPS = [
     desc: "Manual Entry (Time, kVp, mA/mAs)",
     isManualEntry: true,
     fields: ["time", "kvp", "ma", "mas"],
-    indices: [] as string[], // Cast to avoid never[]
-    scanType: "screen", // Added for consistency
+    indices: [] as string[],
+    scanType: "screen",
   },
   {
     id: "ct2",
@@ -423,8 +411,8 @@ const CT_STEPS = [
     desc: "Manual Entry",
     isManualEntry: true,
     fields: ["pname", "pdate"],
-    indices: [] as string[], // Cast to avoid never[]
-    scanType: "screen", // Added for consistency
+    indices: [] as string[],
+    scanType: "screen",
   },
 ];
 
@@ -462,7 +450,7 @@ const FLUORO_BOOST_MEASURE_STEP = {
   desc: "Set Boost mA. Measure kVp & Rate.",
   showSettings: true,
   settingsGroup: "f1_boost",
-  defaultPresets: { mas: "Boost mA", kvp: null, time: null },
+  defaultPresets: { mas: "Boost mA", kvp: "", time: null }, // CHANGED FROM null TO ""
   fields: ["kvp_boost", "r/min_boost"],
   indices: ["kvp", "mR"],
   scanType: "screen",
@@ -474,8 +462,8 @@ const FLUORO_BOOST_PHYSICIST_STEP = {
   desc: "Manual Entry (Boost Data)",
   isManualEntry: true,
   fields: ["pkvp_boost", "pma_boost", "pr/min_boost"],
-  indices: [] as string[], // Cast to avoid never[]
-  scanType: "screen", // Added for consistency
+  indices: [] as string[],
+  scanType: "screen",
 };
 
 export default function App(): JSX.Element | null {
@@ -790,7 +778,7 @@ export default function App(): JSX.Element | null {
           1. Standard Mode: kVp, mA, R/min (or EER).
           2. Boost/HLC Mode (if present): kVp, mA, R/min.
           3. HVL: Value (mm Al) and the kVp it was measured at.
-          4. Physicist Name and Date of inspection.
+          4. Physicist Name and Date of inspection only (Do not include title).
           
           Return a JSON object with strictly these keys (use null if not found):
           {
@@ -1136,7 +1124,7 @@ export default function App(): JSX.Element | null {
 
         // HVL logic: combine Value + KVP
         const hvlVal = machine.data["hvl"] || "";
-        const hvlKvp = machine.data["f2_preset_kvp"] || "80";
+        const hvlKvp = machine.data["f1_preset_kvp"] || "120"; // CHANGED TO USE F1 PRESET OR 120
         if (hvlVal) {
           finalData["hvl"] = `${hvlVal} @ ${hvlKvp}`;
         } else {
@@ -1305,17 +1293,14 @@ export default function App(): JSX.Element | null {
       fluoroSteps.push(FLUORO_BOOST_MEASURE_STEP); // 2. Max Exposure (Boost)
     }
 
-    fluoroSteps.push({
-      ...FLUORO_STEPS[1],
-      label: `${hasHLC ? "3" : "2"}. HVL Check`, // Renumber dynamically
-    });
+    // Removed old step 2 (HVL) as it's merged
 
     // PHYSICIST DATA (Merged Step)
     const reportStep = {
-      ...FLUORO_STEPS[2],
-      label: `${hasHLC ? "4" : "3"}. Physicist Report Data`,
-      fields: [...FLUORO_STEPS[2].fields],
-      indices: [...FLUORO_STEPS[2].indices],
+      ...FLUORO_STEPS[1], // Was index 2, now index 1 in the constant definition list
+      label: `${hasHLC ? "3" : "2"}. Physicist Report Data`,
+      fields: [...FLUORO_STEPS[1].fields],
+      indices: [...FLUORO_STEPS[1].indices],
     };
 
     if (hasHLC) {
@@ -2047,7 +2032,6 @@ export default function App(): JSX.Element | null {
                 <h3 className="text-lg font-bold text-slate-800">
                   Reason for No Data
                 </h3>
-                {/* Removed Subtitle as requested */}
               </div>
               <div className="p-4 flex flex-col gap-3">
                 <button
