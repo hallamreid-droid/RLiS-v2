@@ -2366,7 +2366,7 @@ export default function App(): JSX.Element | null {
           </span>
 
           {/* DELETE ALL BUTTON (Shows if > 2 facilities) */}
-          {facilities.length > 2 && (
+          {facilities.length >= 2 && (
             <button
               onClick={deleteAllFacilities}
               className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded hover:bg-red-50 transition-colors"
