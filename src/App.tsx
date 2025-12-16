@@ -747,7 +747,6 @@ export default function App(): JSX.Element | null {
     if (newMachines.length === 0) alert("No machines found.");
     else {
       setMachines((prev) => [...prev, ...newMachines]);
-      alert(`Added ${newMachines.length} machines.`);
     }
   };
 
@@ -1333,6 +1332,12 @@ export default function App(): JSX.Element | null {
     }
   };
 
+  const deleteAllFacilities = () => {
+    if (window.confirm("Are you sure you want to clear ALL facilities?")) {
+      setMachines([]);
+    }
+  };
+
   const activeMachine = machines.find((m) => m.id === activeMachineId);
   // DETERMINE STEPS BASED ON TYPE
   let currentSteps = DENTAL_STEPS;
@@ -1418,13 +1423,14 @@ export default function App(): JSX.Element | null {
               Key is saved locally in your browser.
             </p>
           </div>
+          {/* UPDATED TEMPLATE UPLOAD AREA */}
           <div
-            onDragOver={handleTemplateDragOver} // <--- Added
-            onDragLeave={handleTemplateDragLeave} // <--- Added
+            onDragOver={handleTemplateDragOver}
+            onDragLeave={handleTemplateDragLeave}
             onDrop={handleTemplateDrop}
             className={`border-2 border-dashed p-8 text-center rounded-xl relative transition-colors active:scale-95 cursor-pointer ${
               isTemplateDragging
-                ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200" // <--- Added Visual Feedback
+                ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200"
                 : "bg-white hover:bg-slate-50 border-slate-200"
             }`}
           >
@@ -1434,11 +1440,11 @@ export default function App(): JSX.Element | null {
               </div>
               <div>
                 <p className="text-blue-800 font-bold text-lg">
-                  Upload Templates
+                  {isTemplateDragging
+                    ? "Drop Templates Here"
+                    : "Upload Templates"}
                 </p>
-                <p className="text-blue-600 text-sm">
-                  Select or Drop all your .docx files
-                </p>
+                {/* Subtitle removed as requested */}
               </div>
               <input
                 type="file"
@@ -2297,6 +2303,7 @@ export default function App(): JSX.Element | null {
     );
   // --- DASHBOARD VIEW (FACILITY LIST) ---
   const facilities = getFacilities();
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
       <header className="flex justify-between items-center mb-8">
@@ -2313,6 +2320,8 @@ export default function App(): JSX.Element | null {
           <Settings className="text-slate-600 h-5 w-5" />
         </button>
       </header>
+
+      {/* STATS & UPLOAD AREA */}
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
         <div className="text-5xl font-bold text-blue-600 mb-2 tracking-tight">
           {facilities.length}
@@ -2320,8 +2329,9 @@ export default function App(): JSX.Element | null {
         <div className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-6">
           Facilities Loaded
         </div>
+
+        {/* UPDATED EXCEL UPLOAD LABEL */}
         <div className="grid grid-cols-2 gap-3">
-          {/* UPDATED DRAG AND DROP LABEL */}
           <label
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -2336,7 +2346,7 @@ export default function App(): JSX.Element | null {
             <div className="flex justify-center mb-2">
               <FileSpreadsheet size={24} className="text-emerald-600" />
             </div>
-            {isDragging ? "Drop Excel File Here" : "Upload or Drop Excel"}
+            {isDragging ? "Drop Excel Sheets Here" : "Upload Excel Sheets"}
             <input
               type="file"
               accept=".xlsx"
@@ -2347,12 +2357,25 @@ export default function App(): JSX.Element | null {
           </label>
         </div>
       </div>
+
+      {/* FACILITY LIST CONTAINER */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
         <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
             Facility List
           </span>
+
+          {/* DELETE ALL BUTTON (Shows if > 2 facilities) */}
+          {facilities.length > 2 && (
+            <button
+              onClick={deleteAllFacilities}
+              className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded hover:bg-red-50 transition-colors"
+            >
+              Delete All
+            </button>
+          )}
         </div>
+
         {facilities.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">
             No facilities loaded.
@@ -2360,7 +2383,8 @@ export default function App(): JSX.Element | null {
             Import an ALiS Excel file to begin.
           </div>
         ) : (
-          <div className="max-h-96 overflow-y-auto">
+          /* SCROLL REMOVED (max-h-96 removed) */
+          <div>
             {facilities.map((fac) => {
               const isCompleted = fac.count > 0 && fac.complete === fac.count;
               return (
