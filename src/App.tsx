@@ -752,9 +752,12 @@ export default function App(): JSX.Element | null {
   };
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    parseExcel(file, processImportedData);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      Array.from(files).forEach((file) => {
+        parseExcel(file, processImportedData);
+      });
+    }
   };
 
   // --- DRAG AND DROP HANDLERS ---
@@ -771,9 +774,11 @@ export default function App(): JSX.Element | null {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      parseExcel(file, processImportedData);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      Array.from(files).forEach((file) => {
+        parseExcel(file, processImportedData);
+      });
     }
   };
 
@@ -1413,7 +1418,16 @@ export default function App(): JSX.Element | null {
               Key is saved locally in your browser.
             </p>
           </div>
-          <div className="border-2 border-dashed p-8 text-center rounded-xl relative bg-white hover:bg-slate-50 transition-colors active:scale-95 cursor-pointer">
+          <div
+            onDragOver={handleTemplateDragOver} // <--- Added
+            onDragLeave={handleTemplateDragLeave} // <--- Added
+            onDrop={handleTemplateDrop}
+            className={`border-2 border-dashed p-8 text-center rounded-xl relative transition-colors active:scale-95 cursor-pointer ${
+              isTemplateDragging
+                ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200" // <--- Added Visual Feedback
+                : "bg-white hover:bg-slate-50 border-slate-200"
+            }`}
+          >
             <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
               <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
                 <UploadCloud size={24} />
@@ -1423,7 +1437,7 @@ export default function App(): JSX.Element | null {
                   Upload Templates
                 </p>
                 <p className="text-blue-600 text-sm">
-                  Select all your .docx files at once
+                  Select or Drop all your .docx files
                 </p>
               </div>
               <input
@@ -2326,6 +2340,7 @@ export default function App(): JSX.Element | null {
             <input
               type="file"
               accept=".xlsx"
+              multiple
               onChange={handleExcelUpload}
               className="hidden"
             />
