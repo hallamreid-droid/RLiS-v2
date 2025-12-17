@@ -823,7 +823,7 @@ export default function App(): JSX.Element | null {
             4. Next, return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
 
             Requirements: 
-            1. For data values (kVp, mA, Rate), only extract the data corresponding to the maximum output setting (usually 120 kVp, or the highest kVp listed). Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
+            1. For data values (kVp, mA, Rate), only extract the data corresponding to the maximum output setting. Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
             2. DO NOT CONVERT UNITS. Return exactly as shown.
             3. For dose rate, ignore measurements that use Gy as the unit. We only care about R/min, mR/min, etc.
             4. Use null if missing.
