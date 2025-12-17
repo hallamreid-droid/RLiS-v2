@@ -815,18 +815,18 @@ export default function App(): JSX.Element | null {
           `;
         } else {
           // --- FLUORO DOCUMENT SCAN (FULL DATA + NAME/DATE) ---
-          prompt = `
-            Analyze these report images. Return JSON.
-            
+          prompt = ` 
             TASK:
-            1. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
-            2. SCAN ALL PAGES for data tables.
-            3. CRITICAL: For data values (kVp, mA, Rate), ONLY extract the data corresponding to the MAXIMUM OUTPUT SETTING (usually 120 kVp, or the highest kVp listed).
-               - Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
-               - We want the MAXIMUM POSSIBLE OUTPUT data.
-            
-            Return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
-            Use null if missing. DO NOT CONVERT UNITS. Return exactly as shown.
+            1. Analyze these report images. Return JSON.
+            2. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
+            3. Next, SCAN ALL PAGES for the physicist's measurement date.
+            4. Next, return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
+
+            Requirements: 
+            1. For data values (kVp, mA, Rate), only extract the data corresponding to the maximum output setting (usually 120 kVp, or the highest kVp listed). Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
+            2. DO NOT CONVERT UNITS. Return exactly as shown.
+            3. For dose rate, ignore measurements that use Gy as the unit. We only care about R/min, mR/min, etc.
+            4. Use null if missing.
           `;
         }
       } else if (activeMachine?.inspectionType === "fluoroscope") {
