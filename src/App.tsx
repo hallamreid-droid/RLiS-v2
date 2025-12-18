@@ -701,7 +701,13 @@ export default function App(): JSX.Element | null {
         // --- DETERMINE INSPECTION TYPE ---
         let inspectionType: InspectionType = "dental";
 
-        if (credType.includes("bone")) {
+        // FIX: Check Analytical FIRST because "diffraction" contains "ct"
+        if (
+          credType.includes("fluorescence") ||
+          credType.includes("diffraction")
+        ) {
+          inspectionType = "analytical";
+        } else if (credType.includes("bone")) {
           inspectionType = "bone_density";
         } else if (credType.includes("ct") || credType.includes("tomography")) {
           inspectionType = "ct";
@@ -714,11 +720,6 @@ export default function App(): JSX.Element | null {
           inspectionType = "dental";
         } else if (credType.includes("radiographic")) {
           inspectionType = "general";
-        } else if (
-          credType.includes("fluorescence") ||
-          credType.includes("diffraction")
-        ) {
-          inspectionType = "analytical";
         } else if (
           credType.includes("fluoroscope") ||
           credType.includes("c-arm") ||
