@@ -2110,7 +2110,7 @@ export default function App(): JSX.Element | null {
                         className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
                         placeholder="-"
                       />
-                      <Edit3 className="absolute right-0 top-1 text-slate-200 h-3 w-3 pointer-events-none" />
+                      {/* PENCIL SYMBOL REMOVED HERE */}
                     </div>
                   </div>
                 ))}
@@ -2215,12 +2215,14 @@ export default function App(): JSX.Element | null {
                 <div
                   key={m.id}
                   onClick={() => {
-                    setActiveMachineId(m.id);
-                    setView("mobile-form");
+                    if (!m.isComplete) {
+                      setActiveMachineId(m.id);
+                      setView("mobile-form");
+                    }
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
                     m.isComplete
-                      ? "bg-emerald-50 hover:bg-emerald-100"
+                      ? "bg-emerald-50 cursor-default"
                       : "hover:bg-slate-50"
                   }`}
                 >
@@ -2269,9 +2271,22 @@ export default function App(): JSX.Element | null {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          setActiveMachineId(m.id);
+                          setView("mobile-form");
+                        }}
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                        title="Edit Inspection"
+                      >
+                        <Edit3 size={18} />
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           generateDoc(m);
                         }}
                         className="bg-emerald-100 p-2 rounded-full text-emerald-600 hover:bg-emerald-200 transition-colors"
+                        title="Download Report"
                       >
                         <Download size={18} />
                       </button>
