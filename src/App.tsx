@@ -672,7 +672,7 @@ export default function App(): JSX.Element | null {
       })
       .map((row: any, index: number) => {
         const rawString = row["Entity Name"] || "";
-        const credTypeRaw = row["Credential Type"] || "";
+        const credTypeRaw = row["License/Credential Type"] || "";
         const credType = credTypeRaw.toLowerCase();
 
         let fullDetails = "Unknown Machine";
@@ -738,7 +738,7 @@ export default function App(): JSX.Element | null {
           serial,
           type: credTypeRaw,
           inspectionType,
-          location: row["Credential #"] || facility,
+          location: row["License/Credential #"] || facility,
           registrantName: facility,
           data: {},
           isComplete: false,
