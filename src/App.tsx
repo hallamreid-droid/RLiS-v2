@@ -27,6 +27,7 @@ import {
   Smile,
   Zap,
   Files,
+  Radio,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -1745,8 +1746,9 @@ export default function App(): JSX.Element | null {
                       : "bg-slate-200 text-slate-400"
                   }`}
                 >
-                  <ScanLine size={16} />
+                  <Radio size={16} /> {/* Unique symbol for Industrial */}
                 </div>
+                {/* ... rest of the slot code */}
                 <div>
                   <p
                     className={`text-sm font-bold ${
@@ -1837,6 +1839,8 @@ export default function App(): JSX.Element | null {
                     ? "bg-purple-100 text-purple-700"
                     : activeMachine.inspectionType === "analytical"
                     ? "bg-orange-100 text-orange-700"
+                    : activeMachine.inspectionType === "industrial"
+                    ? "bg-amber-100 text-amber-700" // Added Amber here
                     : activeMachine.inspectionType === "fluoroscope"
                     ? "bg-indigo-100 text-indigo-700"
                     : activeMachine.inspectionType === "ct"
@@ -2308,6 +2312,8 @@ export default function App(): JSX.Element | null {
                             ? "bg-purple-100 text-purple-700"
                             : m.inspectionType === "analytical"
                             ? "bg-orange-100 text-orange-700"
+                            : m.inspectionType === "industrial"
+                            ? "bg-amber-100 text-amber-700"
                             : m.inspectionType === "fluoroscope"
                             ? "bg-indigo-100 text-indigo-700"
                             : m.inspectionType === "ct"
