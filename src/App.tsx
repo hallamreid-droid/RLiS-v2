@@ -523,6 +523,7 @@ export default function App(): JSX.Element | null {
     ct: "No Template",
     cabinet: "No Template",
     bone_density: "No Template",
+    industrial: "No Template",
   });
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedText, setLastScannedText] = useState<string>("");
@@ -615,6 +616,8 @@ export default function App(): JSX.Element | null {
       if (name.includes("dental")) type = "dental";
       else if (name.includes("gen") || name.includes("rad")) type = "general";
       else if (name.includes("bone")) type = "bone_density";
+      else if (name.includes("industrial") || name.includes("ir"))
+        type = "industrial";
       else if (
         name.includes("analytical") ||
         name.includes("diffraction") ||
@@ -1372,6 +1375,8 @@ export default function App(): JSX.Element | null {
     currentSteps = ANALYTICAL_STEPS;
   if (activeMachine?.inspectionType === "bone_density")
     currentSteps = BONE_DENSITY_STEPS;
+  if (activeMachine?.inspectionType === "industrial")
+    currentSteps = INDUSTRIAL_STEPS; // Add this
   if (activeMachine?.inspectionType === "fluoroscope") {
     const hasHLC = activeMachine.data["has_hlc"] === "true";
 
