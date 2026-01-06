@@ -92,7 +92,8 @@ type InspectionType =
   | "fluoroscope"
   | "ct"
   | "cabinet"
-  | "bone_density";
+  | "bone_density"
+  | "industrial"; // Added new type
 
 type Machine = {
   id: string;
@@ -365,6 +366,25 @@ const BONE_DENSITY_STEPS = [
   },
 ];
 
+const INDUSTRIAL_STEPS = [
+  {
+    id: "i1",
+    label: "1. Scatter (6ft)",
+    desc: "Order: Dose (Default <1)",
+    fields: ["scatter_6ft"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+  {
+    id: "i2",
+    label: "2. Scatter (Operator)",
+    desc: "Order: Dose (Default <1)",
+    fields: ["scatter_operator"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+];
+
 const FLUORO_STEPS = [
   {
     id: "f1",
@@ -493,6 +513,7 @@ export default function App(): JSX.Element | null {
     ct: null,
     cabinet: null,
     bone_density: null,
+    industrial: null,
   });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
@@ -702,7 +723,9 @@ export default function App(): JSX.Element | null {
         let inspectionType: InspectionType = "dental";
 
         // FIX: Check Analytical FIRST because "diffraction" contains "ct"
-        if (
+        if (credType.includes("industrial")) {
+          inspectionType = "industrial";
+        } else if (
           credType.includes("fluorescence") ||
           credType.includes("diffraction")
         ) {
@@ -1065,7 +1088,8 @@ export default function App(): JSX.Element | null {
         finalData["note"] = machine.data.noDataReason;
       } else if (
         machine.inspectionType === "analytical" ||
-        machine.inspectionType === "bone_density"
+        machine.inspectionType === "bone_density" ||
+        machine.inspectionType === "industrial" // Added here
       ) {
         blankFields(["scatter_6ft", "scatter_operator"]);
         finalData["scatter_6ft"] = machine.data.noDataReason;
@@ -1171,7 +1195,8 @@ export default function App(): JSX.Element | null {
 
       if (
         machine.inspectionType === "analytical" ||
-        machine.inspectionType === "bone_density"
+        machine.inspectionType === "bone_density" ||
+        machine.inspectionType === "industrial" // Added here
       ) {
         if (!finalData["scatter_6ft"]) finalData["scatter_6ft"] = "<1";
         if (!finalData["scatter_operator"])
@@ -1694,6 +1719,46 @@ export default function App(): JSX.Element | null {
                 <button
                   onClick={(e) => removeTemplate("ct", e)}
                   className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+            {/* INDUSTRIAL RADIOGRAPHY TEMPLATE SLOT */}
+            <div
+              className={`flex items-center justify-between p-4 rounded-lg border ${
+                templates.industrial
+                  ? "bg-amber-50 border-amber-200"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                    templates.industrial
+                      ? "bg-amber-200 text-amber-700"
+                      : "bg-slate-200 text-slate-400"
+                  }`}
+                >
+                  <ScanLine size={16} />
+                </div>
+                <div>
+                  <p
+                    className={`text-sm font-bold ${
+                      templates.industrial ? "text-amber-900" : "text-slate-500"
+                    }`}
+                  >
+                    Industrial Template
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {templateNames.industrial || "No Template"}
+                  </p>
+                </div>
+              </div>
+              {templates.industrial && (
+                <button
+                  onClick={(e) => removeTemplate("industrial", e)}
+                  className="p-2 bg-white text-red-500 rounded border border-red-100"
                 >
                   <Trash2 size={14} />
                 </button>
