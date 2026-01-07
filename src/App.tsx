@@ -553,6 +553,10 @@ export default function App(): JSX.Element | null {
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [selectedMachineForTypeChange, setSelectedMachineForTypeChange] =
     useState<string | null>(null);
+  const [typeChangeSelection, setTypeChangeSelection] = useState({
+    inspectionType: "dental" as InspectionType,
+    typeLabel: "Intraoral",
+  });
 
   // XX Machine creation state
   const [showXXMachineModal, setShowXXMachineModal] = useState(false);
@@ -755,7 +759,7 @@ export default function App(): JSX.Element | null {
         const name = row["Entity Name"] || "";
         return name.includes("(") && name.includes(")");
       })
-      .map((row: any, index: number) => {
+      .flatMap((row: any, index: number) => {
         const rawString = row["Entity Name"] || "";
         const credTypeRaw = row["License/Credential Type"] || "";
         const credType = credTypeRaw.toLowerCase();
@@ -830,7 +834,51 @@ export default function App(): JSX.Element | null {
           inspectionType = "dental";
         }
 
-        return {
+        // Handle Combination - R&F: create TWO machines (General + Fluoroscope)
+        const isCombinationRF =
+          credType.includes("combination") &&
+          (credType.includes("r&f") || credType.includes("r & f"));
+
+        if (isCombinationRF) {
+          const baseLocation = row["License/Credential #"] || facility;
+          const entityId = row["Entity ID"]?.toString() || facility;
+
+          // Create General (Radiographic) machine - Tube 1 of 2
+          const generalMachine: Machine = {
+            id: `mach_${Date.now()}_${index}_R`,
+            fullDetails: fullDetails,
+            make,
+            model,
+            serial,
+            type: "Radiographic (R&F)",
+            inspectionType: "general",
+            location: `${baseLocation} (R)`,
+            registrantName: facility,
+            entityId: entityId,
+            data: { tube_no: "1", num_tubes: "2" },
+            isComplete: false,
+          };
+
+          // Create Fluoroscope machine - Tube 2 of 2
+          const fluoroMachine: Machine = {
+            id: `mach_${Date.now()}_${index}_F`,
+            fullDetails: fullDetails,
+            make,
+            model,
+            serial,
+            type: "Fluoroscopic (R&F)",
+            inspectionType: "fluoroscope",
+            location: `${baseLocation} (F)`,
+            registrantName: facility,
+            entityId: entityId,
+            data: { tube_no: "2", num_tubes: "2" },
+            isComplete: false,
+          };
+
+          return [generalMachine, fluoroMachine];
+        }
+
+        return [{
           id: `mach_${Date.now()}_${index}`,
           fullDetails: fullDetails,
           make,
@@ -843,7 +891,7 @@ export default function App(): JSX.Element | null {
           entityId: row["Entity ID"]?.toString() || facility,
           data: {},
           isComplete: false,
-        };
+        }];
       });
 
     if (newMachines.length === 0) alert("No machines found.");
@@ -913,7 +961,7 @@ export default function App(): JSX.Element | null {
             TASK: Find "Physicist Name" and "Date" of inspection.
             IGNORE all measurement data.
             Return keys: "pname", "pdate".
-            Use null if missing. DO NOT CONVERT UNITS.
+            Use null if missing.
           `;
         } else {
           // --- FLUORO DOCUMENT SCAN (FULL DATA + NAME/DATE) ---
@@ -921,11 +969,12 @@ export default function App(): JSX.Element | null {
             TASK:
             1. Analyze these report images. Return JSON.
             2. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
-            3. Next, SCAN ALL PAGES for the physicist's measurement date.
+            3. Next, SCAN ALL PAGES for the physicist's measurements.
             4. Next, return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
 
             Requirements: 
-            1. For data values (kVp, mA, Rate), only extract the data corresponding to the maximum output setting. Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
+            1. For kVp, mA, and Rate, only extract the data corresponding to the maximum output settings. Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
+            2. For HVL, only extract the HVL value corresponding to a kVp setting around 80. If figures at this setting cannot be found, default to HVL corresonding to the maximum output setting.
             2. DO NOT CONVERT UNITS. Return exactly as shown.
             3. For dose rate, ignore measurements that use Gy as the unit. We only care about R/min, mR/min, etc.
             4. Use null if missing.
@@ -1041,7 +1090,9 @@ export default function App(): JSX.Element | null {
   ) => {
     setMachines((prev) =>
       prev.map((m) =>
-        m.id === machineId ? { ...m, inspectionType: newType, type: typeLabel } : m
+        m.id === machineId
+          ? { ...m, inspectionType: newType, type: typeLabel }
+          : m
       )
     );
     // Reset the menu flow
@@ -2765,72 +2816,94 @@ export default function App(): JSX.Element | null {
         {/* --- TYPE SELECTOR MODAL --- */}
         {showTypeSelector && selectedMachineForTypeChange && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden max-h-[80vh] flex flex-col">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
               <div className="p-4 border-b border-slate-100">
                 <h3 className="text-lg font-bold text-slate-800 text-center">
-                  Select Type
+                  Change Machine Type
                 </h3>
               </div>
-              <div className="p-2 overflow-y-auto flex-1">
-                {[
-                  // Dental
-                  { value: "dental", label: "Intraoral", typeLabel: "Intraoral", color: "bg-blue-100 text-blue-700" },
-                  { value: "dental", label: "Intraoral Mobile", typeLabel: "Intraoral Mobile", color: "bg-blue-100 text-blue-700" },
-                  { value: "dental", label: "Intraoral Hand Held", typeLabel: "Intraoral Hand Held", color: "bg-blue-100 text-blue-700" },
-                  // CBCT
-                  { value: "cbct", label: "CBCT", typeLabel: "CBCT", color: "bg-cyan-100 text-cyan-700" },
-                  // Panoramic
-                  { value: "panoramic", label: "Panoramic", typeLabel: "Panoramic", color: "bg-sky-100 text-sky-700" },
-                  { value: "panoramic", label: "Panoramic CT", typeLabel: "Panoramic CT", color: "bg-sky-100 text-sky-700" },
-                  // General / Radiographic
-                  { value: "general", label: "Radiographic", typeLabel: "Radiographic", color: "bg-purple-100 text-purple-700" },
-                  { value: "general", label: "Radiographic Mobile", typeLabel: "Radiographic Mobile", color: "bg-purple-100 text-purple-700" },
-                  { value: "general", label: "U-Arm", typeLabel: "U-Arm", color: "bg-purple-100 text-purple-700" },
-                  // Fluoroscope / C-Arm
-                  { value: "fluoroscope", label: "C-Arm", typeLabel: "C-Arm", color: "bg-indigo-100 text-indigo-700" },
-                  { value: "fluoroscope", label: "Mobile C-Arm", typeLabel: "Mobile C-Arm", color: "bg-indigo-100 text-indigo-700" },
-                  { value: "fluoroscope", label: "Fluoroscopic", typeLabel: "Fluoroscopic", color: "bg-indigo-100 text-indigo-700" },
-                  { value: "fluoroscope", label: "O-Arm", typeLabel: "O-Arm", color: "bg-indigo-100 text-indigo-700" },
-                  // CT
-                  { value: "ct", label: "CT", typeLabel: "CT", color: "bg-teal-100 text-teal-700" },
-                  { value: "ct", label: "CT/PET", typeLabel: "CT/PET", color: "bg-teal-100 text-teal-700" },
-                  // Analytical
-                  { value: "analytical", label: "Electron Microscope", typeLabel: "Electron Microscope", color: "bg-orange-100 text-orange-700" },
-                  { value: "analytical", label: "X-Ray Diffraction", typeLabel: "X-Ray Diffraction", color: "bg-orange-100 text-orange-700" },
-                  { value: "analytical", label: "X-Ray Fluorescence", typeLabel: "X-Ray Fluorescence", color: "bg-orange-100 text-orange-700" },
-                  // Bone Density
-                  { value: "bone_density", label: "Bone Density", typeLabel: "Bone Density", color: "bg-pink-100 text-pink-700" },
-                  // Cabinet
-                  { value: "cabinet", label: "Cabinet", typeLabel: "Cabinet", color: "bg-stone-100 text-stone-700" },
-                ].map((type, idx) => (
-                  <button
-                    key={`${type.value}-${idx}`}
-                    onClick={() =>
-                      updateMachineTypeById(
-                        selectedMachineForTypeChange,
-                        type.value as InspectionType,
-                        type.typeLabel
-                      )
-                    }
-                    className="w-full p-3 text-left hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-3"
-                  >
-                    <span
-                      className={`text-xs font-bold uppercase px-2 py-1 rounded ${type.color}`}
-                    >
-                      {type.label}
-                    </span>
-                  </button>
-                ))}
+              <div className="p-4">
+                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                  Machine Type
+                </label>
+                <select
+                  value={`${typeChangeSelection.inspectionType}|${typeChangeSelection.typeLabel}`}
+                  onChange={(e) => {
+                    const [inspType, typeLabel] = e.target.value.split("|");
+                    setTypeChangeSelection({
+                      inspectionType: inspType as InspectionType,
+                      typeLabel: typeLabel,
+                    });
+                  }}
+                  className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                >
+                  <optgroup label="Dental">
+                    <option value="dental|Intraoral">Intraoral</option>
+                    <option value="dental|Intraoral Mobile">Intraoral Mobile</option>
+                    <option value="dental|Intraoral Hand Held">Intraoral Hand Held</option>
+                  </optgroup>
+                  <optgroup label="CBCT">
+                    <option value="cbct|CBCT">CBCT</option>
+                  </optgroup>
+                  <optgroup label="Panoramic">
+                    <option value="panoramic|Panoramic">Panoramic</option>
+                    <option value="panoramic|Panoramic CT">Panoramic CT</option>
+                  </optgroup>
+                  <optgroup label="Radiographic">
+                    <option value="general|Radiographic">Radiographic</option>
+                    <option value="general|Radiographic Mobile">Radiographic Mobile</option>
+                    <option value="general|U-Arm">U-Arm</option>
+                  </optgroup>
+                  <optgroup label="Fluoroscope">
+                    <option value="fluoroscope|C-Arm">C-Arm</option>
+                    <option value="fluoroscope|Mobile C-Arm">Mobile C-Arm</option>
+                    <option value="fluoroscope|Fluoroscopic">Fluoroscopic</option>
+                    <option value="fluoroscope|O-Arm">O-Arm</option>
+                  </optgroup>
+                  <optgroup label="CT">
+                    <option value="ct|CT">CT</option>
+                    <option value="ct|CT/PET">CT/PET</option>
+                  </optgroup>
+                  <optgroup label="Analytical">
+                    <option value="analytical|Electron Microscope">Electron Microscope</option>
+                    <option value="analytical|X-Ray Diffraction">X-Ray Diffraction</option>
+                    <option value="analytical|X-Ray Fluorescence">X-Ray Fluorescence</option>
+                  </optgroup>
+                  <optgroup label="Other">
+                    <option value="bone_density|Bone Density">Bone Density</option>
+                    <option value="cabinet|Cabinet">Cabinet</option>
+                  </optgroup>
+                </select>
               </div>
-              <div className="p-4 pt-2 border-t border-slate-100">
+              <div className="p-4 pt-0 flex gap-2">
                 <button
                   onClick={() => {
                     setShowTypeSelector(false);
                     setSelectedMachineForTypeChange(null);
+                    setTypeChangeSelection({
+                      inspectionType: "dental",
+                      typeLabel: "Intraoral",
+                    });
                   }}
-                  className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+                  className="flex-1 py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg border border-slate-200"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    updateMachineTypeById(
+                      selectedMachineForTypeChange,
+                      typeChangeSelection.inspectionType,
+                      typeChangeSelection.typeLabel
+                    );
+                    setTypeChangeSelection({
+                      inspectionType: "dental",
+                      typeLabel: "Intraoral",
+                    });
+                  }}
+                  className="flex-1 py-3 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700 active:scale-95 transition-all"
+                >
+                  Change Type
                 </button>
               </div>
             </div>
@@ -2919,25 +2992,37 @@ export default function App(): JSX.Element | null {
                   >
                     <optgroup label="Dental">
                       <option value="dental|Intraoral">Intraoral</option>
-                      <option value="dental|Intraoral Mobile">Intraoral Mobile</option>
-                      <option value="dental|Intraoral Hand Held">Intraoral Hand Held</option>
+                      <option value="dental|Intraoral Mobile">
+                        Intraoral Mobile
+                      </option>
+                      <option value="dental|Intraoral Hand Held">
+                        Intraoral Hand Held
+                      </option>
                     </optgroup>
                     <optgroup label="CBCT">
                       <option value="cbct|CBCT">CBCT</option>
                     </optgroup>
                     <optgroup label="Panoramic">
                       <option value="panoramic|Panoramic">Panoramic</option>
-                      <option value="panoramic|Panoramic CT">Panoramic CT</option>
+                      <option value="panoramic|Panoramic CT">
+                        Panoramic CT
+                      </option>
                     </optgroup>
                     <optgroup label="Radiographic">
                       <option value="general|Radiographic">Radiographic</option>
-                      <option value="general|Radiographic Mobile">Radiographic Mobile</option>
+                      <option value="general|Radiographic Mobile">
+                        Radiographic Mobile
+                      </option>
                       <option value="general|U-Arm">U-Arm</option>
                     </optgroup>
                     <optgroup label="Fluoroscope">
                       <option value="fluoroscope|C-Arm">C-Arm</option>
-                      <option value="fluoroscope|Mobile C-Arm">Mobile C-Arm</option>
-                      <option value="fluoroscope|Fluoroscopic">Fluoroscopic</option>
+                      <option value="fluoroscope|Mobile C-Arm">
+                        Mobile C-Arm
+                      </option>
+                      <option value="fluoroscope|Fluoroscopic">
+                        Fluoroscopic
+                      </option>
                       <option value="fluoroscope|O-Arm">O-Arm</option>
                     </optgroup>
                     <optgroup label="CT">
@@ -2945,12 +3030,20 @@ export default function App(): JSX.Element | null {
                       <option value="ct|CT/PET">CT/PET</option>
                     </optgroup>
                     <optgroup label="Analytical">
-                      <option value="analytical|Electron Microscope">Electron Microscope</option>
-                      <option value="analytical|X-Ray Diffraction">X-Ray Diffraction</option>
-                      <option value="analytical|X-Ray Fluorescence">X-Ray Fluorescence</option>
+                      <option value="analytical|Electron Microscope">
+                        Electron Microscope
+                      </option>
+                      <option value="analytical|X-Ray Diffraction">
+                        X-Ray Diffraction
+                      </option>
+                      <option value="analytical|X-Ray Fluorescence">
+                        X-Ray Fluorescence
+                      </option>
                     </optgroup>
                     <optgroup label="Other">
-                      <option value="bone_density|Bone Density">Bone Density</option>
+                      <option value="bone_density|Bone Density">
+                        Bone Density
+                      </option>
                       <option value="cabinet|Cabinet">Cabinet</option>
                     </optgroup>
                   </select>
