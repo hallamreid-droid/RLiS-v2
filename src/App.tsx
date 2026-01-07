@@ -561,6 +561,7 @@ export default function App(): JSX.Element | null {
     model: "",
     serial: "",
     inspectionType: "dental" as InspectionType,
+    typeLabel: "Intraoral",
   });
 
   const [templates, setTemplates] = useState<
@@ -1035,11 +1036,12 @@ export default function App(): JSX.Element | null {
 
   const updateMachineTypeById = (
     machineId: string,
-    newType: InspectionType
+    newType: InspectionType,
+    typeLabel: string
   ) => {
     setMachines((prev) =>
       prev.map((m) =>
-        m.id === machineId ? { ...m, inspectionType: newType } : m
+        m.id === machineId ? { ...m, inspectionType: newType, type: typeLabel } : m
       )
     );
     // Reset the menu flow
@@ -1073,7 +1075,7 @@ export default function App(): JSX.Element | null {
       make: xxMachineData.make,
       model: xxMachineData.model,
       serial: xxMachineData.serial,
-      type: xxMachineData.inspectionType.toUpperCase(),
+      type: xxMachineData.typeLabel,
       inspectionType: xxMachineData.inspectionType,
       location: xxCredential,
       registrantName: baseMachine.registrantName,
@@ -1091,7 +1093,14 @@ export default function App(): JSX.Element | null {
       model: "",
       serial: "",
       inspectionType: "dental",
+      typeLabel: "Intraoral",
     });
+  };
+
+  const deleteXXMachine = (machineId: string) => {
+    const machine = machines.find((m) => m.id === machineId);
+    if (!machine || !machine.location.includes("-XX")) return;
+    setMachines((prev) => prev.filter((m) => m.id !== machineId));
   };
 
   const handleNoData = (reason: "operational" | "facility") => {
@@ -2055,12 +2064,8 @@ export default function App(): JSX.Element | null {
           </div>
           <div className="text-xs text-slate-500 ml-11 flex flex-col gap-2">
             <div className="flex gap-2 items-center">
-              <select
-                value={activeMachine.inspectionType}
-                onChange={(e) =>
-                  updateMachineType(e.target.value as InspectionType)
-                }
-                className={`uppercase font-bold px-2 py-0.5 rounded text-xs cursor-pointer outline-none border-0 appearance-none pr-6 bg-no-repeat bg-[length:12px] bg-[center_right_4px] ${
+              <span
+                className={`uppercase font-bold px-2 py-0.5 rounded text-xs ${
                   activeMachine.inspectionType === "general"
                     ? "bg-purple-100 text-purple-700"
                     : activeMachine.inspectionType === "analytical"
@@ -2075,23 +2080,15 @@ export default function App(): JSX.Element | null {
                     ? "bg-stone-100 text-stone-700"
                     : activeMachine.inspectionType === "bone_density"
                     ? "bg-pink-100 text-pink-700"
+                    : activeMachine.inspectionType === "cbct"
+                    ? "bg-cyan-100 text-cyan-700"
+                    : activeMachine.inspectionType === "panoramic"
+                    ? "bg-sky-100 text-sky-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
-                }}
               >
-                <option value="dental">Dental</option>
-                <option value="cbct">CBCT</option>
-                <option value="panoramic">Panoramic</option>
-                <option value="general">General</option>
-                <option value="analytical">Analytical</option>
-                <option value="fluoroscope">Fluoroscope</option>
-                <option value="ct">CT</option>
-                <option value="cabinet">Cabinet</option>
-                <option value="bone_density">Bone Density</option>
-                <option value="industrial">Industrial</option>
-              </select>
+                {activeMachine.inspectionType.replace("_", " ")}
+              </span>
             </div>
             <div className="flex gap-1 text-[10px] font-mono">
               <input
@@ -2560,14 +2557,14 @@ export default function App(): JSX.Element | null {
                             ? "bg-stone-100 text-stone-700"
                             : m.inspectionType === "bone_density"
                             ? "bg-pink-100 text-pink-700"
+                            : m.inspectionType === "cbct"
+                            ? "bg-cyan-100 text-cyan-700"
+                            : m.inspectionType === "panoramic"
+                            ? "bg-sky-100 text-sky-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {/* CBCT and Panoramic display as DENTAL */}
-                        {m.inspectionType === "cbct" ||
-                        m.inspectionType === "panoramic"
-                          ? "DENTAL"
-                          : m.inspectionType.replace("_", " ")}
+                        {m.inspectionType.replace("_", " ")}
                       </span>
                       <span className="text-xs text-slate-500">
                         {m.fullDetails}
@@ -2609,17 +2606,48 @@ export default function App(): JSX.Element | null {
                       >
                         <Download size={18} />
                       </button>
+
+                      {m.location.includes("-XX") && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm("Delete this XX machine?")) {
+                              deleteXXMachine(m.id);
+                            }
+                          }}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                          title="Delete XX Machine"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    <button
-                      onClick={() => {
-                        setActiveMachineId(m.id);
-                        setView("mobile-form");
-                      }}
-                      className="bg-slate-100 p-1.5 rounded-full hover:bg-blue-100 active:scale-95 transition-all cursor-pointer"
-                    >
-                      <ChevronRight className="text-slate-400 h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {m.location.includes("-XX") && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm("Delete this XX machine?")) {
+                              deleteXXMachine(m.id);
+                            }
+                          }}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                          title="Delete XX Machine"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setActiveMachineId(m.id);
+                          setView("mobile-form");
+                        }}
+                        className="bg-slate-100 p-1.5 rounded-full hover:bg-blue-100 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <ChevronRight className="text-slate-400 h-4 w-4" />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -2708,13 +2736,14 @@ export default function App(): JSX.Element | null {
                             ? "bg-stone-100 text-stone-700"
                             : m.inspectionType === "bone_density"
                             ? "bg-pink-100 text-pink-700"
+                            : m.inspectionType === "cbct"
+                            ? "bg-cyan-100 text-cyan-700"
+                            : m.inspectionType === "panoramic"
+                            ? "bg-sky-100 text-sky-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {m.inspectionType === "cbct" ||
-                        m.inspectionType === "panoramic"
-                          ? "DENTAL"
-                          : m.inspectionType.replace("_", " ")}
+                        {m.inspectionType.replace("_", " ")}
                       </span>
                     </div>
                     <ChevronRight className="text-slate-300 h-4 w-4" />
@@ -2744,63 +2773,27 @@ export default function App(): JSX.Element | null {
               </div>
               <div className="p-2 overflow-y-auto flex-1">
                 {[
-                  {
-                    value: "dental",
-                    label: "Dental",
-                    color: "bg-blue-100 text-blue-700",
-                  },
-                  {
-                    value: "cbct",
-                    label: "CBCT",
-                    color: "bg-blue-100 text-blue-700",
-                  },
-                  {
-                    value: "panoramic",
-                    label: "Panoramic",
-                    color: "bg-blue-100 text-blue-700",
-                  },
-                  {
-                    value: "general",
-                    label: "General",
-                    color: "bg-purple-100 text-purple-700",
-                  },
-                  {
-                    value: "analytical",
-                    label: "Analytical",
-                    color: "bg-orange-100 text-orange-700",
-                  },
-                  {
-                    value: "fluoroscope",
-                    label: "Fluoroscope",
-                    color: "bg-indigo-100 text-indigo-700",
-                  },
-                  {
-                    value: "ct",
-                    label: "CT",
-                    color: "bg-teal-100 text-teal-700",
-                  },
-                  {
-                    value: "cabinet",
-                    label: "Cabinet",
-                    color: "bg-stone-100 text-stone-700",
-                  },
-                  {
-                    value: "bone_density",
-                    label: "Bone Density",
-                    color: "bg-pink-100 text-pink-700",
-                  },
-                  {
-                    value: "industrial",
-                    label: "Industrial",
-                    color: "bg-amber-100 text-amber-700",
-                  },
-                ].map((type) => (
+                  { value: "dental", label: "Intraoral", typeLabel: "Intraoral", color: "bg-blue-100 text-blue-700" },
+                  { value: "cbct", label: "CBCT", typeLabel: "CBCT", color: "bg-cyan-100 text-cyan-700" },
+                  { value: "panoramic", label: "Panoramic", typeLabel: "Panoramic", color: "bg-sky-100 text-sky-700" },
+                  { value: "panoramic", label: "Panoramic Cephalometric", typeLabel: "Panoramic Cephalometric", color: "bg-sky-100 text-sky-700" },
+                  { value: "general", label: "General Radiographic", typeLabel: "General Radiographic", color: "bg-purple-100 text-purple-700" },
+                  { value: "analytical", label: "X-Ray Fluorescence (XRF)", typeLabel: "X-Ray Fluorescence", color: "bg-orange-100 text-orange-700" },
+                  { value: "analytical", label: "X-Ray Diffraction (XRD)", typeLabel: "X-Ray Diffraction", color: "bg-orange-100 text-orange-700" },
+                  { value: "analytical", label: "Electron Microscope", typeLabel: "Electron Microscope", color: "bg-orange-100 text-orange-700" },
+                  { value: "fluoroscope", label: "Fluoroscope / C-Arm", typeLabel: "Fluoroscope", color: "bg-indigo-100 text-indigo-700" },
+                  { value: "ct", label: "CT Scanner", typeLabel: "CT Scanner", color: "bg-teal-100 text-teal-700" },
+                  { value: "cabinet", label: "Cabinet X-Ray", typeLabel: "Cabinet X-Ray", color: "bg-stone-100 text-stone-700" },
+                  { value: "bone_density", label: "Bone Densitometer", typeLabel: "Bone Densitometer", color: "bg-pink-100 text-pink-700" },
+                  { value: "industrial", label: "Industrial Radiography", typeLabel: "Industrial Radiography", color: "bg-amber-100 text-amber-700" },
+                ].map((type, idx) => (
                   <button
-                    key={type.value}
+                    key={`${type.value}-${idx}`}
                     onClick={() =>
                       updateMachineTypeById(
                         selectedMachineForTypeChange,
-                        type.value as InspectionType
+                        type.value as InspectionType,
+                        type.typeLabel
                       )
                     }
                     className="w-full p-3 text-left hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-3"
@@ -2897,25 +2890,30 @@ export default function App(): JSX.Element | null {
                     Machine Type
                   </label>
                   <select
-                    value={xxMachineData.inspectionType}
-                    onChange={(e) =>
+                    value={`${xxMachineData.inspectionType}|${xxMachineData.typeLabel}`}
+                    onChange={(e) => {
+                      const [inspType, typeLabel] = e.target.value.split("|");
                       setXXMachineData((prev) => ({
                         ...prev,
-                        inspectionType: e.target.value as InspectionType,
-                      }))
-                    }
+                        inspectionType: inspType as InspectionType,
+                        typeLabel: typeLabel,
+                      }));
+                    }}
                     className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                   >
-                    <option value="dental">Dental</option>
-                    <option value="cbct">CBCT</option>
-                    <option value="panoramic">Panoramic</option>
-                    <option value="general">General</option>
-                    <option value="analytical">Analytical</option>
-                    <option value="fluoroscope">Fluoroscope</option>
-                    <option value="ct">CT</option>
-                    <option value="cabinet">Cabinet</option>
-                    <option value="bone_density">Bone Density</option>
-                    <option value="industrial">Industrial</option>
+                    <option value="dental|Intraoral">Intraoral</option>
+                    <option value="cbct|CBCT">CBCT</option>
+                    <option value="panoramic|Panoramic">Panoramic</option>
+                    <option value="panoramic|Panoramic Cephalometric">Panoramic Cephalometric</option>
+                    <option value="general|General Radiographic">General Radiographic</option>
+                    <option value="analytical|X-Ray Fluorescence">X-Ray Fluorescence (XRF)</option>
+                    <option value="analytical|X-Ray Diffraction">X-Ray Diffraction (XRD)</option>
+                    <option value="analytical|Electron Microscope">Electron Microscope</option>
+                    <option value="fluoroscope|Fluoroscope">Fluoroscope / C-Arm</option>
+                    <option value="ct|CT Scanner">CT Scanner</option>
+                    <option value="cabinet|Cabinet X-Ray">Cabinet X-Ray</option>
+                    <option value="bone_density|Bone Densitometer">Bone Densitometer</option>
+                    <option value="industrial|Industrial Radiography">Industrial Radiography</option>
                   </select>
                 </div>
               </div>
@@ -2928,6 +2926,7 @@ export default function App(): JSX.Element | null {
                       model: "",
                       serial: "",
                       inspectionType: "dental",
+                      typeLabel: "Intraoral",
                     });
                   }}
                   className="flex-1 py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg border border-slate-200"
