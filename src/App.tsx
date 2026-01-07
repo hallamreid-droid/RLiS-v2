@@ -85,10 +85,6 @@ const deleteTemplateFromDB = async (type: string) => {
   store.delete(type);
 };
 
-const [settingsTab, setSettingsTab] = useState<"api-key" | "templates">(
-  "api-key"
-);
-
 // --- TYPES ---
 type InspectionType =
   | "dental"
