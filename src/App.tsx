@@ -106,6 +106,7 @@ type Machine = {
   inspectionType: InspectionType;
   location: string;
   registrantName: string;
+  entityId: string;
   data: { [key: string]: string };
   isComplete: boolean;
 };
@@ -768,6 +769,7 @@ export default function App(): JSX.Element | null {
           inspectionType,
           location: row["License/Credential #"] || facility,
           registrantName: facility,
+          entityId: row["Entity ID"]?.toString() || facility,
           data: {},
           isComplete: false,
         };
@@ -1262,9 +1264,9 @@ export default function App(): JSX.Element | null {
   };
 
   // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
-  const handleDownloadZip = (targetFacilityId: string) => {
+  const handleDownloadZip = (targetEntityId: string) => {
     const facilityMachines = machines.filter(
-      (m) => m.location === targetFacilityId
+      (m) => m.entityId === targetEntityId
     );
     if (facilityMachines.length === 0) return;
 
@@ -1328,32 +1330,31 @@ export default function App(): JSX.Element | null {
     const groups: {
       [key: string]: {
         name: string;
-        id: string;
+        entityId: string;
         count: number;
         complete: number;
       };
     } = {};
     machines.forEach((m) => {
-      // Group by location (entity ID) instead of registrantName to handle
-      // facilities with the same name but different entity IDs
-      if (!groups[m.location]) {
-        groups[m.location] = {
+      // Group by entityId to handle facilities with the same name but different entity IDs
+      if (!groups[m.entityId]) {
+        groups[m.entityId] = {
           name: m.registrantName,
-          id: m.location,
+          entityId: m.entityId,
           count: 0,
           complete: 0,
         };
       }
-      groups[m.location].count++;
-      if (m.isComplete) groups[m.location].complete++;
+      groups[m.entityId].count++;
+      if (m.isComplete) groups[m.entityId].complete++;
     });
     return Object.values(groups);
   };
 
-  const deleteFacility = (facilityId: string, facilityName: string, e: React.MouseEvent) => {
+  const deleteFacility = (entityId: string, facilityName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`Delete facility "${facilityName}" and all its machines?`)) {
-      setMachines((prev) => prev.filter((m) => m.location !== facilityId));
+      setMachines((prev) => prev.filter((m) => m.entityId !== entityId));
     }
   };
 
@@ -1406,7 +1407,7 @@ export default function App(): JSX.Element | null {
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
   if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
   const activeFacilityMachines = machines.filter(
-    (m) => m.location === activeFacilityId
+    (m) => m.entityId === activeFacilityId
   );
   useEffect(() => {
     if (view === "mobile-form" && activeMachine && apiKey) {
@@ -2516,9 +2517,9 @@ export default function App(): JSX.Element | null {
               const isCompleted = fac.count > 0 && fac.complete === fac.count;
               return (
                 <div
-                  key={fac.id}
+                  key={fac.entityId}
                   onClick={() => {
-                    setActiveFacilityId(fac.id);
+                    setActiveFacilityId(fac.entityId);
                     setView("machine-list");
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
@@ -2536,7 +2537,7 @@ export default function App(): JSX.Element | null {
                     </div>
                     <div className="flex gap-2 items-center">
                       <div className="flex items-center gap-1 text-slate-400 text-xs">
-                        <MapPin size={12} /> {fac.id}
+                        <MapPin size={12} /> {fac.entityId}
                       </div>
                       <span className="text-xs text-slate-300">•</span>
                       <span className="text-xs text-slate-500">
@@ -2547,7 +2548,7 @@ export default function App(): JSX.Element | null {
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={(e) => deleteFacility(fac.id, fac.name, e)}
+                      onClick={(e) => deleteFacility(fac.entityId, fac.name, e)}
                       className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
                     >
                       <Trash2 size={18} />
