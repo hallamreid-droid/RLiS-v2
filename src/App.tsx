@@ -530,6 +530,72 @@ const FLUORO_BOOST_PHYSICIST_STEP = {
   scanType: "screen",
 };
 
+// --- FIELD LABEL MAPPING ---
+const getFieldLabel = (field: string): string => {
+  const labels: Record<string, string> = {
+    // Dental
+    kvp: "kVp",
+    mR1: "Dose",
+    time1: "Time",
+    hvl: "HVL",
+    mR2: "Dose",
+    time2: "Time",
+    mR3: "Dose",
+    time3: "Time",
+    mR4: "Dose",
+    time4: "Time",
+    "6 foot": "6ft Scatter",
+    "operator location": "Operator",
+    // General
+    g1_kvp: "kVp",
+    g1_mr: "Dose",
+    g1_time: "Time",
+    g2a_kvp: "kVp",
+    g2a_mr: "Dose",
+    g2a_time: "Time",
+    g2b_kvp: "kVp",
+    g2b_mr: "Dose",
+    g2b_time: "Time",
+    g2c_kvp: "kVp",
+    g2c_mr: "Dose",
+    g2c_time: "Time",
+    g2d_kvp: "kVp",
+    g2d_mr: "Dose",
+    g2d_time: "Time",
+    g3_kvp: "kVp",
+    g3_mr: "Dose",
+    g3_time: "Time",
+    g4_kvp: "kVp",
+    g4_hvl: "HVL",
+    g5_scatter: "Scatter",
+    g6_scatter: "Scatter",
+    // Scatter
+    scatter_6ft: "6ft Scatter",
+    scatter_operator: "Operator",
+    // Fluoro
+    "r/min": "R/min",
+    pkvp: "Physicist kVp",
+    pma: "Physicist mA",
+    "pr/min": "Physicist R/min",
+    phvl: "Physicist HVL",
+    phvl_kvp: "HVL kVp",
+    pname: "Physicist Name",
+    pdate: "Date",
+    time: "Time",
+    ma: "mA",
+    mas: "mAs",
+    operator_scatter: "Operator",
+    entrance: "Entrance",
+    exit: "Exit",
+    kvp_boost: "kVp (Boost)",
+    "r/min_boost": "R/min (Boost)",
+    pkvp_boost: "Physicist kVp (Boost)",
+    pma_boost: "Physicist mA (Boost)",
+    "pr/min_boost": "Physicist R/min (Boost)",
+  };
+  return labels[field] || field;
+};
+
 export default function App(): JSX.Element | null {
   const [view, setView] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
@@ -2445,7 +2511,7 @@ export default function App(): JSX.Element | null {
                 {step.fields.map((k: string) => (
                   <div key={k}>
                     <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
-                      {k}
+                      {getFieldLabel(k)}
                     </label>
                     <div className="relative">
                       <input
