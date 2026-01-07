@@ -2415,18 +2415,6 @@ export default function App(): JSX.Element | null {
           )}
         </div>
 
-        {/* --- BULK DOWNLOAD BUTTON (Moved to Bottom) --- */}
-        {activeFacilityMachines.length > 0 &&
-          activeFacilityMachines.every((m) => m.isComplete) && (
-            <div className="mt-4 flex justify-center">
-              <button
-                onClick={() => handleDownloadZip(activeFacilityId!)}
-                className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2 text-sm"
-              >
-                <Archive size={18} /> Download Zip
-              </button>
-            </div>
-          )}
       </div>
     );
   // --- DASHBOARD VIEW (FACILITY LIST) ---
@@ -2547,6 +2535,17 @@ export default function App(): JSX.Element | null {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {isCompleted && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadZip(fac.entityId);
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-bold text-xs active:scale-95 transition-all flex items-center gap-1.5"
+                      >
+                        <Archive size={14} /> Download
+                      </button>
+                    )}
                     <button
                       onClick={(e) => deleteFacility(fac.entityId, fac.name, e)}
                       className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
