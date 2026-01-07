@@ -497,12 +497,13 @@ export default function App(): JSX.Element | null {
   const [isDragging, setIsDragging] = useState(false);
   const [isTemplateDragging, setIsTemplateDragging] = useState(false);
 
-  const [activeFacilityName, setActiveFacilityName] = useState<string | null>(
+  const [activeFacilityId, setActiveFacilityId] = useState<string | null>(
     null
   );
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   const [showNoDataModal, setShowNoDataModal] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"apiKey" | "templates">("apiKey");
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
@@ -1098,34 +1099,25 @@ export default function App(): JSX.Element | null {
         blankFields(["scatter_6ft", "scatter_operator"]);
         finalData["scatter_6ft"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "fluoroscope") {
+        // Only blank inspection data fields, preserve physicist data (pkvp, pma, pr/min, phvl, pname, pdate, etc.)
         blankFields([
           "ma",
           "kvp",
           "r/min",
           "hvl",
-          "pkvp",
-          "pma",
-          "pr/min",
-          "phvl",
-          "pname",
-          "pdate",
           "ma_boost",
           "kvp_boost",
           "r/min_boost",
-          "pkvp_boost",
-          "pma_boost",
-          "pr/min_boost",
         ]);
         finalData["kvp"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "ct") {
+        // Only blank inspection data fields, preserve physicist data (pname, pdate)
         blankFields([
           "time",
           "kvp",
           "ma",
           "mas",
           "operator_scatter",
-          "pname",
-          "pdate",
         ]);
         finalData["time"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "cabinet") {
@@ -1270,16 +1262,17 @@ export default function App(): JSX.Element | null {
   };
 
   // --- DOWNLOAD ZIP HANDLER (SCOPED TO ACTIVE FACILITY) ---
-  const handleDownloadZip = (targetFacilityName: string) => {
+  const handleDownloadZip = (targetFacilityId: string) => {
     const facilityMachines = machines.filter(
-      (m) => m.registrantName === targetFacilityName
+      (m) => m.location === targetFacilityId
     );
     if (facilityMachines.length === 0) return;
 
     const zip = new PizZip();
     try {
       let zipFilename = "Inspections.zip";
-      const entityName = targetFacilityName || "Facility";
+      // Use the facility name from the first machine for the filename
+      const entityName = facilityMachines[0]?.registrantName || "Facility";
       const safeName = entityName
         .replace(/[^a-z0-9]/gi, "_")
         .replace(/_{2,}/g, "_");
@@ -1341,24 +1334,26 @@ export default function App(): JSX.Element | null {
       };
     } = {};
     machines.forEach((m) => {
-      if (!groups[m.registrantName]) {
-        groups[m.registrantName] = {
+      // Group by location (entity ID) instead of registrantName to handle
+      // facilities with the same name but different entity IDs
+      if (!groups[m.location]) {
+        groups[m.location] = {
           name: m.registrantName,
           id: m.location,
           count: 0,
           complete: 0,
         };
       }
-      groups[m.registrantName].count++;
-      if (m.isComplete) groups[m.registrantName].complete++;
+      groups[m.location].count++;
+      if (m.isComplete) groups[m.location].complete++;
     });
     return Object.values(groups);
   };
 
-  const deleteFacility = (name: string, e: React.MouseEvent) => {
+  const deleteFacility = (facilityId: string, facilityName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm(`Delete facility "${name}" and all its machines?`)) {
-      setMachines((prev) => prev.filter((m) => m.registrantName !== name));
+    if (window.confirm(`Delete facility "${facilityName}" and all its machines?`)) {
+      setMachines((prev) => prev.filter((m) => m.location !== facilityId));
     }
   };
 
@@ -1411,7 +1406,7 @@ export default function App(): JSX.Element | null {
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
   if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
   const activeFacilityMachines = machines.filter(
-    (m) => m.registrantName === activeFacilityName
+    (m) => m.location === activeFacilityId
   );
   useEffect(() => {
     if (view === "mobile-form" && activeMachine && apiKey) {
@@ -1436,25 +1431,63 @@ export default function App(): JSX.Element | null {
           <ArrowLeft /> Back
         </button>
         <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
-        <div className="space-y-6">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Key className="text-blue-500" size={20} />
-              <h3 className="font-bold text-slate-700">Gemini API Key</h3>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setSettingsTab("apiKey")}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+              settingsTab === "apiKey"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Key size={16} />
+              API Key
             </div>
+          </button>
+          <button
+            onClick={() => setSettingsTab("templates")}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+              settingsTab === "templates"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <FileText size={16} />
+              Templates
+            </div>
+          </button>
+        </div>
 
-            <input
-              type="text"
-              value={apiKey}
-              onChange={handleApiKeyChange}
-              placeholder="Paste your AIza... key here"
-              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+        <div className="space-y-6">
+          {/* API Key Tab Content */}
+          {settingsTab === "apiKey" && (
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Key className="text-blue-500" size={20} />
+                <h3 className="font-bold text-slate-700">Gemini API Key</h3>
+              </div>
 
-            <p className="text-[11px] text-slate-400 mt-2">
-              Key is saved locally in your browser.
-            </p>
-          </div>
+              <input
+                type="text"
+                value={apiKey}
+                onChange={handleApiKeyChange}
+                placeholder="Paste your AIza... key here"
+                className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+
+              <p className="text-[11px] text-slate-400 mt-2">
+                Key is saved locally in your browser.
+              </p>
+            </div>
+          )}
+
+          {/* Templates Tab Content */}
+          {settingsTab === "templates" && (
+          <>
           {/* UPDATED TEMPLATE UPLOAD AREA */}
           <div
             onDragOver={handleTemplateDragOver}
@@ -1812,6 +1845,8 @@ export default function App(): JSX.Element | null {
               )}
             </div>
           </div>
+          </>
+          )}
         </div>
       </div>
     );
@@ -2268,7 +2303,7 @@ export default function App(): JSX.Element | null {
                 Facility
               </h1>
               <div className="text-lg font-bold text-slate-800 leading-tight">
-                {activeFacilityName}
+                {activeFacilityMachines[0]?.registrantName || activeFacilityId}
               </div>
             </div>
           </div>
@@ -2384,7 +2419,7 @@ export default function App(): JSX.Element | null {
           activeFacilityMachines.every((m) => m.isComplete) && (
             <div className="mt-4 flex justify-center">
               <button
-                onClick={() => handleDownloadZip(activeFacilityName!)}
+                onClick={() => handleDownloadZip(activeFacilityId!)}
                 className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2 text-sm"
               >
                 <Archive size={18} /> Download Zip
@@ -2481,9 +2516,9 @@ export default function App(): JSX.Element | null {
               const isCompleted = fac.count > 0 && fac.complete === fac.count;
               return (
                 <div
-                  key={fac.name}
+                  key={fac.id}
                   onClick={() => {
-                    setActiveFacilityName(fac.name);
+                    setActiveFacilityId(fac.id);
                     setView("machine-list");
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
@@ -2512,7 +2547,7 @@ export default function App(): JSX.Element | null {
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={(e) => deleteFacility(fac.name, e)}
+                      onClick={(e) => deleteFacility(fac.id, fac.name, e)}
                       className="text-red-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
                     >
                       <Trash2 size={18} />
