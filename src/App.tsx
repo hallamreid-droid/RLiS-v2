@@ -28,6 +28,7 @@ import {
   Zap,
   Files,
   Radio,
+  MoreVertical,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -546,6 +547,12 @@ export default function App(): JSX.Element | null {
   const [showNoDataModal, setShowNoDataModal] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"apiKey" | "templates">("apiKey");
 
+  // Machine list menu state
+  const [showMachineMenu, setShowMachineMenu] = useState(false);
+  const [showMachineSelector, setShowMachineSelector] = useState(false);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [selectedMachineForTypeChange, setSelectedMachineForTypeChange] = useState<string | null>(null);
+
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({
@@ -774,7 +781,8 @@ export default function App(): JSX.Element | null {
           inspectionType = "industrial";
         } else if (
           credType.includes("fluorescence") ||
-          credType.includes("diffraction")
+          credType.includes("diffraction") ||
+          credType.includes("electron microscope")
         ) {
           inspectionType = "analytical";
         } else if (credType.includes("bone")) {
@@ -1004,6 +1012,26 @@ export default function App(): JSX.Element | null {
     setMachines((prev) =>
       prev.map((m) => (m.id === activeMachineId ? { ...m, [key]: value } : m))
     );
+  };
+
+  const updateMachineType = (newType: InspectionType) => {
+    if (!activeMachineId) return;
+    setMachines((prev) =>
+      prev.map((m) =>
+        m.id === activeMachineId ? { ...m, inspectionType: newType } : m
+      )
+    );
+  };
+
+  const updateMachineTypeById = (machineId: string, newType: InspectionType) => {
+    setMachines((prev) =>
+      prev.map((m) =>
+        m.id === machineId ? { ...m, inspectionType: newType } : m
+      )
+    );
+    // Reset the menu flow
+    setShowTypeSelector(false);
+    setSelectedMachineForTypeChange(null);
   };
 
   const handleNoData = (reason: "operational" | "facility") => {
@@ -1946,14 +1974,16 @@ export default function App(): JSX.Element | null {
           </div>
           <div className="text-xs text-slate-500 ml-11 flex flex-col gap-2">
             <div className="flex gap-2 items-center">
-              <span
-                className={`uppercase font-bold px-2 rounded ${
+              <select
+                value={activeMachine.inspectionType}
+                onChange={(e) => updateMachineType(e.target.value as InspectionType)}
+                className={`uppercase font-bold px-2 py-0.5 rounded text-xs cursor-pointer outline-none border-0 appearance-none pr-6 bg-no-repeat bg-[length:12px] bg-[center_right_4px] ${
                   activeMachine.inspectionType === "general"
                     ? "bg-purple-100 text-purple-700"
                     : activeMachine.inspectionType === "analytical"
                     ? "bg-orange-100 text-orange-700"
                     : activeMachine.inspectionType === "industrial"
-                    ? "bg-amber-100 text-amber-700" // Added Amber here
+                    ? "bg-amber-100 text-amber-700"
                     : activeMachine.inspectionType === "fluoroscope"
                     ? "bg-indigo-100 text-indigo-700"
                     : activeMachine.inspectionType === "ct"
@@ -1964,9 +1994,21 @@ export default function App(): JSX.Element | null {
                     ? "bg-pink-100 text-pink-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`
+                }}
               >
-                {activeMachine.inspectionType.replace("_", " ")}
-              </span>
+                <option value="dental">Dental</option>
+                <option value="cbct">CBCT</option>
+                <option value="panoramic">Panoramic</option>
+                <option value="general">General</option>
+                <option value="analytical">Analytical</option>
+                <option value="fluoroscope">Fluoroscope</option>
+                <option value="ct">CT</option>
+                <option value="cabinet">Cabinet</option>
+                <option value="bone_density">Bone Density</option>
+                <option value="industrial">Industrial</option>
+              </select>
             </div>
             <div className="flex gap-1 text-[10px] font-mono">
               <input
@@ -2387,6 +2429,12 @@ export default function App(): JSX.Element | null {
               </div>
             </div>
           </div>
+          <button
+            onClick={() => setShowMachineMenu(true)}
+            className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
+          >
+            <MoreVertical className="text-slate-600 h-5 w-5" />
+          </button>
         </header>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
@@ -2400,20 +2448,14 @@ export default function App(): JSX.Element | null {
               No machines found for this facility.
             </div>
           ) : (
-            <div className="max-h-96 overflow-y-auto">
+            <div>
               {activeFacilityMachines.map((m) => (
                 <div
                   key={m.id}
-                  onClick={() => {
-                    if (!m.isComplete) {
-                      setActiveMachineId(m.id);
-                      setView("mobile-form");
-                    }
-                  }}
-                  className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors cursor-pointer ${
+                  className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
                     m.isComplete
-                      ? "bg-emerald-50 cursor-default"
-                      : "hover:bg-slate-50"
+                      ? "bg-emerald-50"
+                      : ""
                   }`}
                 >
                   <div>
@@ -2487,15 +2529,157 @@ export default function App(): JSX.Element | null {
                       </button>
                     </div>
                   ) : (
-                    <div className="bg-slate-100 p-1.5 rounded-full">
+                    <button
+                      onClick={() => {
+                        setActiveMachineId(m.id);
+                        setView("mobile-form");
+                      }}
+                      className="bg-slate-100 p-1.5 rounded-full hover:bg-blue-100 active:scale-95 transition-all cursor-pointer"
+                    >
                       <ChevronRight className="text-slate-400 h-4 w-4" />
-                    </div>
+                    </button>
                   )}
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* --- MENU MODAL --- */}
+        {showMachineMenu && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">Options</h3>
+              </div>
+              <div className="p-2">
+                <button
+                  onClick={() => {
+                    setShowMachineMenu(false);
+                    setShowMachineSelector(true);
+                  }}
+                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors"
+                >
+                  Change Machine Type
+                </button>
+              </div>
+              <div className="p-4 pt-2">
+                <button
+                  onClick={() => setShowMachineMenu(false)}
+                  className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- MACHINE SELECTOR MODAL --- */}
+        {showMachineSelector && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden max-h-[80vh] flex flex-col">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">Select Machine</h3>
+              </div>
+              <div className="p-2 overflow-y-auto flex-1">
+                {activeFacilityMachines.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setSelectedMachineForTypeChange(m.id);
+                      setShowMachineSelector(false);
+                      setShowTypeSelector(true);
+                    }}
+                    className="w-full p-3 text-left hover:bg-slate-50 rounded-xl transition-colors flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-bold text-sm text-slate-800">{m.location}</div>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded inline-block mt-1 ${
+                          m.inspectionType === "general"
+                            ? "bg-purple-100 text-purple-700"
+                            : m.inspectionType === "analytical"
+                            ? "bg-orange-100 text-orange-700"
+                            : m.inspectionType === "industrial"
+                            ? "bg-amber-100 text-amber-700"
+                            : m.inspectionType === "fluoroscope"
+                            ? "bg-indigo-100 text-indigo-700"
+                            : m.inspectionType === "ct"
+                            ? "bg-teal-100 text-teal-700"
+                            : m.inspectionType === "cabinet"
+                            ? "bg-stone-100 text-stone-700"
+                            : m.inspectionType === "bone_density"
+                            ? "bg-pink-100 text-pink-700"
+                            : "bg-blue-100 text-blue-700"
+                        }`}
+                      >
+                        {m.inspectionType === "cbct" || m.inspectionType === "panoramic"
+                          ? "DENTAL"
+                          : m.inspectionType.replace("_", " ")}
+                      </span>
+                    </div>
+                    <ChevronRight className="text-slate-300 h-4 w-4" />
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setShowMachineSelector(false)}
+                  className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- TYPE SELECTOR MODAL --- */}
+        {showTypeSelector && selectedMachineForTypeChange && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden max-h-[80vh] flex flex-col">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">Select Type</h3>
+              </div>
+              <div className="p-2 overflow-y-auto flex-1">
+                {[
+                  { value: "dental", label: "Dental", color: "bg-blue-100 text-blue-700" },
+                  { value: "cbct", label: "CBCT", color: "bg-blue-100 text-blue-700" },
+                  { value: "panoramic", label: "Panoramic", color: "bg-blue-100 text-blue-700" },
+                  { value: "general", label: "General", color: "bg-purple-100 text-purple-700" },
+                  { value: "analytical", label: "Analytical", color: "bg-orange-100 text-orange-700" },
+                  { value: "fluoroscope", label: "Fluoroscope", color: "bg-indigo-100 text-indigo-700" },
+                  { value: "ct", label: "CT", color: "bg-teal-100 text-teal-700" },
+                  { value: "cabinet", label: "Cabinet", color: "bg-stone-100 text-stone-700" },
+                  { value: "bone_density", label: "Bone Density", color: "bg-pink-100 text-pink-700" },
+                  { value: "industrial", label: "Industrial", color: "bg-amber-100 text-amber-700" },
+                ].map((type) => (
+                  <button
+                    key={type.value}
+                    onClick={() => updateMachineTypeById(selectedMachineForTypeChange, type.value as InspectionType)}
+                    className="w-full p-3 text-left hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-3"
+                  >
+                    <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${type.color}`}>
+                      {type.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => {
+                    setShowTypeSelector(false);
+                    setSelectedMachineForTypeChange(null);
+                  }}
+                  className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     );
