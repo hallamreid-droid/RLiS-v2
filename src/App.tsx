@@ -2773,19 +2773,35 @@ export default function App(): JSX.Element | null {
               </div>
               <div className="p-2 overflow-y-auto flex-1">
                 {[
+                  // Dental
                   { value: "dental", label: "Intraoral", typeLabel: "Intraoral", color: "bg-blue-100 text-blue-700" },
+                  { value: "dental", label: "Intraoral Mobile", typeLabel: "Intraoral Mobile", color: "bg-blue-100 text-blue-700" },
+                  { value: "dental", label: "Intraoral Hand Held", typeLabel: "Intraoral Hand Held", color: "bg-blue-100 text-blue-700" },
+                  // CBCT
                   { value: "cbct", label: "CBCT", typeLabel: "CBCT", color: "bg-cyan-100 text-cyan-700" },
+                  // Panoramic
                   { value: "panoramic", label: "Panoramic", typeLabel: "Panoramic", color: "bg-sky-100 text-sky-700" },
-                  { value: "panoramic", label: "Panoramic Cephalometric", typeLabel: "Panoramic Cephalometric", color: "bg-sky-100 text-sky-700" },
-                  { value: "general", label: "General Radiographic", typeLabel: "General Radiographic", color: "bg-purple-100 text-purple-700" },
-                  { value: "analytical", label: "X-Ray Fluorescence (XRF)", typeLabel: "X-Ray Fluorescence", color: "bg-orange-100 text-orange-700" },
-                  { value: "analytical", label: "X-Ray Diffraction (XRD)", typeLabel: "X-Ray Diffraction", color: "bg-orange-100 text-orange-700" },
+                  { value: "panoramic", label: "Panoramic CT", typeLabel: "Panoramic CT", color: "bg-sky-100 text-sky-700" },
+                  // General / Radiographic
+                  { value: "general", label: "Radiographic", typeLabel: "Radiographic", color: "bg-purple-100 text-purple-700" },
+                  { value: "general", label: "Radiographic Mobile", typeLabel: "Radiographic Mobile", color: "bg-purple-100 text-purple-700" },
+                  { value: "general", label: "U-Arm", typeLabel: "U-Arm", color: "bg-purple-100 text-purple-700" },
+                  // Fluoroscope / C-Arm
+                  { value: "fluoroscope", label: "C-Arm", typeLabel: "C-Arm", color: "bg-indigo-100 text-indigo-700" },
+                  { value: "fluoroscope", label: "Mobile C-Arm", typeLabel: "Mobile C-Arm", color: "bg-indigo-100 text-indigo-700" },
+                  { value: "fluoroscope", label: "Fluoroscopic", typeLabel: "Fluoroscopic", color: "bg-indigo-100 text-indigo-700" },
+                  { value: "fluoroscope", label: "O-Arm", typeLabel: "O-Arm", color: "bg-indigo-100 text-indigo-700" },
+                  // CT
+                  { value: "ct", label: "CT", typeLabel: "CT", color: "bg-teal-100 text-teal-700" },
+                  { value: "ct", label: "CT/PET", typeLabel: "CT/PET", color: "bg-teal-100 text-teal-700" },
+                  // Analytical
                   { value: "analytical", label: "Electron Microscope", typeLabel: "Electron Microscope", color: "bg-orange-100 text-orange-700" },
-                  { value: "fluoroscope", label: "Fluoroscope / C-Arm", typeLabel: "Fluoroscope", color: "bg-indigo-100 text-indigo-700" },
-                  { value: "ct", label: "CT Scanner", typeLabel: "CT Scanner", color: "bg-teal-100 text-teal-700" },
-                  { value: "cabinet", label: "Cabinet X-Ray", typeLabel: "Cabinet X-Ray", color: "bg-stone-100 text-stone-700" },
-                  { value: "bone_density", label: "Bone Densitometer", typeLabel: "Bone Densitometer", color: "bg-pink-100 text-pink-700" },
-                  { value: "industrial", label: "Industrial Radiography", typeLabel: "Industrial Radiography", color: "bg-amber-100 text-amber-700" },
+                  { value: "analytical", label: "X-Ray Diffraction", typeLabel: "X-Ray Diffraction", color: "bg-orange-100 text-orange-700" },
+                  { value: "analytical", label: "X-Ray Fluorescence", typeLabel: "X-Ray Fluorescence", color: "bg-orange-100 text-orange-700" },
+                  // Bone Density
+                  { value: "bone_density", label: "Bone Density", typeLabel: "Bone Density", color: "bg-pink-100 text-pink-700" },
+                  // Cabinet
+                  { value: "cabinet", label: "Cabinet", typeLabel: "Cabinet", color: "bg-stone-100 text-stone-700" },
                 ].map((type, idx) => (
                   <button
                     key={`${type.value}-${idx}`}
@@ -2901,19 +2917,42 @@ export default function App(): JSX.Element | null {
                     }}
                     className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                   >
-                    <option value="dental|Intraoral">Intraoral</option>
-                    <option value="cbct|CBCT">CBCT</option>
-                    <option value="panoramic|Panoramic">Panoramic</option>
-                    <option value="panoramic|Panoramic Cephalometric">Panoramic Cephalometric</option>
-                    <option value="general|General Radiographic">General Radiographic</option>
-                    <option value="analytical|X-Ray Fluorescence">X-Ray Fluorescence (XRF)</option>
-                    <option value="analytical|X-Ray Diffraction">X-Ray Diffraction (XRD)</option>
-                    <option value="analytical|Electron Microscope">Electron Microscope</option>
-                    <option value="fluoroscope|Fluoroscope">Fluoroscope / C-Arm</option>
-                    <option value="ct|CT Scanner">CT Scanner</option>
-                    <option value="cabinet|Cabinet X-Ray">Cabinet X-Ray</option>
-                    <option value="bone_density|Bone Densitometer">Bone Densitometer</option>
-                    <option value="industrial|Industrial Radiography">Industrial Radiography</option>
+                    <optgroup label="Dental">
+                      <option value="dental|Intraoral">Intraoral</option>
+                      <option value="dental|Intraoral Mobile">Intraoral Mobile</option>
+                      <option value="dental|Intraoral Hand Held">Intraoral Hand Held</option>
+                    </optgroup>
+                    <optgroup label="CBCT">
+                      <option value="cbct|CBCT">CBCT</option>
+                    </optgroup>
+                    <optgroup label="Panoramic">
+                      <option value="panoramic|Panoramic">Panoramic</option>
+                      <option value="panoramic|Panoramic CT">Panoramic CT</option>
+                    </optgroup>
+                    <optgroup label="Radiographic">
+                      <option value="general|Radiographic">Radiographic</option>
+                      <option value="general|Radiographic Mobile">Radiographic Mobile</option>
+                      <option value="general|U-Arm">U-Arm</option>
+                    </optgroup>
+                    <optgroup label="Fluoroscope">
+                      <option value="fluoroscope|C-Arm">C-Arm</option>
+                      <option value="fluoroscope|Mobile C-Arm">Mobile C-Arm</option>
+                      <option value="fluoroscope|Fluoroscopic">Fluoroscopic</option>
+                      <option value="fluoroscope|O-Arm">O-Arm</option>
+                    </optgroup>
+                    <optgroup label="CT">
+                      <option value="ct|CT">CT</option>
+                      <option value="ct|CT/PET">CT/PET</option>
+                    </optgroup>
+                    <optgroup label="Analytical">
+                      <option value="analytical|Electron Microscope">Electron Microscope</option>
+                      <option value="analytical|X-Ray Diffraction">X-Ray Diffraction</option>
+                      <option value="analytical|X-Ray Fluorescence">X-Ray Fluorescence</option>
+                    </optgroup>
+                    <optgroup label="Other">
+                      <option value="bone_density|Bone Density">Bone Density</option>
+                      <option value="cabinet|Cabinet">Cabinet</option>
+                    </optgroup>
                   </select>
                 </div>
               </div>
