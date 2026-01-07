@@ -539,19 +539,29 @@ export default function App(): JSX.Element | null {
   const [isDragging, setIsDragging] = useState(false);
   const [isTemplateDragging, setIsTemplateDragging] = useState(false);
 
-  const [activeFacilityId, setActiveFacilityId] = useState<string | null>(
-    null
-  );
+  const [activeFacilityId, setActiveFacilityId] = useState<string | null>(null);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   const [showNoDataModal, setShowNoDataModal] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"apiKey" | "templates">("apiKey");
+  const [settingsTab, setSettingsTab] = useState<"apiKey" | "templates">(
+    "apiKey"
+  );
 
   // Machine list menu state
   const [showMachineMenu, setShowMachineMenu] = useState(false);
   const [showMachineSelector, setShowMachineSelector] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
-  const [selectedMachineForTypeChange, setSelectedMachineForTypeChange] = useState<string | null>(null);
+  const [selectedMachineForTypeChange, setSelectedMachineForTypeChange] =
+    useState<string | null>(null);
+
+  // XX Machine creation state
+  const [showXXMachineModal, setShowXXMachineModal] = useState(false);
+  const [xxMachineData, setXXMachineData] = useState({
+    make: "",
+    model: "",
+    serial: "",
+    inspectionType: "dental" as InspectionType,
+  });
 
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
@@ -1023,7 +1033,10 @@ export default function App(): JSX.Element | null {
     );
   };
 
-  const updateMachineTypeById = (machineId: string, newType: InspectionType) => {
+  const updateMachineTypeById = (
+    machineId: string,
+    newType: InspectionType
+  ) => {
     setMachines((prev) =>
       prev.map((m) =>
         m.id === machineId ? { ...m, inspectionType: newType } : m
@@ -1032,6 +1045,53 @@ export default function App(): JSX.Element | null {
     // Reset the menu flow
     setShowTypeSelector(false);
     setSelectedMachineForTypeChange(null);
+  };
+
+  const createXXMachine = () => {
+    if (!activeFacilityId) return;
+
+    // Get facility machines to find existing XX machines and base credential
+    const facilityMachines = machines.filter(
+      (m) => m.entityId === activeFacilityId
+    );
+    if (facilityMachines.length === 0) return;
+
+    // Count existing XX machines for this facility
+    const existingXXCount = facilityMachines.filter((m) =>
+      m.location.includes("-XX")
+    ).length;
+    const xxNumber = existingXXCount + 1;
+
+    // Get base info from first machine in facility
+    const baseMachine = facilityMachines[0];
+    const baseCredential = baseMachine.location.replace(/-XX\d+$/, ""); // Remove any existing XX suffix
+    const xxCredential = `${baseCredential}-XX${xxNumber}`;
+
+    const newMachine: Machine = {
+      id: `mach_xx_${Date.now()}`,
+      fullDetails: `${xxMachineData.make} - ${xxMachineData.model} - ${xxMachineData.serial}`,
+      make: xxMachineData.make,
+      model: xxMachineData.model,
+      serial: xxMachineData.serial,
+      type: xxMachineData.inspectionType.toUpperCase(),
+      inspectionType: xxMachineData.inspectionType,
+      location: xxCredential,
+      registrantName: baseMachine.registrantName,
+      entityId: activeFacilityId,
+      data: {},
+      isComplete: false,
+    };
+
+    setMachines((prev) => [...prev, newMachine]);
+
+    // Reset the modal
+    setShowXXMachineModal(false);
+    setXXMachineData({
+      make: "",
+      model: "",
+      serial: "",
+      inspectionType: "dental",
+    });
   };
 
   const handleNoData = (reason: "operational" | "facility") => {
@@ -1194,18 +1254,15 @@ export default function App(): JSX.Element | null {
         finalData["kvp"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "ct") {
         // Only blank inspection data fields, preserve physicist data (pname, pdate)
-        blankFields([
-          "time",
-          "kvp",
-          "ma",
-          "mas",
-          "operator_scatter",
-        ]);
+        blankFields(["time", "kvp", "ma", "mas", "operator_scatter"]);
         finalData["time"] = machine.data.noDataReason;
       } else if (machine.inspectionType === "cabinet") {
         blankFields(["entrance", "exit", "operator_scatter"]);
         finalData["entrance"] = machine.data.noDataReason;
-      } else if (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic") {
+      } else if (
+        machine.inspectionType === "cbct" ||
+        machine.inspectionType === "panoramic"
+      ) {
         // CBCT and Panoramic use dental template but only have scatter fields
         blankFields(["6 foot", "operator location"]);
         finalData["6 foot"] = machine.data.noDataReason;
@@ -1221,7 +1278,10 @@ export default function App(): JSX.Element | null {
       }
 
       // CBCT and Panoramic use dental template, need presets and scatter defaults
-      if (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic") {
+      if (
+        machine.inspectionType === "cbct" ||
+        machine.inspectionType === "panoramic"
+      ) {
         finalData["preset kvp"] = machine.data["preset_kvp"];
         finalData["preset mas"] = machine.data["preset_mas"];
         finalData["preset time"] = machine.data["preset_time"];
@@ -1377,9 +1437,11 @@ export default function App(): JSX.Element | null {
         if (!machine.isComplete) return;
 
         // CBCT and Panoramic use the dental template
-        const templateType = (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic")
-          ? "dental"
-          : machine.inspectionType;
+        const templateType =
+          machine.inspectionType === "cbct" ||
+          machine.inspectionType === "panoramic"
+            ? "dental"
+            : machine.inspectionType;
         const templateBuffer = templates[templateType];
         if (!templateBuffer) return;
 
@@ -1406,9 +1468,11 @@ export default function App(): JSX.Element | null {
 
   const generateDoc = (machine: Machine) => {
     // CBCT and Panoramic use the dental template
-    const templateType = (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic")
-      ? "dental"
-      : machine.inspectionType;
+    const templateType =
+      machine.inspectionType === "cbct" ||
+      machine.inspectionType === "panoramic"
+        ? "dental"
+        : machine.inspectionType;
     const selectedTemplate = templates[templateType];
     if (!selectedTemplate) {
       alert(
@@ -1452,9 +1516,15 @@ export default function App(): JSX.Element | null {
     return Object.values(groups);
   };
 
-  const deleteFacility = (entityId: string, facilityName: string, e: React.MouseEvent) => {
+  const deleteFacility = (
+    entityId: string,
+    facilityName: string,
+    e: React.MouseEvent
+  ) => {
     e.stopPropagation();
-    if (window.confirm(`Delete facility "${facilityName}" and all its machines?`)) {
+    if (
+      window.confirm(`Delete facility "${facilityName}" and all its machines?`)
+    ) {
       setMachines((prev) => prev.filter((m) => m.entityId !== entityId));
     }
   };
@@ -1475,8 +1545,7 @@ export default function App(): JSX.Element | null {
     currentSteps = BONE_DENSITY_STEPS;
   if (activeMachine?.inspectionType === "industrial")
     currentSteps = INDUSTRIAL_STEPS;
-  if (activeMachine?.inspectionType === "cbct")
-    currentSteps = CBCT_STEPS;
+  if (activeMachine?.inspectionType === "cbct") currentSteps = CBCT_STEPS;
   if (activeMachine?.inspectionType === "panoramic")
     currentSteps = PANORAMIC_STEPS;
   if (activeMachine?.inspectionType === "fluoroscope") {
@@ -1593,365 +1662,377 @@ export default function App(): JSX.Element | null {
 
           {/* Templates Tab Content */}
           {settingsTab === "templates" && (
-          <>
-          {/* UPDATED TEMPLATE UPLOAD AREA */}
-          <div
-            onDragOver={handleTemplateDragOver}
-            onDragLeave={handleTemplateDragLeave}
-            onDrop={handleTemplateDrop}
-            className={`border-2 border-dashed p-8 text-center rounded-xl relative transition-colors active:scale-95 cursor-pointer ${
-              isTemplateDragging
-                ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200"
-                : "bg-white hover:bg-slate-50 border-slate-200"
-            }`}
-          >
-            <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
-              <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
-                <UploadCloud size={24} />
+            <>
+              {/* UPDATED TEMPLATE UPLOAD AREA */}
+              <div
+                onDragOver={handleTemplateDragOver}
+                onDragLeave={handleTemplateDragLeave}
+                onDrop={handleTemplateDrop}
+                className={`border-2 border-dashed p-8 text-center rounded-xl relative transition-colors active:scale-95 cursor-pointer ${
+                  isTemplateDragging
+                    ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200"
+                    : "bg-white hover:bg-slate-50 border-slate-200"
+                }`}
+              >
+                <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
+                  <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                    <UploadCloud size={24} />
+                  </div>
+                  <div>
+                    <p className="text-blue-800 font-bold text-lg">
+                      {isTemplateDragging
+                        ? "Drop Templates Here"
+                        : "Upload Templates"}
+                    </p>
+                    {/* Subtitle removed as requested */}
+                  </div>
+                  <input
+                    type="file"
+                    accept=".docx"
+                    multiple
+                    onChange={handleBulkTemplateUpload}
+                    className="hidden"
+                  />
+                </label>
               </div>
-              <div>
-                <p className="text-blue-800 font-bold text-lg">
-                  {isTemplateDragging
-                    ? "Drop Templates Here"
-                    : "Upload Templates"}
-                </p>
-                {/* Subtitle removed as requested */}
-              </div>
-              <input
-                type="file"
-                accept=".docx"
-                multiple
-                onChange={handleBulkTemplateUpload}
-                className="hidden"
-              />
-            </label>
-          </div>
-          <div className="space-y-2">
-            {/* DENTAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.dental
-                  ? "bg-emerald-50 border-emerald-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+              <div className="space-y-2">
+                {/* DENTAL */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.dental
-                      ? "bg-emerald-200 text-emerald-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-emerald-50 border-emerald-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Smile size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.dental
+                          ? "bg-emerald-200 text-emerald-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Smile size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.dental
+                            ? "text-emerald-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Dental Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.dental}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.dental && (
+                    <button
+                      onClick={(e) => removeTemplate("dental", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.dental ? "text-emerald-900" : "text-slate-500"
-                    }`}
-                  >
-                    Dental Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.dental}
-                  </p>
-                </div>
-              </div>
-              {templates.dental && (
-                <button
-                  onClick={(e) => removeTemplate("dental", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* GENERAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.general
-                  ? "bg-purple-50 border-purple-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* GENERAL */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.general
-                      ? "bg-purple-200 text-purple-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-purple-50 border-purple-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Zap size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.general
+                          ? "bg-purple-200 text-purple-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Zap size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.general
+                            ? "text-purple-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        General Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.general}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.general && (
+                    <button
+                      onClick={(e) => removeTemplate("general", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.general ? "text-purple-900" : "text-slate-500"
-                    }`}
-                  >
-                    General Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.general}
-                  </p>
-                </div>
-              </div>
-              {templates.general && (
-                <button
-                  onClick={(e) => removeTemplate("general", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* ANALYTICAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.analytical
-                  ? "bg-orange-50 border-orange-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* ANALYTICAL */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.analytical
-                      ? "bg-orange-200 text-orange-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-orange-50 border-orange-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Microscope size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.analytical
+                          ? "bg-orange-200 text-orange-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Microscope size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.analytical
+                            ? "text-orange-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Analytical Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.analytical}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.analytical && (
+                    <button
+                      onClick={(e) => removeTemplate("analytical", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.analytical
-                        ? "text-orange-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Analytical Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.analytical}
-                  </p>
-                </div>
-              </div>
-              {templates.analytical && (
-                <button
-                  onClick={(e) => removeTemplate("analytical", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* BONE DENSITY */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.bone_density
-                  ? "bg-pink-50 border-pink-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* BONE DENSITY */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.bone_density
-                      ? "bg-pink-200 text-pink-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-pink-50 border-pink-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Bone size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.bone_density
+                          ? "bg-pink-200 text-pink-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Bone size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.bone_density
+                            ? "text-pink-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Bone Density Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.bone_density}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.bone_density && (
+                    <button
+                      onClick={(e) => removeTemplate("bone_density", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.bone_density
-                        ? "text-pink-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Bone Density Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.bone_density}
-                  </p>
-                </div>
-              </div>
-              {templates.bone_density && (
-                <button
-                  onClick={(e) => removeTemplate("bone_density", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* FLUOROSCOPE */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.fluoroscope
-                  ? "bg-blue-50 border-blue-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* FLUOROSCOPE */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.fluoroscope
-                      ? "bg-blue-200 text-blue-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-blue-50 border-blue-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Activity size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.fluoroscope
+                          ? "bg-blue-200 text-blue-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Activity size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.fluoroscope
+                            ? "text-blue-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Fluoroscope Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.fluoroscope}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.fluoroscope && (
+                    <button
+                      onClick={(e) => removeTemplate("fluoroscope", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.fluoroscope ? "text-blue-900" : "text-slate-500"
-                    }`}
-                  >
-                    Fluoroscope Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.fluoroscope}
-                  </p>
-                </div>
-              </div>
-              {templates.fluoroscope && (
-                <button
-                  onClick={(e) => removeTemplate("fluoroscope", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* CT */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.ct
-                  ? "bg-teal-50 border-teal-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* CT */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.ct
-                      ? "bg-teal-200 text-teal-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-teal-50 border-teal-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Scan size={16} />
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.ct
+                          ? "bg-teal-200 text-teal-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Scan size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.ct ? "text-teal-900" : "text-slate-500"
+                        }`}
+                      >
+                        CT Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.ct}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.ct && (
+                    <button
+                      onClick={(e) => removeTemplate("ct", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.ct ? "text-teal-900" : "text-slate-500"
-                    }`}
-                  >
-                    CT Template
-                  </p>
-                  <p className="text-xs text-slate-400">{templateNames.ct}</p>
-                </div>
-              </div>
-              {templates.ct && (
-                <button
-                  onClick={(e) => removeTemplate("ct", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* INDUSTRIAL RADIOGRAPHY TEMPLATE SLOT */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.industrial
-                  ? "bg-amber-50 border-amber-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* INDUSTRIAL RADIOGRAPHY TEMPLATE SLOT */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.industrial
-                      ? "bg-amber-200 text-amber-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-amber-50 border-amber-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Radio size={16} /> {/* Unique symbol for Industrial */}
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.industrial
+                          ? "bg-amber-200 text-amber-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Radio size={16} /> {/* Unique symbol for Industrial */}
+                    </div>
+                    {/* ... rest of the slot code */}
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.industrial
+                            ? "text-amber-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Industrial Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.industrial || "No Template"}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.industrial && (
+                    <button
+                      onClick={(e) => removeTemplate("industrial", e)}
+                      className="p-2 bg-white text-red-500 rounded border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                {/* ... rest of the slot code */}
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.industrial ? "text-amber-900" : "text-slate-500"
-                    }`}
-                  >
-                    Industrial Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.industrial || "No Template"}
-                  </p>
-                </div>
-              </div>
-              {templates.industrial && (
-                <button
-                  onClick={(e) => removeTemplate("industrial", e)}
-                  className="p-2 bg-white text-red-500 rounded border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* CABINET */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.cabinet
-                  ? "bg-stone-50 border-stone-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
+                {/* CABINET */}
                 <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.cabinet
-                      ? "bg-stone-200 text-stone-700"
-                      : "bg-slate-200 text-slate-400"
+                      ? "bg-stone-50 border-stone-200"
+                      : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  <Briefcase size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.cabinet ? "text-stone-900" : "text-slate-500"
-                    }`}
-                  >
-                    Cabinet/Baggage Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.cabinet}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.cabinet
+                          ? "bg-stone-200 text-stone-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Briefcase size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.cabinet
+                            ? "text-stone-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Cabinet/Baggage Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.cabinet}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.cabinet && (
+                    <button
+                      onClick={(e) => removeTemplate("cabinet", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
-              {templates.cabinet && (
-                <button
-                  onClick={(e) => removeTemplate("cabinet", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-          </>
+            </>
           )}
         </div>
       </div>
@@ -1976,7 +2057,9 @@ export default function App(): JSX.Element | null {
             <div className="flex gap-2 items-center">
               <select
                 value={activeMachine.inspectionType}
-                onChange={(e) => updateMachineType(e.target.value as InspectionType)}
+                onChange={(e) =>
+                  updateMachineType(e.target.value as InspectionType)
+                }
                 className={`uppercase font-bold px-2 py-0.5 rounded text-xs cursor-pointer outline-none border-0 appearance-none pr-6 bg-no-repeat bg-[length:12px] bg-[center_right_4px] ${
                   activeMachine.inspectionType === "general"
                     ? "bg-purple-100 text-purple-700"
@@ -1995,7 +2078,7 @@ export default function App(): JSX.Element | null {
                     : "bg-blue-100 text-blue-700"
                 }`}
                 style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
                 }}
               >
                 <option value="dental">Dental</option>
@@ -2453,9 +2536,7 @@ export default function App(): JSX.Element | null {
                 <div
                   key={m.id}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
-                    m.isComplete
-                      ? "bg-emerald-50"
-                      : ""
+                    m.isComplete ? "bg-emerald-50" : ""
                   }`}
                 >
                   <div>
@@ -2483,7 +2564,8 @@ export default function App(): JSX.Element | null {
                         }`}
                       >
                         {/* CBCT and Panoramic display as DENTAL */}
-                        {m.inspectionType === "cbct" || m.inspectionType === "panoramic"
+                        {m.inspectionType === "cbct" ||
+                        m.inspectionType === "panoramic"
                           ? "DENTAL"
                           : m.inspectionType.replace("_", " ")}
                       </span>
@@ -2550,9 +2632,11 @@ export default function App(): JSX.Element | null {
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
               <div className="p-4 border-b border-slate-100">
-                <h3 className="text-lg font-bold text-slate-800 text-center">Options</h3>
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Options
+                </h3>
               </div>
-              <div className="p-2">
+              <div className="p-2 space-y-1">
                 <button
                   onClick={() => {
                     setShowMachineMenu(false);
@@ -2561,6 +2645,15 @@ export default function App(): JSX.Element | null {
                   className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors"
                 >
                   Change Machine Type
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMachineMenu(false);
+                    setShowXXMachineModal(true);
+                  }}
+                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors"
+                >
+                  Add XX Machine
                 </button>
               </div>
               <div className="p-4 pt-2">
@@ -2580,7 +2673,9 @@ export default function App(): JSX.Element | null {
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden max-h-[80vh] flex flex-col">
               <div className="p-4 border-b border-slate-100">
-                <h3 className="text-lg font-bold text-slate-800 text-center">Select Machine</h3>
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Select Machine
+                </h3>
               </div>
               <div className="p-2 overflow-y-auto flex-1">
                 {activeFacilityMachines.map((m) => (
@@ -2594,7 +2689,9 @@ export default function App(): JSX.Element | null {
                     className="w-full p-3 text-left hover:bg-slate-50 rounded-xl transition-colors flex items-center justify-between"
                   >
                     <div>
-                      <div className="font-bold text-sm text-slate-800">{m.location}</div>
+                      <div className="font-bold text-sm text-slate-800">
+                        {m.location}
+                      </div>
                       <span
                         className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded inline-block mt-1 ${
                           m.inspectionType === "general"
@@ -2614,7 +2711,8 @@ export default function App(): JSX.Element | null {
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {m.inspectionType === "cbct" || m.inspectionType === "panoramic"
+                        {m.inspectionType === "cbct" ||
+                        m.inspectionType === "panoramic"
                           ? "DENTAL"
                           : m.inspectionType.replace("_", " ")}
                       </span>
@@ -2640,27 +2738,76 @@ export default function App(): JSX.Element | null {
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden max-h-[80vh] flex flex-col">
               <div className="p-4 border-b border-slate-100">
-                <h3 className="text-lg font-bold text-slate-800 text-center">Select Type</h3>
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Select Type
+                </h3>
               </div>
               <div className="p-2 overflow-y-auto flex-1">
                 {[
-                  { value: "dental", label: "Dental", color: "bg-blue-100 text-blue-700" },
-                  { value: "cbct", label: "CBCT", color: "bg-blue-100 text-blue-700" },
-                  { value: "panoramic", label: "Panoramic", color: "bg-blue-100 text-blue-700" },
-                  { value: "general", label: "General", color: "bg-purple-100 text-purple-700" },
-                  { value: "analytical", label: "Analytical", color: "bg-orange-100 text-orange-700" },
-                  { value: "fluoroscope", label: "Fluoroscope", color: "bg-indigo-100 text-indigo-700" },
-                  { value: "ct", label: "CT", color: "bg-teal-100 text-teal-700" },
-                  { value: "cabinet", label: "Cabinet", color: "bg-stone-100 text-stone-700" },
-                  { value: "bone_density", label: "Bone Density", color: "bg-pink-100 text-pink-700" },
-                  { value: "industrial", label: "Industrial", color: "bg-amber-100 text-amber-700" },
+                  {
+                    value: "dental",
+                    label: "Dental",
+                    color: "bg-blue-100 text-blue-700",
+                  },
+                  {
+                    value: "cbct",
+                    label: "CBCT",
+                    color: "bg-blue-100 text-blue-700",
+                  },
+                  {
+                    value: "panoramic",
+                    label: "Panoramic",
+                    color: "bg-blue-100 text-blue-700",
+                  },
+                  {
+                    value: "general",
+                    label: "General",
+                    color: "bg-purple-100 text-purple-700",
+                  },
+                  {
+                    value: "analytical",
+                    label: "Analytical",
+                    color: "bg-orange-100 text-orange-700",
+                  },
+                  {
+                    value: "fluoroscope",
+                    label: "Fluoroscope",
+                    color: "bg-indigo-100 text-indigo-700",
+                  },
+                  {
+                    value: "ct",
+                    label: "CT",
+                    color: "bg-teal-100 text-teal-700",
+                  },
+                  {
+                    value: "cabinet",
+                    label: "Cabinet",
+                    color: "bg-stone-100 text-stone-700",
+                  },
+                  {
+                    value: "bone_density",
+                    label: "Bone Density",
+                    color: "bg-pink-100 text-pink-700",
+                  },
+                  {
+                    value: "industrial",
+                    label: "Industrial",
+                    color: "bg-amber-100 text-amber-700",
+                  },
                 ].map((type) => (
                   <button
                     key={type.value}
-                    onClick={() => updateMachineTypeById(selectedMachineForTypeChange, type.value as InspectionType)}
+                    onClick={() =>
+                      updateMachineTypeById(
+                        selectedMachineForTypeChange,
+                        type.value as InspectionType
+                      )
+                    }
                     className="w-full p-3 text-left hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-3"
                   >
-                    <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${type.color}`}>
+                    <span
+                      className={`text-xs font-bold uppercase px-2 py-1 rounded ${type.color}`}
+                    >
                       {type.label}
                     </span>
                   </button>
@@ -2681,6 +2828,127 @@ export default function App(): JSX.Element | null {
           </div>
         )}
 
+        {/* --- XX MACHINE CREATION MODAL --- */}
+        {showXXMachineModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Add XX Machine
+                </h3>
+                <p className="text-xs text-slate-400 text-center mt-1">
+                  Extra machine not on Excel sheet
+                </p>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                    Make
+                  </label>
+                  <input
+                    type="text"
+                    value={xxMachineData.make}
+                    onChange={(e) =>
+                      setXXMachineData((prev) => ({
+                        ...prev,
+                        make: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Gendex"
+                    className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                    Model
+                  </label>
+                  <input
+                    type="text"
+                    value={xxMachineData.model}
+                    onChange={(e) =>
+                      setXXMachineData((prev) => ({
+                        ...prev,
+                        model: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. 765DC"
+                    className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                    Serial
+                  </label>
+                  <input
+                    type="text"
+                    value={xxMachineData.serial}
+                    onChange={(e) =>
+                      setXXMachineData((prev) => ({
+                        ...prev,
+                        serial: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. 12345"
+                    className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                    Machine Type
+                  </label>
+                  <select
+                    value={xxMachineData.inspectionType}
+                    onChange={(e) =>
+                      setXXMachineData((prev) => ({
+                        ...prev,
+                        inspectionType: e.target.value as InspectionType,
+                      }))
+                    }
+                    className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  >
+                    <option value="dental">Dental</option>
+                    <option value="cbct">CBCT</option>
+                    <option value="panoramic">Panoramic</option>
+                    <option value="general">General</option>
+                    <option value="analytical">Analytical</option>
+                    <option value="fluoroscope">Fluoroscope</option>
+                    <option value="ct">CT</option>
+                    <option value="cabinet">Cabinet</option>
+                    <option value="bone_density">Bone Density</option>
+                    <option value="industrial">Industrial</option>
+                  </select>
+                </div>
+              </div>
+              <div className="p-4 pt-0 flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowXXMachineModal(false);
+                    setXXMachineData({
+                      make: "",
+                      model: "",
+                      serial: "",
+                      inspectionType: "dental",
+                    });
+                  }}
+                  className="flex-1 py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createXXMachine}
+                  disabled={
+                    !xxMachineData.make ||
+                    !xxMachineData.model ||
+                    !xxMachineData.serial
+                  }
+                  className="flex-1 py-3 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700 active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400"
+                >
+                  Add Machine
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   // --- DASHBOARD VIEW (FACILITY LIST) ---
