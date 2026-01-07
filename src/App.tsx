@@ -94,7 +94,9 @@ type InspectionType =
   | "ct"
   | "cabinet"
   | "bone_density"
-  | "industrial"; // Added new type
+  | "industrial"
+  | "cbct"
+  | "panoramic";
 
 type Machine = {
   id: string;
@@ -382,6 +384,44 @@ const INDUSTRIAL_STEPS = [
     label: "2. Scatter (Operator)",
     desc: "Order: Dose (Default <1)",
     fields: ["scatter_operator"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+];
+
+const CBCT_STEPS = [
+  {
+    id: "cbct1",
+    label: "1. Scatter (6ft)",
+    desc: "Order: Dose",
+    fields: ["6 foot"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+  {
+    id: "cbct2",
+    label: "2. Scatter (Operator)",
+    desc: "Order: Dose (Default <1)",
+    fields: ["operator location"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+];
+
+const PANORAMIC_STEPS = [
+  {
+    id: "pano1",
+    label: "1. Scatter (6ft)",
+    desc: "Order: Dose",
+    fields: ["6 foot"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+  {
+    id: "pano2",
+    label: "2. Scatter (Operator)",
+    desc: "Order: Dose (Default <1)",
+    fields: ["operator location"],
     indices: ["mR"],
     scanType: "screen",
   },
@@ -729,6 +769,7 @@ export default function App(): JSX.Element | null {
         let inspectionType: InspectionType = "dental";
 
         // FIX: Check Analytical FIRST because "diffraction" contains "ct"
+        // Check CBCT before CT and Panoramic (since "panoramic ct" contains both)
         if (credType.includes("industrial")) {
           inspectionType = "industrial";
         } else if (
@@ -738,6 +779,17 @@ export default function App(): JSX.Element | null {
           inspectionType = "analytical";
         } else if (credType.includes("bone")) {
           inspectionType = "bone_density";
+        } else if (
+          credType.includes("cbct") ||
+          credType.includes("panoramic ct") ||
+          credType.includes("panoramic cephalometric ct")
+        ) {
+          inspectionType = "cbct";
+        } else if (
+          credType.includes("panoramic") ||
+          credType.includes("panoramic cephalometric")
+        ) {
+          inspectionType = "panoramic";
         } else if (credType.includes("ct") || credType.includes("tomography")) {
           inspectionType = "ct";
         } else if (
@@ -1125,6 +1177,10 @@ export default function App(): JSX.Element | null {
       } else if (machine.inspectionType === "cabinet") {
         blankFields(["entrance", "exit", "operator_scatter"]);
         finalData["entrance"] = machine.data.noDataReason;
+      } else if (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic") {
+        // CBCT and Panoramic use dental template but only have scatter fields
+        blankFields(["6 foot", "operator location"]);
+        finalData["6 foot"] = machine.data.noDataReason;
       }
     } else {
       // --- STANDARD LOGIC ---
@@ -1132,6 +1188,12 @@ export default function App(): JSX.Element | null {
         finalData["preset kvp"] = machine.data["preset_kvp"];
         finalData["preset mas"] = machine.data["preset_mas"];
         finalData["preset time"] = machine.data["preset_time"];
+        if (!finalData["operator location"])
+          finalData["operator location"] = "<1";
+      }
+
+      // CBCT and Panoramic use dental template, only need scatter defaults
+      if (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic") {
         if (!finalData["operator location"])
           finalData["operator location"] = "<1";
       }
@@ -1283,7 +1345,11 @@ export default function App(): JSX.Element | null {
       facilityMachines.forEach((machine) => {
         if (!machine.isComplete) return;
 
-        const templateBuffer = templates[machine.inspectionType];
+        // CBCT and Panoramic use the dental template
+        const templateType = (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic")
+          ? "dental"
+          : machine.inspectionType;
+        const templateBuffer = templates[templateType];
         if (!templateBuffer) return;
 
         const data = getMachineData(machine);
@@ -1308,11 +1374,15 @@ export default function App(): JSX.Element | null {
   };
 
   const generateDoc = (machine: Machine) => {
-    const selectedTemplate = templates[machine.inspectionType];
+    // CBCT and Panoramic use the dental template
+    const templateType = (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic")
+      ? "dental"
+      : machine.inspectionType;
+    const selectedTemplate = templates[templateType];
     if (!selectedTemplate) {
       alert(
         `Please upload the ${
-          machine.inspectionType === "dental" ? "Dental" : "Gen Rad"
+          templateType === "dental" ? "Dental" : "Gen Rad"
         } Template in Settings!`
       );
       return;
@@ -1373,7 +1443,11 @@ export default function App(): JSX.Element | null {
   if (activeMachine?.inspectionType === "bone_density")
     currentSteps = BONE_DENSITY_STEPS;
   if (activeMachine?.inspectionType === "industrial")
-    currentSteps = INDUSTRIAL_STEPS; // Add this
+    currentSteps = INDUSTRIAL_STEPS;
+  if (activeMachine?.inspectionType === "cbct")
+    currentSteps = CBCT_STEPS;
+  if (activeMachine?.inspectionType === "panoramic")
+    currentSteps = PANORAMIC_STEPS;
   if (activeMachine?.inspectionType === "fluoroscope") {
     const hasHLC = activeMachine.data["has_hlc"] === "true";
 
