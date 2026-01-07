@@ -590,7 +590,7 @@ export default function App(): JSX.Element | null {
     bone_density: "No Template",
     industrial: "No Template",
   });
-  const [isScanning, setIsScanning] = useState(false);
+  const [isScanning, setIsScanning] = useState<string | null>(null);
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [isParsingDetails, setIsParsingDetails] = useState(false);
 
@@ -878,20 +878,22 @@ export default function App(): JSX.Element | null {
           return [generalMachine, fluoroMachine];
         }
 
-        return [{
-          id: `mach_${Date.now()}_${index}`,
-          fullDetails: fullDetails,
-          make,
-          model,
-          serial,
-          type: credTypeRaw,
-          inspectionType,
-          location: row["License/Credential #"] || facility,
-          registrantName: facility,
-          entityId: row["Entity ID"]?.toString() || facility,
-          data: {},
-          isComplete: false,
-        }];
+        return [
+          {
+            id: `mach_${Date.now()}_${index}`,
+            fullDetails: fullDetails,
+            make,
+            model,
+            serial,
+            type: credTypeRaw,
+            inspectionType,
+            location: row["License/Credential #"] || facility,
+            registrantName: facility,
+            entityId: row["Entity ID"]?.toString() || facility,
+            data: {},
+            isComplete: false,
+          },
+        ];
       });
 
     if (newMachines.length === 0) alert("No machines found.");
@@ -935,14 +937,15 @@ export default function App(): JSX.Element | null {
     files: FileList | File[],
     targetFields: string[],
     indices: string[],
-    scanType: "screen" | "document" | string = "screen"
+    scanType: "screen" | "document" | string = "screen",
+    stepId?: string
   ) => {
     if (!apiKey) {
       alert("Please go to Settings and enter your Google API Key first.");
       return;
     }
 
-    setIsScanning(true);
+    setIsScanning(stepId || "unknown");
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -984,25 +987,23 @@ export default function App(): JSX.Element | null {
         // --- FLUORO SCREEN SCAN (RATE ONLY) ---
         prompt = `
           Analyze RaySafe screen. Return JSON.
-          Keys: "kvp", "mR", "time", "hvl".
+          Find "kvp", "mR", "time", "hvl". Ignore pulses. Do not convert units. Do not return units. If you see "4.50 R/min", return "4.50"
           
-          CRITICAL:
-          - For "mR", find DOSE RATE (R/min, mGy/min, uGy/s).
-          - IGNORE Total Dose (mR, mGy).
-          - DO NOT CONVERT UNITS. Return number exactly as shown.
-          - If "4.50 R/min" -> return "4.50".
+          - For kVp, this figure is in the top left box on the screen. 
+          - For mR, we want the DOSE RATE (R/min, mGy/min, uGy/s) not the total dose. This figure is in the middle middle box.
+          - For time, this figure is in the top right box.
+          - For HVL, this figure is in the middle left box.
         `;
       } else {
         // --- STANDARD SCREEN SCAN (DOSE ONLY) ---
         prompt = `
-          Analyze RaySafe screen. Return JSON.
-          Keys: "kvp", "mR", "time", "hvl".
-          
-          CRITICAL:
-          - For "mR", find TOTAL DOSE (mR, R, mGy, uGy).
-          - IGNORE Rate (R/min).
-          - DO NOT CONVERT UNITS. Return number exactly as shown.
-          - If "408.9 mR" -> return "408.9".
+        Analyze RaySafe screen. Return JSON.
+        Find "kvp", "mR", "time", "hvl". Ignore pulses. Do not convert units. Do not return units. If you see "4.50 R/min", return "4.50"
+        
+        - For kVp, this figure is in the top left box on the screen. 
+        - For mR, we want the TOTAL DOSE (R, mGy, uGy) not the dose rate. This figure is in the top middle box.
+        - For time, this figure is in the top right box.
+        - For HVL, this figure is in the middle left box.
         `;
       }
 
@@ -1037,7 +1038,7 @@ export default function App(): JSX.Element | null {
       console.error("Gemini Error:", error);
       alert(`AI Scan Failed: ${error.message}`);
     } finally {
-      setIsScanning(false);
+      setIsScanning(null);
     }
   };
 
@@ -1045,11 +1046,12 @@ export default function App(): JSX.Element | null {
     e: React.ChangeEvent<HTMLInputElement>,
     fields: string[],
     indices: string[],
-    scanType?: string
+    scanType?: string,
+    stepId?: string
   ) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      performGeminiScan(files, fields, indices, scanType || "screen");
+      performGeminiScan(files, fields, indices, scanType || "screen", stepId);
     }
   };
 
@@ -2300,23 +2302,23 @@ export default function App(): JSX.Element | null {
                 {!step.isManualEntry && (
                   <label
                     className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
-                      isScanning
+                      isScanning === step.id
                         ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                         : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
                   >
-                    {isScanning ? (
+                    {isScanning === step.id ? (
                       <Loader2 size={14} className="animate-spin" />
                     ) : step.scanType === "document" ? (
                       <Files size={14} />
                     ) : (
                       <Camera size={14} />
                     )}{" "}
-                    {isScanning ? " scanning..." : "Scan"}
+                    {isScanning === step.id ? " scanning..." : "Scan"}
                     <input
                       type="file"
                       accept="image/*"
-                      multiple={step.scanType === "document"} // ALLOW MULTIPLE FILES
+                      multiple={step.scanType === "document"}
                       capture={
                         step.scanType === "document" ? undefined : "environment"
                       }
@@ -2326,10 +2328,11 @@ export default function App(): JSX.Element | null {
                           e,
                           step.fields,
                           step.indices,
-                          step.scanType
+                          step.scanType,
+                          step.id
                         )
                       }
-                      disabled={isScanning}
+                      disabled={isScanning !== null}
                     />
                   </label>
                 )}
@@ -2839,8 +2842,12 @@ export default function App(): JSX.Element | null {
                 >
                   <optgroup label="Dental">
                     <option value="dental|Intraoral">Intraoral</option>
-                    <option value="dental|Intraoral Mobile">Intraoral Mobile</option>
-                    <option value="dental|Intraoral Hand Held">Intraoral Hand Held</option>
+                    <option value="dental|Intraoral Mobile">
+                      Intraoral Mobile
+                    </option>
+                    <option value="dental|Intraoral Hand Held">
+                      Intraoral Hand Held
+                    </option>
                   </optgroup>
                   <optgroup label="CBCT">
                     <option value="cbct|CBCT">CBCT</option>
@@ -2851,13 +2858,19 @@ export default function App(): JSX.Element | null {
                   </optgroup>
                   <optgroup label="Radiographic">
                     <option value="general|Radiographic">Radiographic</option>
-                    <option value="general|Radiographic Mobile">Radiographic Mobile</option>
+                    <option value="general|Radiographic Mobile">
+                      Radiographic Mobile
+                    </option>
                     <option value="general|U-Arm">U-Arm</option>
                   </optgroup>
                   <optgroup label="Fluoroscope">
                     <option value="fluoroscope|C-Arm">C-Arm</option>
-                    <option value="fluoroscope|Mobile C-Arm">Mobile C-Arm</option>
-                    <option value="fluoroscope|Fluoroscopic">Fluoroscopic</option>
+                    <option value="fluoroscope|Mobile C-Arm">
+                      Mobile C-Arm
+                    </option>
+                    <option value="fluoroscope|Fluoroscopic">
+                      Fluoroscopic
+                    </option>
                     <option value="fluoroscope|O-Arm">O-Arm</option>
                   </optgroup>
                   <optgroup label="CT">
@@ -2865,12 +2878,20 @@ export default function App(): JSX.Element | null {
                     <option value="ct|CT/PET">CT/PET</option>
                   </optgroup>
                   <optgroup label="Analytical">
-                    <option value="analytical|Electron Microscope">Electron Microscope</option>
-                    <option value="analytical|X-Ray Diffraction">X-Ray Diffraction</option>
-                    <option value="analytical|X-Ray Fluorescence">X-Ray Fluorescence</option>
+                    <option value="analytical|Electron Microscope">
+                      Electron Microscope
+                    </option>
+                    <option value="analytical|X-Ray Diffraction">
+                      X-Ray Diffraction
+                    </option>
+                    <option value="analytical|X-Ray Fluorescence">
+                      X-Ray Fluorescence
+                    </option>
                   </optgroup>
                   <optgroup label="Other">
-                    <option value="bone_density|Bone Density">Bone Density</option>
+                    <option value="bone_density|Bone Density">
+                      Bone Density
+                    </option>
                     <option value="cabinet|Cabinet">Cabinet</option>
                   </optgroup>
                 </select>
