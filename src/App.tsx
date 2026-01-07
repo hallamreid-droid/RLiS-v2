@@ -1192,8 +1192,11 @@ export default function App(): JSX.Element | null {
           finalData["operator location"] = "<1";
       }
 
-      // CBCT and Panoramic use dental template, only need scatter defaults
+      // CBCT and Panoramic use dental template, need presets and scatter defaults
       if (machine.inspectionType === "cbct" || machine.inspectionType === "panoramic") {
+        finalData["preset kvp"] = machine.data["preset_kvp"];
+        finalData["preset mas"] = machine.data["preset_mas"];
+        finalData["preset time"] = machine.data["preset_time"];
         if (!finalData["operator location"])
           finalData["operator location"] = "<1";
       }
@@ -2007,7 +2010,9 @@ export default function App(): JSX.Element | null {
               </div>
 
               {/* CONDITIONAL SETTINGS BASED ON TYPE */}
-              {activeMachine.inspectionType === "dental" && (
+              {(activeMachine.inspectionType === "dental" ||
+                activeMachine.inspectionType === "cbct" ||
+                activeMachine.inspectionType === "panoramic") && (
                 <>
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
@@ -2435,7 +2440,10 @@ export default function App(): JSX.Element | null {
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {m.inspectionType.replace("_", " ")}
+                        {/* CBCT and Panoramic display as DENTAL */}
+                        {m.inspectionType === "cbct" || m.inspectionType === "panoramic"
+                          ? "DENTAL"
+                          : m.inspectionType.replace("_", " ")}
                       </span>
                       <span className="text-xs text-slate-500">
                         {m.fullDetails}
