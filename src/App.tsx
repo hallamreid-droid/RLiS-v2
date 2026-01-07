@@ -492,6 +492,9 @@ export default function App(): JSX.Element | null {
   const [view, setView] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
   >("facility-list");
+  const [settingsTab, setSettingsTab] = useState<"api-key" | "templates">(
+    "api-key"
+  );
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -1428,393 +1431,195 @@ export default function App(): JSX.Element | null {
   // --- UI ROUTER ---
   if (view === "settings")
     return (
-      <div className="min-h-screen bg-slate-50 p-6 font-sans">
-        <button
-          onClick={() => setView("facility-list")}
-          className="mb-6 flex gap-2 font-bold text-slate-600 active:scale-95 transition-transform"
-        >
-          <ArrowLeft /> Back
-        </button>
-        <h1 className="text-2xl font-bold mb-4 text-slate-800">Settings</h1>
-        <div className="space-y-6">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Key className="text-blue-500" size={20} />
-              <h3 className="font-bold text-slate-700">Gemini API Key</h3>
-            </div>
+      <div className="min-h-screen bg-slate-50 p-4 font-sans">
+        <header className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => setView("facility-list")}
+            className="flex gap-2 font-bold text-slate-600 active:scale-95 transition-transform"
+          >
+            <ArrowLeft /> Back
+          </button>
+          <h1 className="text-xl font-bold text-slate-800">Settings</h1>
+          <div className="w-10"></div> {/* Layout spacer */}
+        </header>
 
-            <input
-              type="text"
-              value={apiKey}
-              onChange={handleApiKeyChange}
-              placeholder="Paste your AIza... key here"
-              className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-
-            <p className="text-[11px] text-slate-400 mt-2">
-              Key is saved locally in your browser.
-            </p>
-          </div>
-          {/* UPDATED TEMPLATE UPLOAD AREA */}
-          <div
-            onDragOver={handleTemplateDragOver}
-            onDragLeave={handleTemplateDragLeave}
-            onDrop={handleTemplateDrop}
-            className={`border-2 border-dashed p-8 text-center rounded-xl relative transition-colors active:scale-95 cursor-pointer ${
-              isTemplateDragging
-                ? "bg-blue-50 border-blue-500 ring-2 ring-blue-200"
-                : "bg-white hover:bg-slate-50 border-slate-200"
+        {/* TABS MENU */}
+        <div className="flex bg-slate-200 p-1 rounded-xl mb-6">
+          <button
+            onClick={() => setSettingsTab("api-key")}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+              settingsTab === "api-key"
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-500"
             }`}
           >
-            <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
-              <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
-                <UploadCloud size={24} />
-              </div>
-              <div>
-                <p className="text-blue-800 font-bold text-lg">
-                  {isTemplateDragging
-                    ? "Drop Templates Here"
-                    : "Upload Templates"}
-                </p>
-                {/* Subtitle removed as requested */}
+            API Key
+          </button>
+          <button
+            onClick={() => setSettingsTab("templates")}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+              settingsTab === "templates"
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-500"
+            }`}
+          >
+            Templates
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          {/* SECTION: API KEY */}
+          {settingsTab === "api-key" && (
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+              <div className="flex items-center gap-2 mb-3">
+                <Key className="text-blue-500" size={20} />
+                <h3 className="font-bold text-slate-700">Gemini API Key</h3>
               </div>
               <input
-                type="file"
-                accept=".docx"
-                multiple
-                onChange={handleBulkTemplateUpload}
-                className="hidden"
+                type="text"
+                value={apiKey}
+                onChange={handleApiKeyChange}
+                placeholder="Paste your AIza... key here"
+                className="w-full p-3 border rounded bg-slate-50 text-slate-600 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               />
-            </label>
-          </div>
-          <div className="space-y-2">
-            {/* DENTAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.dental
-                  ? "bg-emerald-50 border-emerald-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.dental
-                      ? "bg-emerald-200 text-emerald-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Smile size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.dental ? "text-emerald-900" : "text-slate-500"
+              <p className="text-[11px] text-slate-400 mt-2">
+                Key is saved locally in your browser.
+              </p>
+            </div>
+          )}
+
+          {/* SECTION: TEMPLATES */}
+          {settingsTab === "templates" && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+              <div
+                onDragOver={handleTemplateDragOver}
+                onDragLeave={handleTemplateDragLeave}
+                onDrop={handleTemplateDrop}
+                className={`border-2 border-dashed p-8 text-center rounded-xl transition-colors active:scale-95 cursor-pointer ${
+                  isTemplateDragging
+                    ? "bg-blue-50 border-blue-500 ring-2"
+                    : "bg-white border-slate-200"
+                }`}
+              >
+                <label className="block w-full h-full cursor-pointer flex flex-col items-center justify-center gap-3">
+                  <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                    <UploadCloud size={24} />
+                  </div>
+                  <p className="text-blue-800 font-bold text-lg">
+                    Upload Templates
+                  </p>
+                  <input
+                    type="file"
+                    accept=".docx"
+                    multiple
+                    onChange={handleBulkTemplateUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Dynamic Template List */}
+              <div className="grid grid-cols-1 gap-2">
+                {[
+                  {
+                    type: "dental",
+                    label: "Dental",
+                    icon: <Smile size={16} />,
+                    color: "emerald",
+                  },
+                  {
+                    type: "general",
+                    label: "General",
+                    icon: <Zap size={16} />,
+                    color: "purple",
+                  },
+                  {
+                    type: "industrial",
+                    label: "Industrial",
+                    icon: <Radio size={16} />,
+                    color: "amber",
+                  },
+                  {
+                    type: "analytical",
+                    label: "Analytical",
+                    icon: <Microscope size={16} />,
+                    color: "orange",
+                  },
+                  {
+                    type: "bone_density",
+                    label: "Bone Density",
+                    icon: <Bone size={16} />,
+                    color: "pink",
+                  },
+                  {
+                    type: "fluoroscope",
+                    label: "Fluoroscope",
+                    icon: <Activity size={16} />,
+                    color: "blue",
+                  },
+                  {
+                    type: "ct",
+                    label: "CT",
+                    icon: <Scan size={16} />,
+                    color: "teal",
+                  },
+                  {
+                    type: "cabinet",
+                    label: "Cabinet",
+                    icon: <Briefcase size={16} />,
+                    color: "stone",
+                  },
+                ].map((t) => (
+                  <div
+                    key={t.type}
+                    className={`flex items-center justify-between p-4 rounded-lg border ${
+                      templates[t.type]
+                        ? `bg-${t.color}-50 border-${t.color}-200`
+                        : "bg-slate-50 border-slate-200"
                     }`}
                   >
-                    Dental Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.dental}
-                  </p>
-                </div>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                          templates[t.type]
+                            ? `bg-${t.color}-200 text-${t.color}-700`
+                            : "bg-slate-200 text-slate-400"
+                        }`}
+                      >
+                        {t.icon}
+                      </div>
+                      <div>
+                        <p
+                          className={`text-sm font-bold ${
+                            templates[t.type]
+                              ? `text-${t.color}-900`
+                              : "text-slate-500"
+                          }`}
+                        >
+                          {t.label} Template
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {templateNames[t.type]}
+                        </p>
+                      </div>
+                    </div>
+                    {templates[t.type] && (
+                      <button
+                        onClick={(e) => removeTemplate(t.type, e)}
+                        className="p-2 bg-white text-red-500 rounded border border-red-100"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
-              {templates.dental && (
-                <button
-                  onClick={(e) => removeTemplate("dental", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
             </div>
-            {/* GENERAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.general
-                  ? "bg-purple-50 border-purple-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.general
-                      ? "bg-purple-200 text-purple-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Zap size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.general ? "text-purple-900" : "text-slate-500"
-                    }`}
-                  >
-                    General Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.general}
-                  </p>
-                </div>
-              </div>
-              {templates.general && (
-                <button
-                  onClick={(e) => removeTemplate("general", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* ANALYTICAL */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.analytical
-                  ? "bg-orange-50 border-orange-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.analytical
-                      ? "bg-orange-200 text-orange-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Microscope size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.analytical
-                        ? "text-orange-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Analytical Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.analytical}
-                  </p>
-                </div>
-              </div>
-              {templates.analytical && (
-                <button
-                  onClick={(e) => removeTemplate("analytical", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* BONE DENSITY */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.bone_density
-                  ? "bg-pink-50 border-pink-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.bone_density
-                      ? "bg-pink-200 text-pink-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Bone size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.bone_density
-                        ? "text-pink-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Bone Density Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.bone_density}
-                  </p>
-                </div>
-              </div>
-              {templates.bone_density && (
-                <button
-                  onClick={(e) => removeTemplate("bone_density", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* FLUOROSCOPE */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.fluoroscope
-                  ? "bg-blue-50 border-blue-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.fluoroscope
-                      ? "bg-blue-200 text-blue-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Activity size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.fluoroscope ? "text-blue-900" : "text-slate-500"
-                    }`}
-                  >
-                    Fluoroscope Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.fluoroscope}
-                  </p>
-                </div>
-              </div>
-              {templates.fluoroscope && (
-                <button
-                  onClick={(e) => removeTemplate("fluoroscope", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* CT */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.ct
-                  ? "bg-teal-50 border-teal-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.ct
-                      ? "bg-teal-200 text-teal-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Scan size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.ct ? "text-teal-900" : "text-slate-500"
-                    }`}
-                  >
-                    CT Template
-                  </p>
-                  <p className="text-xs text-slate-400">{templateNames.ct}</p>
-                </div>
-              </div>
-              {templates.ct && (
-                <button
-                  onClick={(e) => removeTemplate("ct", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* INDUSTRIAL RADIOGRAPHY TEMPLATE SLOT */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.industrial
-                  ? "bg-amber-50 border-amber-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.industrial
-                      ? "bg-amber-200 text-amber-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Radio size={16} /> {/* Unique symbol for Industrial */}
-                </div>
-                {/* ... rest of the slot code */}
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.industrial ? "text-amber-900" : "text-slate-500"
-                    }`}
-                  >
-                    Industrial Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.industrial || "No Template"}
-                  </p>
-                </div>
-              </div>
-              {templates.industrial && (
-                <button
-                  onClick={(e) => removeTemplate("industrial", e)}
-                  className="p-2 bg-white text-red-500 rounded border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-            {/* CABINET */}
-            <div
-              className={`flex items-center justify-between p-4 rounded-lg border ${
-                templates.cabinet
-                  ? "bg-stone-50 border-stone-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                    templates.cabinet
-                      ? "bg-stone-200 text-stone-700"
-                      : "bg-slate-200 text-slate-400"
-                  }`}
-                >
-                  <Briefcase size={16} />
-                </div>
-                <div>
-                  <p
-                    className={`text-sm font-bold ${
-                      templates.cabinet ? "text-stone-900" : "text-slate-500"
-                    }`}
-                  >
-                    Cabinet/Baggage Template
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {templateNames.cabinet}
-                  </p>
-                </div>
-              </div>
-              {templates.cabinet && (
-                <button
-                  onClick={(e) => removeTemplate("cabinet", e)}
-                  className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          </div>
+          )}
         </div>
       </div>
     );
+
   // --- MOBILE FORM VIEW (INSPECTION) ---
   if (view === "mobile-form" && activeMachine)
     return (
