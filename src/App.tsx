@@ -2143,25 +2143,8 @@ export default function App(): JSX.Element | null {
                 {activeMachine.inspectionType.replace("_", " ")}
               </span>
             </div>
-            <div className="flex gap-1 text-[10px] font-mono">
-              <input
-                className="bg-slate-50 border rounded px-1 w-16"
-                placeholder="Make"
-                value={activeMachine.make || ""}
-                onChange={(e) => updateMachineDetails("make", e.target.value)}
-              />
-              <input
-                className="bg-slate-50 border rounded px-1 w-16"
-                placeholder="Model"
-                value={activeMachine.model || ""}
-                onChange={(e) => updateMachineDetails("model", e.target.value)}
-              />
-              <input
-                className="bg-slate-50 border rounded px-1 w-16"
-                placeholder="Serial"
-                value={activeMachine.serial || ""}
-                onChange={(e) => updateMachineDetails("serial", e.target.value)}
-              />
+            <div className="text-[10px] font-mono text-slate-500">
+              {activeMachine.make} - {activeMachine.model} - {activeMachine.serial}
             </div>
           </div>
         </header>
@@ -2289,14 +2272,9 @@ export default function App(): JSX.Element | null {
               key={step.id}
               className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
             >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <div className="font-bold text-sm text-blue-900">
-                    {step.label}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    {step.desc}
-                  </div>
+              <div className="flex justify-between items-center mb-4">
+                <div className="font-bold text-sm text-blue-900">
+                  {step.label}
                 </div>
                 {/* Only show camera if not a strictly manual step */}
                 {!step.isManualEntry && (
