@@ -250,7 +250,7 @@ const GENERAL_STEPS = [
   },
   {
     id: "g2a",
-    label: "2. Repro (Exp 1/4)",
+    label: "2. Reproducibility (1/4)",
     desc: "Exp 2",
     settingsGroup: "g2",
     showSettings: true,
@@ -261,7 +261,7 @@ const GENERAL_STEPS = [
   },
   {
     id: "g2b",
-    label: "2. Repro (Exp 2/4)",
+    label: "2. Reproducibility (2/4)",
     desc: "Exp 3",
     settingsGroup: "g2",
     showSettings: false,
@@ -271,7 +271,7 @@ const GENERAL_STEPS = [
   },
   {
     id: "g2c",
-    label: "2. Repro (Exp 3/4)",
+    label: "2. Reproducibility (3/4)",
     desc: "Exp 4",
     settingsGroup: "g2",
     showSettings: false,
@@ -281,7 +281,7 @@ const GENERAL_STEPS = [
   },
   {
     id: "g2d",
-    label: "2. Repro (Exp 4/4)",
+    label: "2. Reproducibility (4/4)",
     desc: "Exp 5",
     settingsGroup: "g2",
     showSettings: false,
@@ -567,8 +567,8 @@ const getFieldLabel = (field: string): string => {
     g3_time: "Time",
     g4_kvp: "kVp",
     g4_hvl: "HVL",
-    g5_scatter: "Scatter",
-    g6_scatter: "Scatter",
+    g5_scatter: "6ft Scatter",
+    g6_scatter: "Operator",
     // Scatter
     scatter_6ft: "6ft Scatter",
     scatter_operator: "Operator",
@@ -2630,8 +2630,14 @@ export default function App(): JSX.Element | null {
               {activeFacilityMachines.map((m) => (
                 <div
                   key={m.id}
+                  onClick={() => {
+                    if (!m.isComplete) {
+                      setActiveMachineId(m.id);
+                      setView("mobile-form");
+                    }
+                  }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
-                    m.isComplete ? "bg-emerald-50" : ""
+                    m.isComplete ? "bg-emerald-50" : "hover:bg-slate-50 cursor-pointer"
                   }`}
                 >
                   <div>
