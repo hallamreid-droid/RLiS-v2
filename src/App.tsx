@@ -52,13 +52,8 @@ import {
   collection,
   doc,
   setDoc,
-  getDoc,
-  getDocs,
-  updateDoc,
   deleteDoc,
   onSnapshot,
-  query,
-  orderBy,
   serverTimestamp,
 } from "firebase/firestore";
 
@@ -711,15 +706,16 @@ export default function App(): JSX.Element | null {
     }
 
     const machinesRef = collection(db, "users", currentUser.uid, "machines");
-    const q = query(machinesRef, orderBy("createdAt", "desc"));
 
     const unsubscribe = onSnapshot(
-      q,
+      machinesRef,
       (snapshot) => {
         const loadedMachines: Machine[] = [];
         snapshot.forEach((doc) => {
           loadedMachines.push({ id: doc.id, ...doc.data() } as Machine);
         });
+        // Sort by location for stable ordering
+        loadedMachines.sort((a, b) => a.location.localeCompare(b.location));
         setMachines(loadedMachines);
       },
       (error) => {
@@ -1790,12 +1786,17 @@ export default function App(): JSX.Element | null {
     if (
       window.confirm(`Delete facility "${facilityName}" and all its machines?`)
     ) {
+      // Get machines to delete from Firestore
+      const machinesToDelete = machines.filter((m) => m.entityId === entityId);
+      machinesToDelete.forEach((m) => deleteMachineFromFirestore(m.id));
       setMachines((prev) => prev.filter((m) => m.entityId !== entityId));
     }
   };
 
   const deleteAllFacilities = () => {
     if (window.confirm("Are you sure you want to clear ALL facilities?")) {
+      // Delete all machines from Firestore
+      machines.forEach((m) => deleteMachineFromFirestore(m.id));
       setMachines([]);
     }
   };
@@ -1845,9 +1846,9 @@ export default function App(): JSX.Element | null {
   }
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
   if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
-  const activeFacilityMachines = machines.filter(
-    (m) => m.entityId === activeFacilityId
-  );
+  const activeFacilityMachines = machines
+    .filter((m) => m.entityId === activeFacilityId)
+    .sort((a, b) => a.location.localeCompare(b.location));
   useEffect(() => {
     if (view === "mobile-form" && activeMachine && apiKey) {
       if (
