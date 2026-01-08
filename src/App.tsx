@@ -704,7 +704,8 @@ const HistoryEntryCard: React.FC<{
                     {machine.location}
                   </p>
                   <p className="text-xs text-slate-400">
-                    {machine.type} • {machine.make} {machine.model}
+                    {machine.type} • {machine.make} {machine.model} • S/N:{" "}
+                    {machine.serial}
                   </p>
                 </div>
               </div>
@@ -714,7 +715,7 @@ const HistoryEntryCard: React.FC<{
             <button
               onClick={handleDownload}
               disabled={downloading}
-              className="w-full mt-2 py-2.5 px-4 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              className="mt-2 py-1.5 px-4 bg-blue-600 text-white rounded-full font-medium text-xs hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 mx-auto"
             >
               {downloading ? (
                 <>
