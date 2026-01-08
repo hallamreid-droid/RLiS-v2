@@ -31,6 +31,9 @@ import {
   MoreVertical,
   LogOut,
   User,
+  Clock,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -617,6 +620,88 @@ const getFieldLabel = (field: string): string => {
   return labels[field] || field;
 };
 
+// --- HISTORY ENTRY CARD COMPONENT ---
+type HistoryEntry = {
+  id: string;
+  facilityName: string;
+  entityId: string;
+  completedAt: string;
+  machines: Machine[];
+};
+
+const HistoryEntryCard: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
+  const [expanded, setExpanded] = useState(false);
+  const completedDate = new Date(entry.completedAt);
+  const formattedDate = completedDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const formattedTime = completedDate.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
+            <Building2 className="text-blue-600" size={18} />
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-slate-800">{entry.facilityName}</p>
+            <p className="text-xs text-slate-500">
+              {formattedDate} at {formattedTime} • {entry.machines.length}{" "}
+              machine{entry.machines.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+        </div>
+        {expanded ? (
+          <ChevronUp className="text-slate-400" size={20} />
+        ) : (
+          <ChevronDown className="text-slate-400" size={20} />
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t border-slate-100 bg-slate-50 p-3 space-y-2">
+          {entry.machines.map((machine, idx) => (
+            <div
+              key={idx}
+              className="bg-white p-3 rounded-lg border border-slate-200 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`h-6 w-6 rounded-full flex items-center justify-center ${
+                    machine.isComplete ? "bg-emerald-100" : "bg-slate-100"
+                  }`}
+                >
+                  {machine.isComplete ? (
+                    <CheckCircle className="text-emerald-600" size={14} />
+                  ) : (
+                    <XCircle className="text-slate-400" size={14} />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">
+                    {machine.location}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {machine.type} • {machine.make} {machine.model}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function App(): JSX.Element | null {
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -639,9 +724,18 @@ export default function App(): JSX.Element | null {
 
   const [showNoDataModal, setShowNoDataModal] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"apiKey" | "templates">(
-    "apiKey"
-  );
+  const [settingsTab, setSettingsTab] = useState<
+    "apiKey" | "templates" | "history"
+  >("apiKey");
+  const [inspectionHistory, setInspectionHistory] = useState<
+    Array<{
+      id: string;
+      facilityName: string;
+      entityId: string;
+      completedAt: string;
+      machines: Machine[];
+    }>
+  >([]);
 
   // Machine list menu state
   const [showMachineMenu, setShowMachineMenu] = useState(false);
@@ -726,6 +820,69 @@ export default function App(): JSX.Element | null {
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  // --- FIRESTORE SYNC: Load inspection history ---
+  useEffect(() => {
+    if (!currentUser) {
+      setInspectionHistory([]);
+      return;
+    }
+
+    const historyRef = collection(db, "users", currentUser.uid, "history");
+
+    const unsubscribe = onSnapshot(
+      historyRef,
+      (snapshot) => {
+        const loadedHistory: typeof inspectionHistory = [];
+        snapshot.forEach((doc) => {
+          loadedHistory.push({ id: doc.id, ...doc.data() } as any);
+        });
+        // Sort by completedAt descending (most recent first)
+        loadedHistory.sort(
+          (a, b) =>
+            new Date(b.completedAt).getTime() -
+            new Date(a.completedAt).getTime()
+        );
+        // Keep only last 20
+        setInspectionHistory(loadedHistory.slice(0, 20));
+      },
+      (error) => {
+        console.error("History sync error:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // --- FIRESTORE HELPER: Archive facility to history ---
+  const archiveFacilityToHistory = async (
+    entityId: string,
+    facilityName: string
+  ) => {
+    if (!currentUser) return;
+
+    const facilityMachines = machines.filter((m) => m.entityId === entityId);
+    if (facilityMachines.length === 0) return;
+
+    const historyEntry = {
+      facilityName,
+      entityId,
+      completedAt: new Date().toISOString(),
+      machines: facilityMachines.map((m) => ({
+        ...m,
+        // Remove any circular references or functions
+      })),
+    };
+
+    const historyRef = doc(
+      db,
+      "users",
+      currentUser.uid,
+      "history",
+      `${entityId}_${Date.now()}`
+    );
+    await setDoc(historyRef, historyEntry);
+  };
 
   // --- AUTH FUNCTIONS ---
   const handleGoogleLogin = async () => {
@@ -1778,7 +1935,7 @@ export default function App(): JSX.Element | null {
     return Object.values(groups);
   };
 
-  const deleteFacility = (
+  const deleteFacility = async (
     entityId: string,
     facilityName: string,
     e: React.MouseEvent
@@ -1787,6 +1944,9 @@ export default function App(): JSX.Element | null {
     if (
       window.confirm(`Delete facility "${facilityName}" and all its machines?`)
     ) {
+      // Archive to history before deleting
+      await archiveFacilityToHistory(entityId, facilityName);
+
       // Get machines to delete from Firestore
       const machinesToDelete = machines.filter((m) => m.entityId === entityId);
       machinesToDelete.forEach((m) => deleteMachineFromFirestore(m.id));
@@ -2030,6 +2190,19 @@ export default function App(): JSX.Element | null {
             <div className="flex items-center gap-2">
               <FileText size={16} />
               Templates
+            </div>
+          </button>
+          <button
+            onClick={() => setSettingsTab("history")}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+              settingsTab === "history"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Clock size={16} />
+              History
             </div>
           </button>
         </div>
@@ -2430,6 +2603,35 @@ export default function App(): JSX.Element | null {
                 </div>
               </div>
             </>
+          )}
+
+          {/* History Tab Content */}
+          {settingsTab === "history" && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="text-blue-500" size={20} />
+                <h3 className="font-bold text-slate-700">Inspection History</h3>
+              </div>
+              {inspectionHistory.length === 0 ? (
+                <div className="bg-white p-8 rounded-xl border border-slate-200 text-center">
+                  <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Clock className="text-slate-400" size={24} />
+                  </div>
+                  <p className="text-slate-500 font-medium">
+                    No inspection history yet
+                  </p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Completed facilities will appear here
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {inspectionHistory.map((entry) => (
+                    <HistoryEntryCard key={entry.id} entry={entry} />
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
