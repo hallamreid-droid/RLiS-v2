@@ -638,6 +638,7 @@ export default function App(): JSX.Element | null {
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   const [showNoDataModal, setShowNoDataModal] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"apiKey" | "templates">(
     "apiKey"
   );
@@ -3451,7 +3452,7 @@ export default function App(): JSX.Element | null {
             <Settings className="text-slate-600 h-5 w-5" />
           </button>
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutModal(true)}
             className="p-2 bg-white border border-slate-200 rounded-full hover:bg-red-50 active:scale-95 transition-all shadow-sm"
             title="Sign Out"
           >
@@ -3459,6 +3460,42 @@ export default function App(): JSX.Element | null {
           </button>
         </div>
       </header>
+
+      {/* LOGOUT CONFIRMATION MODAL */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <LogOut className="text-red-600 h-8 w-8" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">
+                Sign Out?
+              </h3>
+              <p className="text-slate-500 text-sm">
+                Are you sure you want to sign out of RayScan?
+              </p>
+            </div>
+            <div className="p-4 pt-0 flex gap-3">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 py-3 text-slate-600 font-bold text-sm hover:bg-slate-50 rounded-lg border border-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowLogoutModal(false);
+                  handleLogout();
+                }}
+                className="flex-1 py-3 bg-red-600 text-white font-bold text-sm rounded-lg hover:bg-red-700 active:scale-95 transition-all"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* STATS & UPLOAD AREA */}
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-6 text-center">
