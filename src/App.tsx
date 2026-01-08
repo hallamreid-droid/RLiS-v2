@@ -704,7 +704,7 @@ const HistoryEntryCard: React.FC<{
                     {machine.location}
                   </p>
                   <p className="text-xs text-slate-400">
-                    {machine.type} • {machine.make} {machine.model} • S/N:{" "}
+                    {machine.type} • {machine.make} - {machine.model} -{" "}
                     {machine.serial}
                   </p>
                 </div>
