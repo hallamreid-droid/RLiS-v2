@@ -629,8 +629,22 @@ type HistoryEntry = {
   machines: Machine[];
 };
 
-const HistoryEntryCard: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
+const HistoryEntryCard: React.FC<{
+  entry: HistoryEntry;
+  onDownload: (entry: HistoryEntry) => void;
+}> = ({ entry, onDownload }) => {
   const [expanded, setExpanded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDownloading(true);
+    try {
+      await onDownload(entry);
+    } finally {
+      setDownloading(false);
+    }
+  };
   const completedDate = new Date(entry.completedAt);
   const formattedDate = completedDate.toLocaleDateString("en-US", {
     month: "short",
@@ -696,6 +710,25 @@ const HistoryEntryCard: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
               </div>
             </div>
           ))}
+          {entry.machines.some((m) => m.isComplete) && (
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="w-full mt-2 py-2.5 px-4 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {downloading ? (
+                <>
+                  <Loader2 className="animate-spin" size={16} />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download size={16} />
+                  Download Reports (.zip)
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1885,6 +1918,52 @@ export default function App(): JSX.Element | null {
     }
   };
 
+  // --- DOWNLOAD HISTORY ZIP ---
+  const handleDownloadHistoryZip = (entry: HistoryEntry) => {
+    const completedMachines = entry.machines.filter((m) => m.isComplete);
+    if (completedMachines.length === 0) {
+      alert("No completed machines to download.");
+      return;
+    }
+
+    const zip = new PizZip();
+    try {
+      const safeName = entry.facilityName
+        .replace(/[^a-z0-9]/gi, "_")
+        .replace(/_{2,}/g, "_");
+      const zipFilename = `${safeName}_History.zip`;
+
+      completedMachines.forEach((machine) => {
+        const templateType =
+          machine.inspectionType === "cbct" ||
+          machine.inspectionType === "panoramic"
+            ? "dental"
+            : machine.inspectionType;
+        const templateBuffer = templates[templateType];
+        if (!templateBuffer) return;
+
+        const data = getMachineData(machine);
+
+        const zipDoc = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zipDoc, {
+          paragraphLoop: true,
+          linebreaks: true,
+          nullGetter: () => "",
+        });
+        doc.render(data);
+        const blob = doc.getZip().generate({ type: "arraybuffer" });
+
+        zip.file(`Inspection_${machine.location}.docx`, blob);
+      });
+
+      const content = zip.generate({ type: "blob" });
+      saveAs(content, zipFilename);
+    } catch (e) {
+      console.error(e);
+      alert("Error generating history zip. Check templates.");
+    }
+  };
+
   const generateDoc = (machine: Machine) => {
     // CBCT and Panoramic use the dental template
     const templateType =
@@ -2627,7 +2706,11 @@ export default function App(): JSX.Element | null {
               ) : (
                 <div className="space-y-3">
                   {inspectionHistory.map((entry) => (
-                    <HistoryEntryCard key={entry.id} entry={entry} />
+                    <HistoryEntryCard
+                      key={entry.id}
+                      entry={entry}
+                      onDownload={handleDownloadHistoryZip}
+                    />
                   ))}
                 </div>
               )}
