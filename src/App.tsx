@@ -29,12 +29,38 @@ import {
   Files,
   Radio,
   MoreVertical,
+  LogOut,
+  User,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// Firebase imports
+import { auth, db, googleProvider } from "./firebase";
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  User as FirebaseUser,
+} from "firebase/auth";
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
+} from "firebase/firestore";
 
 // --- CONFIGURATION ---
 const DB_NAME = "RayScanDB";
@@ -597,6 +623,14 @@ const getFieldLabel = (field: string): string => {
 };
 
 export default function App(): JSX.Element | null {
+  // --- AUTH STATE ---
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+
   const [view, setView] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
   >("facility-list");
@@ -660,6 +694,99 @@ export default function App(): JSX.Element | null {
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [isParsingDetails, setIsParsingDetails] = useState(false);
 
+  // --- AUTH LISTENER ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- FIRESTORE SYNC: Load machines when user logs in ---
+  useEffect(() => {
+    if (!currentUser) {
+      setMachines([]);
+      return;
+    }
+
+    const machinesRef = collection(db, "users", currentUser.uid, "machines");
+    const q = query(machinesRef, orderBy("createdAt", "desc"));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const loadedMachines: Machine[] = [];
+        snapshot.forEach((doc) => {
+          loadedMachines.push({ id: doc.id, ...doc.data() } as Machine);
+        });
+        setMachines(loadedMachines);
+      },
+      (error) => {
+        console.error("Firestore sync error:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // --- AUTH FUNCTIONS ---
+  const handleGoogleLogin = async () => {
+    try {
+      setAuthError(null);
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      setAuthError(error.message);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    try {
+      if (authMode === "login") {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      } else {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      }
+    } catch (error: any) {
+      setAuthError(error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setView("facility-list");
+  };
+
+  // --- FIRESTORE HELPER: Save machine ---
+  const saveMachineToFirestore = async (machine: Machine) => {
+    if (!currentUser) return;
+    const machineRef = doc(
+      db,
+      "users",
+      currentUser.uid,
+      "machines",
+      machine.id
+    );
+    await setDoc(
+      machineRef,
+      {
+        ...machine,
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  };
+
+  // --- FIRESTORE HELPER: Delete machine ---
+  const deleteMachineFromFirestore = async (machineId: string) => {
+    if (!currentUser) return;
+    const machineRef = doc(db, "users", currentUser.uid, "machines", machineId);
+    await deleteDoc(machineRef);
+  };
+
   useEffect(() => {
     if (!document.getElementById("tailwind-script")) {
       const script = document.createElement("script");
@@ -701,9 +828,13 @@ export default function App(): JSX.Element | null {
     });
   }, []);
 
+  // Machines are now synced via Firestore onSnapshot listener
+  // Local storage backup for offline (optional)
   useEffect(() => {
-    localStorage.setItem("rayScanMachines", JSON.stringify(machines));
-  }, [machines]);
+    if (currentUser && machines.length > 0) {
+      localStorage.setItem("rayScanMachines", JSON.stringify(machines));
+    }
+  }, [machines, currentUser]);
 
   const parseDetailsWithGemini = async (machine: Machine) => {
     if (!apiKey || (machine.make && machine.model && machine.serial)) return;
@@ -965,6 +1096,8 @@ export default function App(): JSX.Element | null {
     if (newMachines.length === 0) alert("No machines found.");
     else {
       setMachines((prev) => [...prev, ...newMachines]);
+      // Save to Firestore
+      newMachines.forEach((machine) => saveMachineToFirestore(machine));
     }
   };
 
@@ -1204,6 +1337,7 @@ export default function App(): JSX.Element | null {
     };
 
     setMachines((prev) => [...prev, newMachine]);
+    saveMachineToFirestore(newMachine);
 
     // Reset the modal
     setShowXXMachineModal(false);
@@ -1220,6 +1354,7 @@ export default function App(): JSX.Element | null {
     const machine = machines.find((m) => m.id === machineId);
     if (!machine || !machine.location.includes("-XX")) return;
     setMachines((prev) => prev.filter((m) => m.id !== machineId));
+    deleteMachineFromFirestore(machineId);
   };
 
   const handleNoData = (reason: "operational" | "facility") => {
@@ -1228,17 +1363,19 @@ export default function App(): JSX.Element | null {
       reason === "operational"
         ? "MACHINE NOT OPERATIONAL"
         : "MACHINE NOT IN FACILITY";
-    setMachines((prev) =>
-      prev.map((m) =>
-        m.id === activeMachineId
-          ? {
-              ...m,
-              isComplete: true,
-              data: { ...m.data, noDataReason: message },
-            }
-          : m
-      )
-    );
+
+    const updatedMachine = machines.find((m) => m.id === activeMachineId);
+    if (updatedMachine) {
+      const updated = {
+        ...updatedMachine,
+        isComplete: true,
+        data: { ...updatedMachine.data, noDataReason: message },
+      };
+      setMachines((prev) =>
+        prev.map((m) => (m.id === activeMachineId ? updated : m))
+      );
+      saveMachineToFirestore(updated);
+    }
 
     setShowNoDataModal(false);
     setActiveMachineId(null);
@@ -1247,15 +1384,15 @@ export default function App(): JSX.Element | null {
 
   const markAsComplete = () => {
     if (!activeMachineId) return;
-    setMachines((prev) =>
-      prev.map((m) => {
-        if (m.id === activeMachineId) {
-          const { noDataReason, ...cleanData } = m.data;
-          return { ...m, isComplete: true, data: cleanData };
-        }
-        return m;
-      })
-    );
+    const machine = machines.find((m) => m.id === activeMachineId);
+    if (machine) {
+      const { noDataReason, ...cleanData } = machine.data;
+      const updated = { ...machine, isComplete: true, data: cleanData };
+      setMachines((prev) =>
+        prev.map((m) => (m.id === activeMachineId ? updated : m))
+      );
+      saveMachineToFirestore(updated);
+    }
     setActiveMachineId(null);
     setView("machine-list");
   };
@@ -1724,6 +1861,136 @@ export default function App(): JSX.Element | null {
   }, [view, activeMachineId]);
 
   // --- UI ROUTER ---
+
+  // Auth Loading State
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Login Screen
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+          <div className="flex items-center justify-center gap-3 mb-8">
+            <div className="bg-blue-600 p-3 rounded-xl">
+              <ScanLine className="text-white h-8 w-8" />
+            </div>
+            <h1 className="text-3xl font-bold text-slate-800">RayScan</h1>
+          </div>
+
+          <h2 className="text-xl font-bold text-slate-700 mb-6 text-center">
+            {authMode === "login" ? "Welcome Back" : "Create Account"}
+          </h2>
+
+          {authError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg mb-4 text-sm">
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleEmailAuth} className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                Password
+              </label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Enter password"
+                required
+                minLength={6}
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 active:scale-95 transition-all"
+            >
+              {authMode === "login" ? "Sign In" : "Create Account"}
+            </button>
+          </form>
+
+          <div className="my-6 flex items-center gap-4">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span className="text-xs text-slate-400 uppercase">or</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full py-3 border border-slate-200 rounded-lg font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center gap-3"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+              />
+            </svg>
+            Continue with Google
+          </button>
+
+          <p className="text-center text-sm text-slate-500 mt-6">
+            {authMode === "login" ? (
+              <>
+                Don't have an account?{" "}
+                <button
+                  onClick={() => setAuthMode("signup")}
+                  className="text-blue-600 font-bold hover:underline"
+                >
+                  Sign up
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{" "}
+                <button
+                  onClick={() => setAuthMode("login")}
+                  className="text-blue-600 font-bold hover:underline"
+                >
+                  Sign in
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (view === "settings")
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
@@ -2210,7 +2477,8 @@ export default function App(): JSX.Element | null {
               </span>
             </div>
             <div className="text-[10px] font-mono text-slate-500">
-              {activeMachine.make} - {activeMachine.model} - {activeMachine.serial}
+              {activeMachine.make} - {activeMachine.model} -{" "}
+              {activeMachine.serial}
             </div>
           </div>
         </header>
@@ -2637,7 +2905,9 @@ export default function App(): JSX.Element | null {
                     }
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
-                    m.isComplete ? "bg-emerald-50" : "hover:bg-slate-50 cursor-pointer"
+                    m.isComplete
+                      ? "bg-emerald-50"
+                      : "hover:bg-slate-50 cursor-pointer"
                   }`}
                 >
                   <div>
@@ -3163,14 +3433,30 @@ export default function App(): JSX.Element | null {
           <div className="bg-blue-600 p-2 rounded-lg">
             <ScanLine className="text-white h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
+            {currentUser && (
+              <p className="text-[10px] text-slate-400 truncate max-w-[150px]">
+                {currentUser.email}
+              </p>
+            )}
+          </div>
         </div>
-        <button
-          onClick={() => setView("settings")}
-          className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
-        >
-          <Settings className="text-slate-600 h-5 w-5" />
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setView("settings")}
+            className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
+          >
+            <Settings className="text-slate-600 h-5 w-5" />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-2 bg-white border border-slate-200 rounded-full hover:bg-red-50 active:scale-95 transition-all shadow-sm"
+            title="Sign Out"
+          >
+            <LogOut className="text-slate-600 h-5 w-5" />
+          </button>
+        </div>
       </header>
 
       {/* STATS & UPLOAD AREA */}
