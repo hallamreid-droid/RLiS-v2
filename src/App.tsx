@@ -3501,6 +3501,9 @@ export default function App(): JSX.Element | null {
                       Bone Density
                     </option>
                     <option value="cabinet|Cabinet">Cabinet</option>
+                    <option value="industrial|Industrial Radiography">
+                      Industrial Radiography
+                    </option>
                   </optgroup>
                 </select>
               </div>
@@ -3674,6 +3677,9 @@ export default function App(): JSX.Element | null {
                         Bone Density
                       </option>
                       <option value="cabinet|Cabinet">Cabinet</option>
+                      <option value="industrial|Industrial Radiography">
+                        Industrial Radiography
+                      </option>
                     </optgroup>
                   </select>
                 </div>
