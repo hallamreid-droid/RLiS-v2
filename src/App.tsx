@@ -827,6 +827,64 @@ export default function App(): JSX.Element | null {
     return () => unsubscribe();
   }, []);
 
+  // --- INACTIVITY AUTO-LOGOUT (48 hours) ---
+  const INACTIVITY_TIMEOUT = 48 * 60 * 60 * 1000; // 48 hours in milliseconds
+  const ACTIVITY_KEY = "lastActivityTimestamp";
+
+  // Update last activity timestamp
+  const updateLastActivity = () => {
+    localStorage.setItem(ACTIVITY_KEY, Date.now().toString());
+  };
+
+  // Track user activity
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Set initial activity timestamp on login
+    if (!localStorage.getItem(ACTIVITY_KEY)) {
+      updateLastActivity();
+    }
+
+    const handleActivity = () => updateLastActivity();
+
+    // Listen for user interactions
+    window.addEventListener("click", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("touchstart", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+
+    return () => {
+      window.removeEventListener("click", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("touchstart", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+    };
+  }, [currentUser]);
+
+  // Check for inactivity timeout
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const checkInactivity = async () => {
+      const lastActivity = localStorage.getItem(ACTIVITY_KEY);
+      if (lastActivity) {
+        const elapsed = Date.now() - parseInt(lastActivity, 10);
+        if (elapsed >= INACTIVITY_TIMEOUT) {
+          localStorage.removeItem(ACTIVITY_KEY);
+          await signOut(auth);
+        }
+      }
+    };
+
+    // Check immediately on mount
+    checkInactivity();
+
+    // Check every 5 minutes
+    const interval = setInterval(checkInactivity, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   // --- FIRESTORE SYNC: Load machines when user logs in ---
   useEffect(() => {
     if (!currentUser) {
@@ -943,6 +1001,7 @@ export default function App(): JSX.Element | null {
   };
 
   const handleLogout = async () => {
+    localStorage.removeItem(ACTIVITY_KEY);
     await signOut(auth);
     setView("facility-list");
   };
@@ -1479,7 +1538,11 @@ export default function App(): JSX.Element | null {
   ) => {
     const machine = machines.find((m) => m.id === machineId);
     if (machine) {
-      const updatedMachine = { ...machine, inspectionType: newType, type: typeLabel };
+      const updatedMachine = {
+        ...machine,
+        inspectionType: newType,
+        type: typeLabel,
+      };
       setMachines((prev) =>
         prev.map((m) => (m.id === machineId ? updatedMachine : m))
       );
