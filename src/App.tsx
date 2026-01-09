@@ -1477,13 +1477,14 @@ export default function App(): JSX.Element | null {
     newType: InspectionType,
     typeLabel: string
   ) => {
-    setMachines((prev) =>
-      prev.map((m) =>
-        m.id === machineId
-          ? { ...m, inspectionType: newType, type: typeLabel }
-          : m
-      )
-    );
+    const machine = machines.find((m) => m.id === machineId);
+    if (machine) {
+      const updatedMachine = { ...machine, inspectionType: newType, type: typeLabel };
+      setMachines((prev) =>
+        prev.map((m) => (m.id === machineId ? updatedMachine : m))
+      );
+      saveMachineToFirestore(updatedMachine);
+    }
     // Reset the menu flow
     setShowTypeSelector(false);
     setSelectedMachineForTypeChange(null);
@@ -1506,8 +1507,11 @@ export default function App(): JSX.Element | null {
 
     // Get base info from first machine in facility
     const baseMachine = facilityMachines[0];
-    const baseCredential = baseMachine.location.replace(/-XX\d+$/, ""); // Remove any existing XX suffix
-    const xxCredential = `${baseCredential}-XX${xxNumber}`;
+    // Remove any existing XX suffix, then remove the last segment (machine number) and add XX number
+    const cleanCredential = baseMachine.location.replace(/-XX\d+$/, "");
+    const credentialParts = cleanCredential.split("-");
+    credentialParts.pop(); // Remove the last segment (machine number like "01")
+    const xxCredential = `${credentialParts.join("-")}-XX${xxNumber}`;
 
     const newMachine: Machine = {
       id: `mach_xx_${Date.now()}`,
