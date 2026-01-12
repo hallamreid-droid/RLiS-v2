@@ -1724,16 +1724,19 @@ export default function App(): JSX.Element | null {
 
   // --- DATA PREPARATION HELPER ---
   const getMachineData = (machine: Machine) => {
+    // Remove (R) or (F) suffix from location for R&F combo machines
+    const cleanLocation = machine.location.replace(/ \([RF]\)$/, "");
+
     let finalData: any = {
       inspector: "RH",
       make: machine.make,
       model: machine.model,
       serial: machine.serial,
-      "registration number": machine.location,
+      "registration number": cleanLocation,
       "registrant name": machine.registrantName,
       date: new Date().toLocaleDateString(),
       details: machine.fullDetails,
-      credential: machine.location,
+      credential: cleanLocation,
       type: (machine.type || "").toUpperCase(),
       ...machine.data,
     };
