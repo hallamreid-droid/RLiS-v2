@@ -121,7 +121,8 @@ type InspectionType =
   | "bone_density"
   | "industrial"
   | "cbct"
-  | "panoramic";
+  | "panoramic"
+  | "combination_rf";
 
 type Machine = {
   id: string;
@@ -1278,7 +1279,7 @@ export default function App(): JSX.Element | null {
           inspectionType = "dental";
         }
 
-        // Handle Combination - R&F: create TWO machines (General + Fluoroscope)
+        // Handle Combination - R&F: create ONE machine per row (Excel already has 2 rows per R&F)
         const isCombinationRF =
           credType.includes("combination") &&
           (credType.includes("r&f") || credType.includes("r & f"));
@@ -1287,39 +1288,25 @@ export default function App(): JSX.Element | null {
           const baseLocation = row["License/Credential #"] || facility;
           const entityId = row["Entity ID"]?.toString() || facility;
 
-          // Create General (Radiographic) machine - Tube 1 of 2
-          const generalMachine: Machine = {
-            id: `mach_${Date.now()}_${index}_R`,
+          // Determine if this row is the General or Fluoro entry based on credential type
+          const isFlouro = inspectionType === "fluoroscope";
+
+          const machine: Machine = {
+            id: `mach_${Date.now()}_${index}_${isFlouro ? "F" : "R"}`,
             fullDetails: fullDetails,
             make,
             model,
             serial,
-            type: "Radiographic (R&F)",
-            inspectionType: "general",
-            location: `${baseLocation} (R)`,
+            type: isFlouro ? "Fluoroscopic (R&F)" : "Radiographic (R&F)",
+            inspectionType: inspectionType,
+            location: `${baseLocation} (${isFlouro ? "F" : "R"})`,
             registrantName: facility,
             entityId: entityId,
-            data: { tube_no: "1", num_tubes: "2" },
+            data: { tube_no: isFlouro ? "2" : "1", num_tubes: "2" },
             isComplete: false,
           };
 
-          // Create Fluoroscope machine - Tube 2 of 2
-          const fluoroMachine: Machine = {
-            id: `mach_${Date.now()}_${index}_F`,
-            fullDetails: fullDetails,
-            make,
-            model,
-            serial,
-            type: "Fluoroscopic (R&F)",
-            inspectionType: "fluoroscope",
-            location: `${baseLocation} (F)`,
-            registrantName: facility,
-            entityId: entityId,
-            data: { tube_no: "2", num_tubes: "2" },
-            isComplete: false,
-          };
-
-          return [generalMachine, fluoroMachine];
+          return [machine];
         }
 
         return [
@@ -1538,15 +1525,48 @@ export default function App(): JSX.Element | null {
   ) => {
     const machine = machines.find((m) => m.id === machineId);
     if (machine) {
-      const updatedMachine = {
-        ...machine,
-        inspectionType: newType,
-        type: typeLabel,
-      };
-      setMachines((prev) =>
-        prev.map((m) => (m.id === machineId ? updatedMachine : m))
-      );
-      saveMachineToFirestore(updatedMachine);
+      // Handle Combination R&F - create TWO machines (General + Fluoro)
+      if (newType === "combination_rf") {
+        const baseLocation = machine.location.replace(/ \([RF]\)$/, ""); // Remove any existing (R) or (F) suffix
+
+        const generalMachine: Machine = {
+          ...machine,
+          id: `${machine.id}_R`,
+          type: "Radiographic (R&F)",
+          inspectionType: "general",
+          location: `${baseLocation} (R)`,
+          data: { ...machine.data, tube_no: "1", num_tubes: "2" },
+        };
+
+        const fluoroMachine: Machine = {
+          ...machine,
+          id: `${machine.id}_F`,
+          type: "Fluoroscopic (R&F)",
+          inspectionType: "fluoroscope",
+          location: `${baseLocation} (F)`,
+          data: { ...machine.data, tube_no: "2", num_tubes: "2" },
+        };
+
+        // Remove original machine, add both new machines
+        setMachines((prev) => [
+          ...prev.filter((m) => m.id !== machineId),
+          generalMachine,
+          fluoroMachine,
+        ]);
+        deleteMachineFromFirestore(machineId);
+        saveMachineToFirestore(generalMachine);
+        saveMachineToFirestore(fluoroMachine);
+      } else {
+        const updatedMachine = {
+          ...machine,
+          inspectionType: newType,
+          type: typeLabel,
+        };
+        setMachines((prev) =>
+          prev.map((m) => (m.id === machineId ? updatedMachine : m))
+        );
+        saveMachineToFirestore(updatedMachine);
+      }
     }
     // Reset the menu flow
     setShowTypeSelector(false);
@@ -1576,23 +1596,60 @@ export default function App(): JSX.Element | null {
     credentialParts.pop(); // Remove the last segment (machine number like "01")
     const xxCredential = `${credentialParts.join("-")}-XX${xxNumber}`;
 
-    const newMachine: Machine = {
-      id: `mach_xx_${Date.now()}`,
-      fullDetails: `${xxMachineData.make} - ${xxMachineData.model} - ${xxMachineData.serial}`,
-      make: xxMachineData.make,
-      model: xxMachineData.model,
-      serial: xxMachineData.serial,
-      type: xxMachineData.typeLabel,
-      inspectionType: xxMachineData.inspectionType,
-      location: xxCredential,
-      registrantName: baseMachine.registrantName,
-      entityId: activeFacilityId,
-      data: {},
-      isComplete: false,
-    };
+    // Check if this is a Combination R&F type - create TWO machines
+    if (xxMachineData.inspectionType === "combination_rf") {
+      const generalMachine: Machine = {
+        id: `mach_xx_${Date.now()}_R`,
+        fullDetails: `${xxMachineData.make} - ${xxMachineData.model} - ${xxMachineData.serial}`,
+        make: xxMachineData.make,
+        model: xxMachineData.model,
+        serial: xxMachineData.serial,
+        type: "Radiographic (R&F)",
+        inspectionType: "general",
+        location: `${xxCredential} (R)`,
+        registrantName: baseMachine.registrantName,
+        entityId: activeFacilityId,
+        data: { tube_no: "1", num_tubes: "2" },
+        isComplete: false,
+      };
 
-    setMachines((prev) => [...prev, newMachine]);
-    saveMachineToFirestore(newMachine);
+      const fluoroMachine: Machine = {
+        id: `mach_xx_${Date.now()}_F`,
+        fullDetails: `${xxMachineData.make} - ${xxMachineData.model} - ${xxMachineData.serial}`,
+        make: xxMachineData.make,
+        model: xxMachineData.model,
+        serial: xxMachineData.serial,
+        type: "Fluoroscopic (R&F)",
+        inspectionType: "fluoroscope",
+        location: `${xxCredential} (F)`,
+        registrantName: baseMachine.registrantName,
+        entityId: activeFacilityId,
+        data: { tube_no: "2", num_tubes: "2" },
+        isComplete: false,
+      };
+
+      setMachines((prev) => [...prev, generalMachine, fluoroMachine]);
+      saveMachineToFirestore(generalMachine);
+      saveMachineToFirestore(fluoroMachine);
+    } else {
+      const newMachine: Machine = {
+        id: `mach_xx_${Date.now()}`,
+        fullDetails: `${xxMachineData.make} - ${xxMachineData.model} - ${xxMachineData.serial}`,
+        make: xxMachineData.make,
+        model: xxMachineData.model,
+        serial: xxMachineData.serial,
+        type: xxMachineData.typeLabel,
+        inspectionType: xxMachineData.inspectionType,
+        location: xxCredential,
+        registrantName: baseMachine.registrantName,
+        entityId: activeFacilityId,
+        data: {},
+        isComplete: false,
+      };
+
+      setMachines((prev) => [...prev, newMachine]);
+      saveMachineToFirestore(newMachine);
+    }
 
     // Reset the modal
     setShowXXMachineModal(false);
@@ -3572,6 +3629,11 @@ export default function App(): JSX.Element | null {
                       Industrial Radiography
                     </option>
                   </optgroup>
+                  <optgroup label="Combination">
+                    <option value="combination_rf|Combination - R&F">
+                      Combination - R&F
+                    </option>
+                  </optgroup>
                 </select>
               </div>
               <div className="p-4 pt-0 flex gap-2">
@@ -3746,6 +3808,11 @@ export default function App(): JSX.Element | null {
                       <option value="cabinet|Cabinet">Cabinet</option>
                       <option value="industrial|Industrial Radiography">
                         Industrial Radiography
+                      </option>
+                    </optgroup>
+                    <optgroup label="Combination">
+                      <option value="combination_rf|Combination - R&F">
+                        Combination - R&F
                       </option>
                     </optgroup>
                   </select>
