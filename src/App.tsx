@@ -1198,6 +1198,9 @@ export default function App(): JSX.Element | null {
 
   // --- REUSABLE DATA PROCESSOR FOR EXCEL ---
   const processImportedData = (data: any[]) => {
+    // Track R&F machines we've seen to alternate between general and fluoro
+    const seenRFMachines = new Set<string>();
+
     const newMachines: Machine[] = data
       .filter((row: any) => row["Entity Name"] && row["Inspection Number"])
       .filter((row: any) => {
@@ -1288,21 +1291,31 @@ export default function App(): JSX.Element | null {
           const baseLocation = row["License/Credential #"] || facility;
           const entityId = row["Entity ID"]?.toString() || facility;
 
-          // Determine if this row is the General or Fluoro entry based on credential type
-          const isFlouro = inspectionType === "fluoroscope";
+          // Create a unique key for this R&F machine based on make/model/serial and facility
+          const rfKey = `${facility}|${make}|${model}|${serial}`;
+
+          // Check if we've already seen this R&F machine (first row = general, second row = fluoro)
+          const isFirstOccurrence = !seenRFMachines.has(rfKey);
+          seenRFMachines.add(rfKey);
+
+          // First occurrence = General/Radiographic, Second occurrence = Fluoro
+          const machineIsFluoro = !isFirstOccurrence;
+          const machineInspectionType: InspectionType = machineIsFluoro
+            ? "fluoroscope"
+            : "general";
 
           const machine: Machine = {
-            id: `mach_${Date.now()}_${index}_${isFlouro ? "F" : "R"}`,
+            id: `mach_${Date.now()}_${index}_${machineIsFluoro ? "F" : "R"}`,
             fullDetails: fullDetails,
             make,
             model,
             serial,
-            type: isFlouro ? "Fluoroscopic (R&F)" : "Radiographic (R&F)",
-            inspectionType: inspectionType,
-            location: `${baseLocation} (${isFlouro ? "F" : "R"})`,
+            type: machineIsFluoro ? "Fluoroscopic (R&F)" : "Radiographic (R&F)",
+            inspectionType: machineInspectionType,
+            location: `${baseLocation} (${machineIsFluoro ? "F" : "R"})`,
             registrantName: facility,
             entityId: entityId,
-            data: { tube_no: isFlouro ? "2" : "1", num_tubes: "2" },
+            data: { tube_no: machineIsFluoro ? "2" : "1", num_tubes: "2" },
             isComplete: false,
           };
 
@@ -3628,8 +3641,6 @@ export default function App(): JSX.Element | null {
                     <option value="industrial|Industrial Radiography">
                       Industrial Radiography
                     </option>
-                  </optgroup>
-                  <optgroup label="Combination">
                     <option value="combination_rf|Combination - R&F">
                       Combination - R&F
                     </option>
@@ -3809,8 +3820,6 @@ export default function App(): JSX.Element | null {
                       <option value="industrial|Industrial Radiography">
                         Industrial Radiography
                       </option>
-                    </optgroup>
-                    <optgroup label="Combination">
                       <option value="combination_rf|Combination - R&F">
                         Combination - R&F
                       </option>
