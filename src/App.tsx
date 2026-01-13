@@ -755,11 +755,14 @@ export default function App(): JSX.Element | null {
     "facility-list": 0,
     "machine-list": 0,
     "mobile-form": 0,
-    "settings": 0,
+    settings: 0,
   });
 
   // Custom setView that saves/restores scroll positions
-  const setView = (newView: "facility-list" | "machine-list" | "mobile-form" | "settings", resetScroll = false) => {
+  const setView = (
+    newView: "facility-list" | "machine-list" | "mobile-form" | "settings",
+    resetScroll = false
+  ) => {
     // Save current scroll position before leaving
     scrollPositions.current[view] = window.scrollY;
 
@@ -1618,15 +1621,54 @@ export default function App(): JSX.Element | null {
         saveMachineToFirestore(generalMachine);
         saveMachineToFirestore(fluoroMachine);
       } else {
-        const updatedMachine = {
-          ...machine,
-          inspectionType: newType,
-          type: typeLabel,
-        };
-        setMachines((prev) =>
-          prev.map((m) => (m.id === machineId ? updatedMachine : m))
-        );
-        saveMachineToFirestore(updatedMachine);
+        // Check if this machine is part of an R&F pair
+        const isRFMachine = machine.location.match(/ \([RF]\)$/);
+
+        if (isRFMachine) {
+          // Get the base location without the (R) or (F) suffix
+          const baseLocation = machine.location.replace(/ \([RF]\)$/, "");
+          const currentSuffix = machine.location.endsWith("(R)")
+            ? "(R)"
+            : "(F)";
+          const pairedSuffix = currentSuffix === "(R)" ? "(F)" : "(R)";
+          const pairedLocation = `${baseLocation} ${pairedSuffix}`;
+
+          // Find and delete the paired R&F machine
+          const pairedMachine = machines.find(
+            (m) => m.location === pairedLocation
+          );
+          if (pairedMachine) {
+            deleteMachineFromFirestore(pairedMachine.id);
+          }
+
+          // Update current machine: remove suffix, change type, clear R&F data
+          const { tube_no, num_tubes, ...restData } = machine.data;
+          const updatedMachine = {
+            ...machine,
+            inspectionType: newType,
+            type: typeLabel,
+            location: baseLocation,
+            data: restData,
+          };
+
+          // Remove paired machine and update current machine
+          setMachines((prev) =>
+            prev
+              .filter((m) => m.location !== pairedLocation)
+              .map((m) => (m.id === machineId ? updatedMachine : m))
+          );
+          saveMachineToFirestore(updatedMachine);
+        } else {
+          const updatedMachine = {
+            ...machine,
+            inspectionType: newType,
+            type: typeLabel,
+          };
+          setMachines((prev) =>
+            prev.map((m) => (m.id === machineId ? updatedMachine : m))
+          );
+          saveMachineToFirestore(updatedMachine);
+        }
       }
     }
     // Reset the menu flow
