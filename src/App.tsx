@@ -759,9 +759,14 @@ export default function App(): JSX.Element | null {
   });
 
   // Custom setView that saves/restores scroll positions
-  const setView = (newView: "facility-list" | "machine-list" | "mobile-form" | "settings") => {
+  const setView = (newView: "facility-list" | "machine-list" | "mobile-form" | "settings", resetScroll = false) => {
     // Save current scroll position before leaving
     scrollPositions.current[view] = window.scrollY;
+
+    // Reset scroll for the new view if requested (e.g., when opening a new machine)
+    if (resetScroll) {
+      scrollPositions.current[newView] = 0;
+    }
 
     // Change view
     setViewState(newView);
@@ -3382,7 +3387,7 @@ export default function App(): JSX.Element | null {
                   onClick={() => {
                     if (!m.isComplete) {
                       setActiveMachineId(m.id);
-                      setView("mobile-form");
+                      setView("mobile-form", true);
                     }
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
@@ -3443,7 +3448,7 @@ export default function App(): JSX.Element | null {
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveMachineId(m.id);
-                          setView("mobile-form");
+                          setView("mobile-form", true);
                         }}
                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
                         title="Edit Inspection"
@@ -3496,7 +3501,7 @@ export default function App(): JSX.Element | null {
                       <button
                         onClick={() => {
                           setActiveMachineId(m.id);
-                          setView("mobile-form");
+                          setView("mobile-form", true);
                         }}
                         className="bg-slate-100 p-1.5 rounded-full hover:bg-blue-100 active:scale-95 transition-all cursor-pointer"
                       >
