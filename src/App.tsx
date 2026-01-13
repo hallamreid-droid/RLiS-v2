@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Camera,
   FileSpreadsheet,
@@ -746,9 +746,32 @@ export default function App(): JSX.Element | null {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
 
-  const [view, setView] = useState<
+  const [view, setViewState] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
   >("facility-list");
+
+  // Track scroll positions for each view independently
+  const scrollPositions = useRef<{ [key: string]: number }>({
+    "facility-list": 0,
+    "machine-list": 0,
+    "mobile-form": 0,
+    "settings": 0,
+  });
+
+  // Custom setView that saves/restores scroll positions
+  const setView = (newView: "facility-list" | "machine-list" | "mobile-form" | "settings") => {
+    // Save current scroll position before leaving
+    scrollPositions.current[view] = window.scrollY;
+
+    // Change view
+    setViewState(newView);
+
+    // Restore scroll position after view change (use setTimeout to ensure DOM is updated)
+    setTimeout(() => {
+      window.scrollTo(0, scrollPositions.current[newView] || 0);
+    }, 0);
+  };
+
   const [apiKey, setApiKey] = useState<string>("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isDragging, setIsDragging] = useState(false);
