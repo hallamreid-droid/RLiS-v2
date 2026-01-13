@@ -1198,6 +1198,26 @@ export default function App(): JSX.Element | null {
 
   // --- REUSABLE DATA PROCESSOR FOR EXCEL ---
   const processImportedData = (data: any[]) => {
+    // Check for duplicate uploads - get entity IDs from the Excel data
+    const incomingEntityIds = new Set(
+      data
+        .filter((row: any) => row["Entity ID"])
+        .map((row: any) => row["Entity ID"]?.toString())
+    );
+
+    // Check if any of these entity IDs already exist in our machines
+    const existingEntityIds = new Set(machines.map((m) => m.entityId));
+    const duplicateIds = Array.from(incomingEntityIds).filter((id) =>
+      existingEntityIds.has(id)
+    );
+
+    if (duplicateIds.length > 0) {
+      alert(
+        `This Excel sheet has already been uploaded. Facility with Entity ID ${duplicateIds[0]} already exists.`
+      );
+      return;
+    }
+
     // Track R&F machines we've seen to alternate between general and fluoro
     const seenRFMachines = new Set<string>();
 
@@ -2152,7 +2172,17 @@ export default function App(): JSX.Element | null {
       groups[m.entityId].count++;
       if (m.isComplete) groups[m.entityId].complete++;
     });
-    return Object.values(groups);
+    // Sort by entityId numerically (handles IDs starting with 0 like "0108")
+    return Object.values(groups).sort((a, b) => {
+      const numA = parseInt(a.entityId, 10);
+      const numB = parseInt(b.entityId, 10);
+      // If both are valid numbers, sort numerically
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      // Fall back to string comparison for non-numeric IDs
+      return a.entityId.localeCompare(b.entityId);
+    });
   };
 
   const deleteFacility = async (
