@@ -3204,17 +3204,6 @@ export default function App(): JSX.Element | null {
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
-                      RAM License Number
-                    </label>
-                    <input
-                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="License #"
-                      value={activeMachine.data["license"] || ""}
-                      onChange={(e) => updateField("license", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">
                       RSO Name
                     </label>
                     <input
@@ -3224,7 +3213,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) => updateField("rso", e.target.value)}
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
                       On-Board Imaging Type
                     </label>
@@ -3233,6 +3222,17 @@ export default function App(): JSX.Element | null {
                       placeholder="e.g. CBCT, kV imaging"
                       value={activeMachine.data["onboard"] || ""}
                       onChange={(e) => updateField("onboard", e.target.value)}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      RAM License Number
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="License #"
+                      value={activeMachine.data["license"] || ""}
+                      onChange={(e) => updateField("license", e.target.value)}
                     />
                   </div>
                 </>
