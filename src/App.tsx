@@ -2122,7 +2122,6 @@ export default function App(): JSX.Element | null {
       }
 
       if (machine.inspectionType === "accelerator") {
-        if (!finalData["num_tubes"]) finalData["num_tubes"] = "1";
         if (!finalData["door"]) finalData["door"] = "<1";
         if (!finalData["console"]) finalData["console"] = "<1";
       }
@@ -2981,7 +2980,7 @@ export default function App(): JSX.Element | null {
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
-                      <Activity size={16} />
+                      <AlertCircle size={16} />
                     </div>
                     <div>
                       <p
@@ -3165,8 +3164,7 @@ export default function App(): JSX.Element | null {
               )}
               {(activeMachine.inspectionType === "general" ||
                 activeMachine.inspectionType === "fluoroscope" ||
-                activeMachine.inspectionType === "ct" ||
-                activeMachine.inspectionType === "accelerator") && (
+                activeMachine.inspectionType === "ct") && (
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase">
                     # of X-Ray Tubes
