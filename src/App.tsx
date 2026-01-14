@@ -122,7 +122,8 @@ type InspectionType =
   | "industrial"
   | "cbct"
   | "panoramic"
-  | "combination_rf";
+  | "combination_rf"
+  | "accelerator";
 
 type Machine = {
   id: string;
@@ -532,6 +533,33 @@ const CABINET_STEPS = [
   },
 ];
 
+const ACCELERATOR_STEPS = [
+  {
+    id: "acc1",
+    label: "1. Accelerator Info",
+    desc: "Enter accelerator details",
+    fields: ["num_tubes", "max", "required", "license", "rso", "onboard"],
+    indices: ["num_tubes", "max", "required", "license", "rso", "onboard"],
+    scanType: "manual",
+  },
+  {
+    id: "acc2",
+    label: "2. Scatter (Door)",
+    desc: "Scan Dose (Default <1)",
+    fields: ["door"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+  {
+    id: "acc3",
+    label: "3. Scatter (Console)",
+    desc: "Scan Dose (Default <1)",
+    fields: ["console"],
+    indices: ["mR"],
+    scanType: "screen",
+  },
+];
+
 // --- HLC STEPS (Dynamic Additions) ---
 const FLUORO_BOOST_MEASURE_STEP = {
   id: "f1_boost",
@@ -835,6 +863,7 @@ export default function App(): JSX.Element | null {
     cabinet: null,
     bone_density: null,
     industrial: null,
+    accelerator: null,
   });
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({
     dental: "No Template",
@@ -845,6 +874,7 @@ export default function App(): JSX.Element | null {
     cabinet: "No Template",
     bone_density: "No Template",
     industrial: "No Template",
+    accelerator: "No Template",
   });
   const [isScanning, setIsScanning] = useState<string | null>(null);
   const [lastScannedText, setLastScannedText] = useState<string>("");
@@ -1291,7 +1321,9 @@ export default function App(): JSX.Element | null {
 
         // FIX: Check Analytical FIRST because "diffraction" contains "ct"
         // Check CBCT before CT and Panoramic (since "panoramic ct" contains both)
-        if (credType.includes("industrial")) {
+        if (credType.includes("accelerator")) {
+          inspectionType = "accelerator";
+        } else if (credType.includes("industrial")) {
           inspectionType = "industrial";
         } else if (
           credType.includes("fluorescence") ||
@@ -2095,6 +2127,12 @@ export default function App(): JSX.Element | null {
         if (!finalData["operator_scatter"])
           finalData["operator_scatter"] = "<1";
       }
+
+      if (machine.inspectionType === "accelerator") {
+        if (!finalData["num_tubes"]) finalData["num_tubes"] = "1";
+        if (!finalData["door"]) finalData["door"] = "<1";
+        if (!finalData["console"]) finalData["console"] = "<1";
+      }
     }
     return finalData;
   };
@@ -2327,6 +2365,8 @@ export default function App(): JSX.Element | null {
   }
   if (activeMachine?.inspectionType === "ct") currentSteps = CT_STEPS;
   if (activeMachine?.inspectionType === "cabinet") currentSteps = CABINET_STEPS;
+  if (activeMachine?.inspectionType === "accelerator")
+    currentSteps = ACCELERATOR_STEPS;
   const activeFacilityMachines = machines
     .filter((m) => m.entityId === activeFacilityId)
     .sort((a, b) => a.location.localeCompare(b.location));
@@ -2921,6 +2961,48 @@ export default function App(): JSX.Element | null {
                     </button>
                   )}
                 </div>
+                {/* ACCELERATOR */}
+                <div
+                  className={`flex items-center justify-between p-4 rounded-lg border ${
+                    templates.accelerator
+                      ? "bg-red-50 border-red-200"
+                      : "bg-slate-50 border-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        templates.accelerator
+                          ? "bg-red-200 text-red-700"
+                          : "bg-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <Zap size={16} />
+                    </div>
+                    <div>
+                      <p
+                        className={`text-sm font-bold ${
+                          templates.accelerator
+                            ? "text-red-900"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        Accelerator Template
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {templateNames.accelerator}
+                      </p>
+                    </div>
+                  </div>
+                  {templates.accelerator && (
+                    <button
+                      onClick={(e) => removeTemplate("accelerator", e)}
+                      className="p-2 bg-white text-red-500 rounded hover:bg-red-50 border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
@@ -2998,6 +3080,8 @@ export default function App(): JSX.Element | null {
                     ? "bg-cyan-100 text-cyan-700"
                     : activeMachine.inspectionType === "panoramic"
                     ? "bg-sky-100 text-sky-700"
+                    : activeMachine.inspectionType === "accelerator"
+                    ? "bg-red-100 text-red-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -3077,18 +3161,82 @@ export default function App(): JSX.Element | null {
               )}
               {(activeMachine.inspectionType === "general" ||
                 activeMachine.inspectionType === "fluoroscope" ||
-                activeMachine.inspectionType === "ct") && (
+                activeMachine.inspectionType === "ct" ||
+                activeMachine.inspectionType === "accelerator") && (
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase">
-                    # of Tubes
+                    # of X-Ray Tubes
                   </label>
                   <input
                     className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                     placeholder="1"
-                    value={activeMachine.data["num_tubes"] || ""}
+                    value={activeMachine.data["num_tubes"] || "1"}
                     onChange={(e) => updateField("num_tubes", e.target.value)}
                   />
                 </div>
+              )}
+
+              {activeMachine.inspectionType === "accelerator" && (
+                <>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Max Energy (MeV/MV)
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="e.g. 6 MV"
+                      value={activeMachine.data["max"] || ""}
+                      onChange={(e) => updateField("max", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      RAM License Required?
+                    </label>
+                    <select
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 bg-white"
+                      value={activeMachine.data["required"] || ""}
+                      onChange={(e) => updateField("required", e.target.value)}
+                    >
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      RAM License Number
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="License #"
+                      value={activeMachine.data["license"] || ""}
+                      onChange={(e) => updateField("license", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      RSO Name
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="RSO Name"
+                      value={activeMachine.data["rso"] || ""}
+                      onChange={(e) => updateField("rso", e.target.value)}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      On-Board Imaging Type
+                    </label>
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="e.g. CBCT, kV imaging"
+                      value={activeMachine.data["onboard"] || ""}
+                      onChange={(e) => updateField("onboard", e.target.value)}
+                    />
+                  </div>
+                </>
               )}
 
               {activeMachine.inspectionType === "fluoroscope" && (
@@ -3117,6 +3265,7 @@ export default function App(): JSX.Element | null {
           {activeMachine.inspectionType !== "analytical" &&
             activeMachine.inspectionType !== "bone_density" &&
             activeMachine.inspectionType !== "cabinet" &&
+            activeMachine.inspectionType !== "accelerator" &&
             lastScannedText && (
               <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-500 mb-2 overflow-hidden">
                 <div className="font-bold mb-1 text-slate-700">
@@ -3463,6 +3612,8 @@ export default function App(): JSX.Element | null {
                             ? "bg-cyan-100 text-cyan-700"
                             : m.inspectionType === "panoramic"
                             ? "bg-sky-100 text-sky-700"
+                            : m.inspectionType === "accelerator"
+                            ? "bg-red-100 text-red-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
@@ -3642,6 +3793,8 @@ export default function App(): JSX.Element | null {
                             ? "bg-cyan-100 text-cyan-700"
                             : m.inspectionType === "panoramic"
                             ? "bg-sky-100 text-sky-700"
+                            : m.inspectionType === "accelerator"
+                            ? "bg-red-100 text-red-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
@@ -3746,6 +3899,9 @@ export default function App(): JSX.Element | null {
                     </option>
                     <option value="combination_rf|Combination - R&F">
                       Combination - R&F
+                    </option>
+                    <option value="accelerator|Accelerator">
+                      Accelerator
                     </option>
                   </optgroup>
                 </select>
@@ -3925,6 +4081,9 @@ export default function App(): JSX.Element | null {
                       </option>
                       <option value="combination_rf|Combination - R&F">
                         Combination - R&F
+                      </option>
+                      <option value="accelerator|Accelerator">
+                        Accelerator
                       </option>
                     </optgroup>
                   </select>
