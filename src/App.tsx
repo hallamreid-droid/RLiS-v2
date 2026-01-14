@@ -1201,6 +1201,7 @@ export default function App(): JSX.Element | null {
         name.includes("security")
       )
         type = "cabinet";
+      else if (name.includes("accelerator")) type = "accelerator";
 
       if (type) {
         const reader = new FileReader();
@@ -2234,9 +2235,20 @@ export default function App(): JSX.Element | null {
         : machine.inspectionType;
     const selectedTemplate = templates[templateType];
     if (!selectedTemplate) {
+      const templateNameMap: Record<string, string> = {
+        dental: "Dental",
+        general: "Gen Rad",
+        analytical: "Analytical",
+        fluoroscope: "Fluoroscope",
+        ct: "CT",
+        cabinet: "Cabinet",
+        bone_density: "Bone Density",
+        industrial: "Industrial",
+        accelerator: "Accelerator",
+      };
       alert(
         `Please upload the ${
-          templateType === "dental" ? "Dental" : "Gen Rad"
+          templateNameMap[templateType] || templateType
         } Template in Settings!`
       );
       return;
@@ -2969,7 +2981,7 @@ export default function App(): JSX.Element | null {
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
-                      <Zap size={16} />
+                      <Activity size={16} />
                     </div>
                     <div>
                       <p
