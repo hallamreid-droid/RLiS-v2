@@ -536,23 +536,15 @@ const CABINET_STEPS = [
 const ACCELERATOR_STEPS = [
   {
     id: "acc1",
-    label: "1. Accelerator Info",
-    desc: "Enter accelerator details",
-    fields: ["num_tubes", "max", "required", "license", "rso", "onboard"],
-    indices: ["num_tubes", "max", "required", "license", "rso", "onboard"],
-    scanType: "manual",
-  },
-  {
-    id: "acc2",
-    label: "2. Scatter (Door)",
+    label: "1. Scatter (Door)",
     desc: "Scan Dose (Default <1)",
     fields: ["door"],
     indices: ["mR"],
     scanType: "screen",
   },
   {
-    id: "acc3",
-    label: "3. Scatter (Console)",
+    id: "acc2",
+    label: "2. Scatter (Console)",
     desc: "Scan Dose (Default <1)",
     fields: ["console"],
     indices: ["mR"],
@@ -3193,15 +3185,12 @@ export default function App(): JSX.Element | null {
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
                       RAM License Required?
                     </label>
-                    <select
-                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700 bg-white"
+                    <input
+                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
+                      placeholder="Yes / No"
                       value={activeMachine.data["required"] || ""}
                       onChange={(e) => updateField("required", e.target.value)}
-                    >
-                      <option value="">Select...</option>
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                    </select>
+                    />
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
