@@ -3204,13 +3204,13 @@ export default function App(): JSX.Element | null {
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
-                      RSO Name
+                      RAM License Number
                     </label>
                     <input
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="RSO Name"
-                      value={activeMachine.data["rso"] || ""}
-                      onChange={(e) => updateField("rso", e.target.value)}
+                      placeholder="License #"
+                      value={activeMachine.data["license"] || ""}
+                      onChange={(e) => updateField("license", e.target.value)}
                     />
                   </div>
                   <div>
@@ -3226,13 +3226,13 @@ export default function App(): JSX.Element | null {
                   </div>
                   <div className="col-span-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
-                      RAM License Number
+                      RSO Name
                     </label>
                     <input
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="License #"
-                      value={activeMachine.data["license"] || ""}
-                      onChange={(e) => updateField("license", e.target.value)}
+                      placeholder="RSO Name"
+                      value={activeMachine.data["rso"] || ""}
+                      onChange={(e) => updateField("rso", e.target.value)}
                     />
                   </div>
                 </>
