@@ -3182,17 +3182,6 @@ export default function App(): JSX.Element | null {
                 <>
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase">
-                      # of Tubes
-                    </label>
-                    <input
-                      className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="1"
-                      value={activeMachine.data["num_tubes"] || ""}
-                      onChange={(e) => updateField("num_tubes", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">
                       Max Energy (MeV/MV)
                     </label>
                     <input
@@ -3910,9 +3899,7 @@ export default function App(): JSX.Element | null {
                     <option value="combination_rf|Combination - R&F">
                       Combination - R&F
                     </option>
-                    <option value="accelerator|Accelerator">
-                      Accelerator
-                    </option>
+                    <option value="accelerator|Accelerator">Accelerator</option>
                   </optgroup>
                 </select>
               </div>
