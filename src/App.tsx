@@ -1836,6 +1836,115 @@ export default function App(): JSX.Element | null {
       );
       saveMachineToFirestore(updated);
     }
+    handleMultiTubeSync();
+    setActiveMachineId(null);
+    setView("machine-list");
+  };
+
+  // --- MULTI-TUBE HANDLING ---
+  const handleMultiTubeSync = () => {
+    if (!activeMachineId) return;
+    const machine = machines.find((m) => m.id === activeMachineId);
+    if (!machine) return;
+
+    // Only handle multi-tube for types that support it
+    const multiTubeTypes: InspectionType[] = ["general", "fluoroscope", "ct"];
+    if (!multiTubeTypes.includes(machine.inspectionType)) return;
+
+    const numTubes = parseInt(machine.data["num_tubes"] || "1", 10);
+    if (numTubes <= 1 || numTubes > 4) return;
+
+    // Get the base location (strip any existing tube suffix like " (1)", " (2)", etc.)
+    const baseLocation = machine.location.replace(/ \(\d\)$/, "");
+
+    // Find all existing machines that share the same base characteristics
+    const siblingMachines = machines.filter(
+      (m) =>
+        m.entityId === machine.entityId &&
+        m.make === machine.make &&
+        m.model === machine.model &&
+        m.serial === machine.serial &&
+        m.location.replace(/ \(\d\)$/, "") === baseLocation
+    );
+
+    const currentTubeCount = siblingMachines.length;
+
+    // If we already have the right number of tubes, just ensure suffixes are correct
+    if (currentTubeCount === numTubes) {
+      // Update all siblings to have correct suffixes and num_tubes
+      const updatedMachines = siblingMachines.map((m, idx) => ({
+        ...m,
+        location: `${baseLocation} (${idx + 1})`,
+        data: { ...m.data, tube_no: String(idx + 1), num_tubes: String(numTubes) },
+      }));
+
+      setMachines((prev) =>
+        prev.map((m) => {
+          const updated = updatedMachines.find((u) => u.id === m.id);
+          return updated || m;
+        })
+      );
+      updatedMachines.forEach((m) => saveMachineToFirestore(m));
+      return;
+    }
+
+    // Need to add more tubes
+    if (currentTubeCount < numTubes) {
+      // First, update the original machine with (1) suffix if it doesn't have one
+      const updatedOriginal = {
+        ...machine,
+        location: `${baseLocation} (1)`,
+        data: { ...machine.data, tube_no: "1", num_tubes: String(numTubes) },
+      };
+
+      // Update any existing siblings with correct tube numbers
+      const updatedSiblings = siblingMachines
+        .filter((m) => m.id !== machine.id)
+        .map((m, idx) => ({
+          ...m,
+          location: `${baseLocation} (${idx + 2})`,
+          data: { ...m.data, tube_no: String(idx + 2), num_tubes: String(numTubes) },
+        }));
+
+      // Create new machines for additional tubes
+      const newMachines: Machine[] = [];
+      for (let i = currentTubeCount + 1; i <= numTubes; i++) {
+        const newMachine: Machine = {
+          id: `${machine.id}_tube${i}_${Date.now()}`,
+          fullDetails: machine.fullDetails,
+          make: machine.make,
+          model: machine.model,
+          serial: machine.serial,
+          type: machine.type,
+          inspectionType: machine.inspectionType,
+          location: `${baseLocation} (${i})`,
+          registrantName: machine.registrantName,
+          entityId: machine.entityId,
+          data: { tube_no: String(i), num_tubes: String(numTubes) },
+          isComplete: false,
+        };
+        newMachines.push(newMachine);
+      }
+
+      // Update state with all changes
+      setMachines((prev) => {
+        let updated = prev.map((m) => {
+          if (m.id === machine.id) return updatedOriginal;
+          const sibling = updatedSiblings.find((s) => s.id === m.id);
+          return sibling || m;
+        });
+        return [...updated, ...newMachines];
+      });
+
+      // Save to Firestore
+      saveMachineToFirestore(updatedOriginal);
+      updatedSiblings.forEach((m) => saveMachineToFirestore(m));
+      newMachines.forEach((m) => saveMachineToFirestore(m));
+    }
+  };
+
+  const handleBackFromInspection = () => {
+    handleMultiTubeSync();
     setActiveMachineId(null);
     setView("machine-list");
   };
@@ -1843,7 +1952,10 @@ export default function App(): JSX.Element | null {
   // --- DATA PREPARATION HELPER ---
   const getMachineData = (machine: Machine) => {
     // Remove (R) or (F) suffix from location for R&F combo machines
-    const cleanLocation = machine.location.replace(/ \([RF]\)$/, "");
+    // Also remove tube number suffixes like (1), (2), (3), (4)
+    const cleanLocation = machine.location
+      .replace(/ \([RF]\)$/, "")
+      .replace(/ \(\d\)$/, "");
 
     let finalData: any = {
       inspector: "RH",
@@ -3056,7 +3168,7 @@ export default function App(): JSX.Element | null {
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
-              onClick={() => setView("machine-list")}
+              onClick={handleBackFromInspection}
               className="p-2 -ml-2 text-slate-600 hover:bg-slate-50 rounded-full active:scale-95 transition-transform"
             >
               <ArrowLeft size={24} />
