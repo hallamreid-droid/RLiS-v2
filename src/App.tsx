@@ -1831,20 +1831,20 @@ export default function App(): JSX.Element | null {
     if (machine) {
       const { noDataReason, ...cleanData } = machine.data;
       const updated = { ...machine, isComplete: true, data: cleanData };
-      setMachines((prev) =>
-        prev.map((m) => (m.id === activeMachineId ? updated : m))
-      );
-      saveMachineToFirestore(updated);
+      // Handle multi-tube sync with the completed machine
+      handleMultiTubeSync(updated);
     }
-    handleMultiTubeSync();
     setActiveMachineId(null);
     setView("machine-list");
   };
 
   // --- MULTI-TUBE HANDLING ---
-  const handleMultiTubeSync = () => {
+  // Pass updatedActiveMachine when the active machine has been modified (e.g., marked complete)
+  const handleMultiTubeSync = (updatedActiveMachine?: Machine) => {
     if (!activeMachineId) return;
-    const machine = machines.find((m) => m.id === activeMachineId);
+
+    // Use the updated machine if provided, otherwise get from state
+    const machine = updatedActiveMachine || machines.find((m) => m.id === activeMachineId);
     if (!machine) return;
 
     // Only handle multi-tube for types that support it
@@ -1872,11 +1872,15 @@ export default function App(): JSX.Element | null {
     // If we already have the right number of tubes, just ensure suffixes are correct
     if (currentTubeCount === numTubes) {
       // Update all siblings to have correct suffixes and num_tubes
-      const updatedMachines = siblingMachines.map((m, idx) => ({
-        ...m,
-        location: `${baseLocation} (${idx + 1})`,
-        data: { ...m.data, tube_no: String(idx + 1), num_tubes: String(numTubes) },
-      }));
+      const updatedMachines = siblingMachines.map((m, idx) => {
+        // If this is the active machine and we have an updated version, use it
+        const baseMachine = m.id === activeMachineId && updatedActiveMachine ? updatedActiveMachine : m;
+        return {
+          ...baseMachine,
+          location: `${baseLocation} (${idx + 1})`,
+          data: { ...baseMachine.data, tube_no: String(idx + 1), num_tubes: String(numTubes) },
+        };
+      });
 
       setMachines((prev) =>
         prev.map((m) => {
