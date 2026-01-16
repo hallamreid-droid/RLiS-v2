@@ -3101,6 +3101,22 @@ export default function App(): JSX.Element | null {
             </div>
           </div>
         </header>
+
+        {/* NO DATA OVERRIDE BANNER */}
+        {activeMachine.data.noDataReason && (
+          <div className="mx-4 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+            <AlertCircle className="text-amber-500 flex-shrink-0 mt-0.5" size={18} />
+            <div>
+              <p className="text-sm font-bold text-amber-800">
+                Marked as: {activeMachine.data.noDataReason === "MACHINE NOT OPERATIONAL" ? "Not Operational" : "Not In Facility"}
+              </p>
+              <p className="text-xs text-amber-600 mt-1">
+                To clear this designation, enter inspection data and tap "Update Inspection"
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="p-4 space-y-6">
           {/* MACHINE SETTINGS */}
           <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
