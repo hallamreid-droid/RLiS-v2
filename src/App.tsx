@@ -847,6 +847,11 @@ export default function App(): JSX.Element | null {
     typeLabel: "Intraoral",
   });
 
+  // Per-machine menu state
+  const [machineMenuId, setMachineMenuId] = useState<string | null>(null);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [notesText, setNotesText] = useState("");
+
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({
@@ -1796,6 +1801,11 @@ export default function App(): JSX.Element | null {
   const deleteXXMachine = (machineId: string) => {
     const machine = machines.find((m) => m.id === machineId);
     if (!machine || !machine.location.includes("-XX")) return;
+    setMachines((prev) => prev.filter((m) => m.id !== machineId));
+    deleteMachineFromFirestore(machineId);
+  };
+
+  const deleteMachine = (machineId: string) => {
     setMachines((prev) => prev.filter((m) => m.id !== machineId));
     deleteMachineFromFirestore(machineId);
   };
@@ -3733,11 +3743,16 @@ export default function App(): JSX.Element | null {
                       : "hover:bg-slate-50 cursor-pointer"
                   }`}
                 >
-                  <div>
-                    <div className="font-bold text-sm text-slate-800">
-                      {m.location}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-sm text-slate-800 truncate">
+                        {m.location}
+                      </div>
+                      {m.data.note && (
+                        <FileText size={12} className="text-amber-500 flex-shrink-0" />
+                      )}
                     </div>
-                    <div className="flex gap-2 items-center mt-1">
+                    <div className="flex gap-2 items-center mt-1 flex-wrap">
                       <span
                         className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
                           m.inspectionType === "general"
@@ -3765,36 +3780,20 @@ export default function App(): JSX.Element | null {
                       >
                         {m.inspectionType.replace("_", " ")}
                       </span>
-                      <span className="text-xs text-slate-500">
+                      {m.data.noDataReason && (
+                        <span className="text-[9px] font-bold text-slate-500 uppercase bg-slate-100 px-1.5 py-0.5 rounded">
+                          {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
+                            ? "NOT OPERATIONAL"
+                            : "NOT IN FACILITY"}
+                        </span>
+                      )}
+                      <span className="text-xs text-slate-500 truncate">
                         {m.fullDetails}
                       </span>
                     </div>
                   </div>
-                  {m.isComplete ? (
-                    <div className="flex items-center gap-3">
-                      {m.data.noDataReason && (
-                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                          <AlertCircle size={10} className="text-slate-500" />
-                          <span className="text-[9px] font-bold text-slate-500 uppercase">
-                            {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
-                              ? "NOT OPERATIONAL"
-                              : "NOT IN FACILITY"}
-                          </span>
-                        </div>
-                      )}
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMachineId(m.id);
-                          setView("mobile-form", true);
-                        }}
-                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                        title="Edit Inspection"
-                      >
-                        <Edit3 size={18} />
-                      </button>
-
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    {m.isComplete && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -3805,56 +3804,24 @@ export default function App(): JSX.Element | null {
                       >
                         <Download size={18} />
                       </button>
-
-                      {m.location.includes("-XX") && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm("Delete this XX machine?")) {
-                              deleteXXMachine(m.id);
-                            }
-                          }}
-                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                          title="Delete XX Machine"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      {m.location.includes("-XX") && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm("Delete this XX machine?")) {
-                              deleteXXMachine(m.id);
-                            }
-                          }}
-                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                          title="Delete XX Machine"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          setActiveMachineId(m.id);
-                          setView("mobile-form", true);
-                        }}
-                        className="bg-slate-100 p-1.5 rounded-full hover:bg-blue-100 active:scale-95 transition-all cursor-pointer"
-                      >
-                        <ChevronRight className="text-slate-400 h-4 w-4" />
-                      </button>
-                    </div>
-                  )}
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMachineMenuId(m.id);
+                      }}
+                      className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* --- MENU MODAL --- */}
+        {/* --- HEADER MENU MODAL --- */}
         {showMachineMenu && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
@@ -3864,15 +3831,6 @@ export default function App(): JSX.Element | null {
                 </h3>
               </div>
               <div className="p-2 space-y-1">
-                <button
-                  onClick={() => {
-                    setShowMachineMenu(false);
-                    setShowMachineSelector(true);
-                  }}
-                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors"
-                >
-                  Change Machine Type
-                </button>
                 <button
                   onClick={() => {
                     setShowMachineMenu(false);
@@ -3889,6 +3847,134 @@ export default function App(): JSX.Element | null {
                   className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- PER-MACHINE MENU MODAL --- */}
+        {machineMenuId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Machine Options
+                </h3>
+              </div>
+              <div className="p-2 space-y-1">
+                {machines.find((m) => m.id === machineMenuId)?.isComplete && (
+                  <button
+                    onClick={() => {
+                      setActiveMachineId(machineMenuId);
+                      setMachineMenuId(null);
+                      setView("mobile-form", true);
+                    }}
+                    className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
+                  >
+                    <Edit3 size={18} className="text-blue-500" />
+                    Edit Inspection
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const machine = machines.find((m) => m.id === machineMenuId);
+                    setNotesText(machine?.data.note || "");
+                    setShowNotesModal(true);
+                  }}
+                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
+                >
+                  <FileText size={18} className="text-amber-500" />
+                  Notes
+                  {machines.find((m) => m.id === machineMenuId)?.data.note && (
+                    <span className="text-xs text-amber-500 ml-auto">Has notes</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedMachineForTypeChange(machineMenuId);
+                    setMachineMenuId(null);
+                    setShowTypeSelector(true);
+                  }}
+                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
+                >
+                  <Settings size={18} className="text-slate-500" />
+                  Change Machine Type
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("Are you sure you want to delete this machine?")) {
+                      deleteMachine(machineMenuId);
+                      setMachineMenuId(null);
+                    }
+                  }}
+                  className="w-full p-4 text-left hover:bg-red-50 rounded-xl font-medium text-red-600 transition-colors flex items-center gap-3"
+                >
+                  <Trash2 size={18} />
+                  Delete Machine
+                </button>
+              </div>
+              <div className="p-4 pt-2">
+                <button
+                  onClick={() => setMachineMenuId(null)}
+                  className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- NOTES MODAL --- */}
+        {showNotesModal && machineMenuId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Notes
+                </h3>
+              </div>
+              <div className="p-4">
+                <textarea
+                  value={notesText}
+                  onChange={(e) => setNotesText(e.target.value)}
+                  placeholder="Add notes about this machine..."
+                  className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                  rows={5}
+                  autoFocus
+                />
+              </div>
+              <div className="p-4 pt-0 flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowNotesModal(false);
+                    setNotesText("");
+                  }}
+                  className="flex-1 py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const machine = machines.find((m) => m.id === machineMenuId);
+                    if (machine) {
+                      const updated = {
+                        ...machine,
+                        data: { ...machine.data, note: notesText },
+                      };
+                      setMachines((prev) =>
+                        prev.map((m) => (m.id === machineMenuId ? updated : m))
+                      );
+                      saveMachineToFirestore(updated);
+                    }
+                    setShowNotesModal(false);
+                    setMachineMenuId(null);
+                    setNotesText("");
+                  }}
+                  className="flex-1 py-3 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700"
+                >
+                  Save
                 </button>
               </div>
             </div>
