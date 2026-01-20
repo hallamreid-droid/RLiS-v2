@@ -3770,14 +3770,17 @@ export default function App(): JSX.Element | null {
                 <div
                   key={m.id}
                   onClick={() => {
-                    if (!m.isComplete) {
+                    // Allow clicking on incomplete machines OR completed machines with noDataReason (to clear it)
+                    if (!m.isComplete || m.data.noDataReason) {
                       setActiveMachineId(m.id);
                       setView("mobile-form", true);
                     }
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
-                    m.isComplete
+                    m.isComplete && !m.data.noDataReason
                       ? "bg-emerald-50"
+                      : m.data.noDataReason
+                      ? "bg-amber-50 hover:bg-amber-100 cursor-pointer"
                       : "hover:bg-slate-50 cursor-pointer"
                   }`}
                 >
@@ -3821,19 +3824,19 @@ export default function App(): JSX.Element | null {
                       >
                         {m.inspectionType.replace("_", " ")}
                       </span>
-                      {m.data.noDataReason && (
-                        <span className="text-[9px] font-bold text-slate-500 uppercase bg-slate-100 px-1.5 py-0.5 rounded">
-                          {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
-                            ? "NOT OPERATIONAL"
-                            : "NOT IN FACILITY"}
-                        </span>
-                      )}
                       <span className="text-xs text-slate-500 truncate">
                         {m.fullDetails}
                       </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    {m.data.noDataReason && (
+                      <span className="text-[9px] font-bold uppercase px-2 py-1 rounded bg-amber-100 text-amber-700">
+                        {m.data.noDataReason === "MACHINE NOT OPERATIONAL"
+                          ? "NOT OPERATIONAL"
+                          : "NOT IN FACILITY"}
+                      </span>
+                    )}
                     {m.isComplete && (
                       <button
                         onClick={(e) => {
