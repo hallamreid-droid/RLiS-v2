@@ -1837,20 +1837,27 @@ export default function App(): JSX.Element | null {
 
   const markAsComplete = () => {
     if (!activeMachineId) return;
-    const machine = machines.find((m) => m.id === activeMachineId);
-    if (machine) {
+
+    let updatedMachine: Machine | null = null;
+
+    // Use functional update to ensure we read from the latest state
+    // This is important because updateField may have queued state changes
+    setMachines((prev) => {
+      const machine = prev.find((m) => m.id === activeMachineId);
+      if (!machine) return prev;
+
       const { noDataReason, ...cleanData } = machine.data;
-      const updated = { ...machine, isComplete: true, data: cleanData };
+      updatedMachine = { ...machine, isComplete: true, data: cleanData };
 
-      // Always update the machine state and save to Firestore
-      setMachines((prev) =>
-        prev.map((m) => (m.id === activeMachineId ? updated : m))
-      );
-      saveMachineToFirestore(updated);
+      return prev.map((m) => (m.id === activeMachineId ? updatedMachine! : m));
+    });
 
-      // Handle multi-tube sync with the completed machine (for additional tube syncing)
-      handleMultiTubeSync(updated);
+    // Save to Firestore and handle multi-tube sync after state update
+    if (updatedMachine) {
+      saveMachineToFirestore(updatedMachine);
+      handleMultiTubeSync(updatedMachine);
     }
+
     setActiveMachineId(null);
     setView("machine-list");
   };
@@ -3770,17 +3777,16 @@ export default function App(): JSX.Element | null {
                 <div
                   key={m.id}
                   onClick={() => {
-                    // Allow clicking on incomplete machines OR completed machines with noDataReason (to clear it)
-                    if (!m.isComplete || m.data.noDataReason) {
+                    if (!m.isComplete) {
                       setActiveMachineId(m.id);
                       setView("mobile-form", true);
                     }
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
-                    m.isComplete && !m.data.noDataReason
-                      ? "bg-emerald-50"
-                      : m.data.noDataReason
-                      ? "bg-amber-50 hover:bg-amber-100 cursor-pointer"
+                    m.isComplete
+                      ? m.data.noDataReason
+                        ? "bg-amber-50"
+                        : "bg-emerald-50"
                       : "hover:bg-slate-50 cursor-pointer"
                   }`}
                 >
