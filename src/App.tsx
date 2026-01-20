@@ -1841,7 +1841,14 @@ export default function App(): JSX.Element | null {
     if (machine) {
       const { noDataReason, ...cleanData } = machine.data;
       const updated = { ...machine, isComplete: true, data: cleanData };
-      // Handle multi-tube sync with the completed machine
+
+      // Always update the machine state and save to Firestore
+      setMachines((prev) =>
+        prev.map((m) => (m.id === activeMachineId ? updated : m))
+      );
+      saveMachineToFirestore(updated);
+
+      // Handle multi-tube sync with the completed machine (for additional tube syncing)
       handleMultiTubeSync(updated);
     }
     setActiveMachineId(null);
@@ -1854,12 +1861,17 @@ export default function App(): JSX.Element | null {
     if (!activeMachineId) return;
 
     // Use the updated machine if provided, otherwise get from state
-    const machine = updatedActiveMachine || machines.find((m) => m.id === activeMachineId);
+    const machine =
+      updatedActiveMachine || machines.find((m) => m.id === activeMachineId);
     if (!machine) return;
 
     // Only handle multi-tube for types that support it
     const multiTubeTypes: InspectionType[] = ["general", "fluoroscope", "ct"];
     if (!multiTubeTypes.includes(machine.inspectionType)) return;
+
+    // Skip R&F machines - they already have 2 tubes by design (R and F)
+    // and should not create additional machines based on num_tubes field
+    if (machine.type.includes("(R&F)")) return;
 
     const numTubes = parseInt(machine.data["num_tubes"] || "1", 10);
     if (numTubes <= 1 || numTubes > 4) return;
@@ -1884,11 +1896,18 @@ export default function App(): JSX.Element | null {
       // Update all siblings to have correct suffixes and num_tubes
       const updatedMachines = siblingMachines.map((m, idx) => {
         // If this is the active machine and we have an updated version, use it
-        const baseMachine = m.id === activeMachineId && updatedActiveMachine ? updatedActiveMachine : m;
+        const baseMachine =
+          m.id === activeMachineId && updatedActiveMachine
+            ? updatedActiveMachine
+            : m;
         return {
           ...baseMachine,
           location: `${baseLocation} (${idx + 1})`,
-          data: { ...baseMachine.data, tube_no: String(idx + 1), num_tubes: String(numTubes) },
+          data: {
+            ...baseMachine.data,
+            tube_no: String(idx + 1),
+            num_tubes: String(numTubes),
+          },
         };
       });
 
@@ -1917,7 +1936,11 @@ export default function App(): JSX.Element | null {
         .map((m, idx) => ({
           ...m,
           location: `${baseLocation} (${idx + 2})`,
-          data: { ...m.data, tube_no: String(idx + 2), num_tubes: String(numTubes) },
+          data: {
+            ...m.data,
+            tube_no: String(idx + 2),
+            num_tubes: String(numTubes),
+          },
         }));
 
       // Create new machines for additional tubes
@@ -3231,13 +3254,20 @@ export default function App(): JSX.Element | null {
         {/* NO DATA OVERRIDE BANNER */}
         {activeMachine.data.noDataReason && (
           <div className="mx-4 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-            <AlertCircle className="text-amber-500 flex-shrink-0 mt-0.5" size={18} />
+            <AlertCircle
+              className="text-amber-500 flex-shrink-0 mt-0.5"
+              size={18}
+            />
             <div>
               <p className="text-sm font-bold text-amber-800">
-                Marked as: {activeMachine.data.noDataReason === "MACHINE NOT OPERATIONAL" ? "Not Operational" : "Not In Facility"}
+                Marked as:{" "}
+                {activeMachine.data.noDataReason === "MACHINE NOT OPERATIONAL"
+                  ? "Not Operational"
+                  : "Not In Facility"}
               </p>
               <p className="text-xs text-amber-600 mt-1">
-                To clear this designation, enter inspection data and tap "Update Inspection"
+                To clear this designation, enter inspection data and tap "Update
+                Inspection"
               </p>
             </div>
           </div>
@@ -3365,7 +3395,9 @@ export default function App(): JSX.Element | null {
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                       placeholder="18 MV"
                       value={activeMachine.data["max_energy"] || ""}
-                      onChange={(e) => updateField("max_energy", e.target.value)}
+                      onChange={(e) =>
+                        updateField("max_energy", e.target.value)
+                      }
                     />
                   </div>
                   <div>
@@ -3376,7 +3408,9 @@ export default function App(): JSX.Element | null {
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                       placeholder="Yes/No"
                       value={activeMachine.data["license_required"] || ""}
-                      onChange={(e) => updateField("license_required", e.target.value)}
+                      onChange={(e) =>
+                        updateField("license_required", e.target.value)
+                      }
                     />
                   </div>
                   <div>
@@ -3387,7 +3421,9 @@ export default function App(): JSX.Element | null {
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                       placeholder="License #"
                       value={activeMachine.data["license_number"] || ""}
-                      onChange={(e) => updateField("license_number", e.target.value)}
+                      onChange={(e) =>
+                        updateField("license_number", e.target.value)
+                      }
                     />
                   </div>
                   <div>
@@ -3398,7 +3434,9 @@ export default function App(): JSX.Element | null {
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                       placeholder="Type"
                       value={activeMachine.data["onboard_imaging"] || ""}
-                      onChange={(e) => updateField("onboard_imaging", e.target.value)}
+                      onChange={(e) =>
+                        updateField("onboard_imaging", e.target.value)
+                      }
                     />
                   </div>
                   <div>
@@ -3749,7 +3787,10 @@ export default function App(): JSX.Element | null {
                         {m.location}
                       </div>
                       {m.data.note && (
-                        <FileText size={12} className="text-amber-500 flex-shrink-0" />
+                        <FileText
+                          size={12}
+                          className="text-amber-500 flex-shrink-0"
+                        />
                       )}
                     </div>
                     <div className="flex gap-2 items-center mt-1 flex-wrap">
@@ -3878,7 +3919,9 @@ export default function App(): JSX.Element | null {
                 )}
                 <button
                   onClick={() => {
-                    const machine = machines.find((m) => m.id === machineMenuId);
+                    const machine = machines.find(
+                      (m) => m.id === machineMenuId
+                    );
                     setNotesText(machine?.data.note || "");
                     setShowNotesModal(true);
                   }}
@@ -3887,7 +3930,9 @@ export default function App(): JSX.Element | null {
                   <FileText size={18} className="text-amber-500" />
                   Notes
                   {machines.find((m) => m.id === machineMenuId)?.data.note && (
-                    <span className="text-xs text-amber-500 ml-auto">Has notes</span>
+                    <span className="text-xs text-amber-500 ml-auto">
+                      Has notes
+                    </span>
                   )}
                 </button>
                 <button
@@ -3903,7 +3948,9 @@ export default function App(): JSX.Element | null {
                 </button>
                 <button
                   onClick={() => {
-                    if (confirm("Are you sure you want to delete this machine?")) {
+                    if (
+                      confirm("Are you sure you want to delete this machine?")
+                    ) {
                       deleteMachine(machineMenuId);
                       setMachineMenuId(null);
                     }
@@ -3957,7 +4004,9 @@ export default function App(): JSX.Element | null {
                 </button>
                 <button
                   onClick={() => {
-                    const machine = machines.find((m) => m.id === machineMenuId);
+                    const machine = machines.find(
+                      (m) => m.id === machineMenuId
+                    );
                     if (machine) {
                       const updated = {
                         ...machine,
@@ -4312,7 +4361,9 @@ export default function App(): JSX.Element | null {
                       <option value="combination_rf|Combination - R&F">
                         Combination - R&F
                       </option>
-                      <option value="accelerator|Accelerator">Accelerator</option>
+                      <option value="accelerator|Accelerator">
+                        Accelerator
+                      </option>
                     </optgroup>
                   </select>
                 </div>
