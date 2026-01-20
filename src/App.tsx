@@ -1838,25 +1838,29 @@ export default function App(): JSX.Element | null {
   const markAsComplete = () => {
     if (!activeMachineId) return;
 
-    let updatedMachine: Machine | null = null;
-
     // Use functional update to ensure we read from the latest state
     // This is important because updateField may have queued state changes
+    let machineToSave: Machine | null = null;
+
     setMachines((prev) => {
       const machine = prev.find((m) => m.id === activeMachineId);
       if (!machine) return prev;
 
       const { noDataReason, ...cleanData } = machine.data;
-      updatedMachine = { ...machine, isComplete: true, data: cleanData };
+      const updatedMachine = { ...machine, isComplete: true, data: cleanData };
+      machineToSave = updatedMachine;
 
-      return prev.map((m) => (m.id === activeMachineId ? updatedMachine! : m));
+      return prev.map((m) => (m.id === activeMachineId ? updatedMachine : m));
     });
 
-    // Save to Firestore and handle multi-tube sync after state update
-    if (updatedMachine) {
-      saveMachineToFirestore(updatedMachine);
-      handleMultiTubeSync(updatedMachine);
+    // Save to Firestore
+    if (machineToSave) {
+      saveMachineToFirestore(machineToSave);
     }
+
+    // Handle multi-tube sync - don't pass machine, let it read from latest state
+    // This ensures consistency since handleMultiTubeSync also uses setMachines
+    handleMultiTubeSync();
 
     setActiveMachineId(null);
     setView("machine-list");
