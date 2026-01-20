@@ -1988,7 +1988,19 @@ export default function App(): JSX.Element | null {
   };
 
   const handleBackFromInspection = () => {
-    handleMultiTubeSync();
+    if (activeMachineId) {
+      // Use functional update to get the latest machine data from state
+      // This ensures we have the most recent num_tubes value after updateField
+      let currentMachine: Machine | undefined;
+      setMachines((prev) => {
+        currentMachine = prev.find((m) => m.id === activeMachineId);
+        return prev; // No changes, just reading
+      });
+
+      if (currentMachine) {
+        handleMultiTubeSync(currentMachine);
+      }
+    }
     setActiveMachineId(null);
     setView("machine-list");
   };
