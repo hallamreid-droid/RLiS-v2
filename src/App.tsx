@@ -2669,12 +2669,15 @@ export default function App(): JSX.Element | null {
         const cabinetFields = ["six_foot_input", "six_foot_output", "operator"];
 
         if (nmqsaType === "standard") {
+          // Blank stereo and cabinet fields
           stereoFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
 
-          // Dynamic defaults matching the new settingsGroup names
+          // Map Preset values to Template tags
           finalData["manual_preset_kvp1"] =
             machine.data["nmqsa_m1_preset_kvp"] || "25";
+          finalData["manual_preset_mas"] =
+            machine.data["nmqsa_m1_preset_mas"] || "";
           finalData["manual_preset_kvp2"] =
             machine.data["nmqsa_m2_preset_kvp"] || "27";
           finalData["manual_preset_kvp3"] =
@@ -2682,13 +2685,26 @@ export default function App(): JSX.Element | null {
           finalData["manual_preset_kvp4"] =
             machine.data["nmqsa_m4_preset_kvp"] || "31";
         } else if (nmqsaType === "stereotactic") {
+          // Blank standard and cabinet fields
           standardFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
 
+          // Map Preset values to Template tags
           finalData["stereo_preset_kvp1"] =
             machine.data["nmqsa_s1_preset_kvp"] || "28";
+          finalData["stereo_preset_mas"] =
+            machine.data["nmqsa_s1_preset_mas"] || "";
           finalData["stereo_preset_kvp2"] =
             machine.data["nmqsa_s2_preset_kvp"] || "31";
+        } else if (nmqsaType === "cabinet") {
+          // Blank standard and stereo fields
+          standardFields.forEach((f) => (finalData[f] = ""));
+          stereoFields.forEach((f) => (finalData[f] = ""));
+          // Default cabinet scatter to <1
+          if (!finalData["six_foot_input"]) finalData["six_foot_input"] = "<1";
+          if (!finalData["six_foot_output"])
+            finalData["six_foot_output"] = "<1";
+          if (!finalData["operator"]) finalData["operator"] = "<1";
         } else if (nmqsaType === "cabinet") {
           // Blank standard and stereo fields
           standardFields.forEach((f) => (finalData[f] = ""));
