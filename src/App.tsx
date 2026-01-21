@@ -1378,6 +1378,8 @@ export default function App(): JSX.Element | null {
       )
         type = "cabinet";
       else if (name.includes("accelerator")) type = "accelerator";
+      else if (name.includes("non-mqsa") || name.includes("non_mqsa"))
+        type = "non_mqsa";
 
       if (type) {
         const reader = new FileReader();
@@ -2419,7 +2421,7 @@ export default function App(): JSX.Element | null {
           "manual_hvl3",
           "manual_kvp4",
           "manual_hvl4",
-          "standard_preset_mas",
+          "manual_preset_mas",
           "stereo_kvp1",
           "stereo_hvl1",
           "stereo_kvp2",
@@ -2627,7 +2629,7 @@ export default function App(): JSX.Element | null {
         const standardFields = [
           ...standardPhantomFields,
           ...standardManualFields,
-          "standard_preset_mas",
+          "manual_preset_mas",
         ];
 
         // Stereotactic fields
@@ -2647,8 +2649,8 @@ export default function App(): JSX.Element | null {
           stereoFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
           // Ensure standard fields have values
-          if (!finalData["standard_preset_mas"])
-            finalData["standard_preset_mas"] = "";
+          if (!finalData["manual_preset_mas"])
+            finalData["manual_preset_mas"] = "";
         } else if (nmqsaType === "stereotactic") {
           // Blank standard and cabinet fields
           standardFields.forEach((f) => (finalData[f] = ""));
@@ -3955,18 +3957,18 @@ export default function App(): JSX.Element | null {
                     </div>
                   </div>
 
-                  {/* Standard preset mAs */}
+                  {/* Manual preset mAs for Standard workflow */}
                   {activeMachine.data["nmqsa_type"] === "standard" && (
                     <div className="col-span-2">
                       <label className="text-[10px] font-bold text-slate-500 uppercase">
-                        Preset mAs (for all phantom exposures)
+                        Preset mAs (for 25-31 kVp exposures)
                       </label>
                       <input
                         className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                         placeholder="Enter mAs"
-                        value={activeMachine.data["standard_preset_mas"] || ""}
+                        value={activeMachine.data["manual_preset_mas"] || ""}
                         onChange={(e) =>
-                          updateField("standard_preset_mas", e.target.value)
+                          updateField("manual_preset_mas", e.target.value)
                         }
                       />
                     </div>
