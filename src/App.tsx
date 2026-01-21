@@ -618,43 +618,47 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
   {
     id: "nmqsa_manual1",
     label: "5. Manual Exposure 1",
-    desc: "Order: Preset kVp, Preset mAs, kVp, HVL",
-    fields: [
-      "manual_preset_kvp1",
-      "manual_preset_mas",
-      "manual_kvp1",
-      "manual_hvl1",
-    ],
-    indices: ["Preset kVp", "Preset mAs", "kVp", "mm Al"],
+    desc: "Order: kVp, HVL",
+    fields: ["manual_kvp1", "manual_hvl1"],
+    indices: ["kVp", "mm Al"],
     scanType: "screen",
-    defaults: { manual_preset_kvp1: "25" },
+    showSettings: true,
+    presetKvpField: "manual_preset_kvp1",
+    presetMasField: "manual_preset_mas",
+    defaultKvp: "25",
   },
   {
     id: "nmqsa_manual2",
     label: "6. Manual Exposure 2",
-    desc: "Order: Preset kVp, kVp, HVL",
-    fields: ["manual_preset_kvp2", "manual_kvp2", "manual_hvl2"],
-    indices: ["Preset kVp", "kVp", "mm Al"],
+    desc: "Order: kVp, HVL",
+    fields: ["manual_kvp2", "manual_hvl2"],
+    indices: ["kVp", "mm Al"],
     scanType: "screen",
-    defaults: { manual_preset_kvp2: "27" },
+    showSettings: true,
+    presetKvpField: "manual_preset_kvp2",
+    defaultKvp: "27",
   },
   {
     id: "nmqsa_manual3",
     label: "7. Manual Exposure 3",
-    desc: "Order: Preset kVp, kVp, HVL",
-    fields: ["manual_preset_kvp3", "manual_kvp3", "manual_hvl3"],
-    indices: ["Preset kVp", "kVp", "mm Al"],
+    desc: "Order: kVp, HVL",
+    fields: ["manual_kvp3", "manual_hvl3"],
+    indices: ["kVp", "mm Al"],
     scanType: "screen",
-    defaults: { manual_preset_kvp3: "29" },
+    showSettings: true,
+    presetKvpField: "manual_preset_kvp3",
+    defaultKvp: "29",
   },
   {
     id: "nmqsa_manual4",
     label: "8. Manual Exposure 4",
-    desc: "Order: Preset kVp, kVp, HVL",
-    fields: ["manual_preset_kvp4", "manual_kvp4", "manual_hvl4"],
-    indices: ["Preset kVp", "kVp", "mm Al"],
+    desc: "Order: kVp, HVL",
+    fields: ["manual_kvp4", "manual_hvl4"],
+    indices: ["kVp", "mm Al"],
     scanType: "screen",
-    defaults: { manual_preset_kvp4: "31" },
+    showSettings: true,
+    presetKvpField: "manual_preset_kvp4",
+    defaultKvp: "31",
   },
 ];
 
@@ -663,25 +667,25 @@ const NON_MQSA_STEREO_STEPS = [
   {
     id: "nmqsa_stereo1",
     label: "1. Stereo Exposure 1",
-    desc: "Order: Preset kVp, Preset mAs, kVp, HVL",
-    fields: [
-      "stereo_preset_kvp1",
-      "stereo_preset_mas",
-      "stereo_kvp1",
-      "stereo_hvl1",
-    ],
-    indices: ["Preset kVp", "Preset mAs", "kVp", "mm Al"],
+    desc: "Order: kVp, HVL",
+    fields: ["stereo_kvp1", "stereo_hvl1"],
+    indices: ["kVp", "mm Al"],
     scanType: "screen",
-    defaults: { stereo_preset_kvp1: "28" },
+    showSettings: true,
+    presetKvpField: "stereo_preset_kvp1",
+    presetMasField: "stereo_preset_mas",
+    defaultKvp: "28",
   },
   {
     id: "nmqsa_stereo2",
     label: "2. Stereo Exposure 2",
-    desc: "Order: Preset kVp, kVp, HVL",
-    fields: ["stereo_preset_kvp2", "stereo_kvp2", "stereo_hvl2"],
-    indices: ["Preset kVp", "kVp", "mm Al"],
+    desc: "Order: kVp, HVL",
+    fields: ["stereo_kvp2", "stereo_hvl2"],
+    indices: ["kVp", "mm Al"],
     scanType: "screen",
-    defaults: { stereo_preset_kvp2: "31" },
+    showSettings: true,
+    presetKvpField: "stereo_preset_kvp2",
+    defaultKvp: "31",
   },
 ];
 
@@ -3216,7 +3220,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.dental
-                      ? "bg-emerald-50 border-emerald-200"
+                      ? "bg-blue-50 border-blue-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3224,7 +3228,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.dental
-                          ? "bg-emerald-200 text-emerald-700"
+                          ? "bg-blue-200 text-blue-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3234,7 +3238,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.dental
-                            ? "text-emerald-900"
+                            ? "text-blue-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3384,7 +3388,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.fluoroscope
-                      ? "bg-blue-50 border-blue-200"
+                      ? "bg-indigo-50 border-indigo-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3392,7 +3396,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.fluoroscope
-                          ? "bg-blue-200 text-blue-700"
+                          ? "bg-indigo-200 text-indigo-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3402,7 +3406,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.fluoroscope
-                            ? "text-blue-900"
+                            ? "text-indigo-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3466,7 +3470,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.industrial
-                      ? "bg-amber-50 border-amber-200"
+                      ? "bg-yellow-50 border-yellow-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3474,18 +3478,17 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.industrial
-                          ? "bg-amber-200 text-amber-700"
+                          ? "bg-yellow-200 text-yellow-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
-                      <Radio size={16} /> {/* Unique symbol for Industrial */}
+                      <Radio size={16} />
                     </div>
-                    {/* ... rest of the slot code */}
                     <div>
                       <p
                         className={`text-sm font-bold ${
                           templates.industrial
-                            ? "text-amber-900"
+                            ? "text-yellow-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3551,7 +3554,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.accelerator
-                      ? "bg-red-50 border-red-200"
+                      ? "bg-lime-50 border-lime-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3559,7 +3562,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.accelerator
-                          ? "bg-red-200 text-red-700"
+                          ? "bg-lime-200 text-lime-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3569,7 +3572,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.accelerator
-                            ? "text-red-900"
+                            ? "text-lime-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3593,7 +3596,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.non_mqsa
-                      ? "bg-rose-50 border-rose-200"
+                      ? "bg-fuchsia-50 border-fuchsia-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3601,7 +3604,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.non_mqsa
-                          ? "bg-rose-200 text-rose-700"
+                          ? "bg-fuchsia-200 text-fuchsia-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3611,7 +3614,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.non_mqsa
-                            ? "text-rose-900"
+                            ? "text-fuchsia-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3695,7 +3698,7 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "analytical"
                     ? "bg-orange-100 text-orange-700"
                     : activeMachine.inspectionType === "industrial"
-                    ? "bg-amber-100 text-amber-700"
+                    ? "bg-yellow-100 text-yellow-700"
                     : activeMachine.inspectionType === "fluoroscope"
                     ? "bg-indigo-100 text-indigo-700"
                     : activeMachine.inspectionType === "ct"
@@ -3709,9 +3712,9 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "panoramic"
                     ? "bg-sky-100 text-sky-700"
                     : activeMachine.inspectionType === "accelerator"
-                    ? "bg-red-100 text-red-700"
+                    ? "bg-lime-100 text-lime-700"
                     : activeMachine.inspectionType === "non_mqsa"
-                    ? "bg-rose-100 text-rose-700"
+                    ? "bg-fuchsia-100 text-fuchsia-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -3940,25 +3943,25 @@ export default function App(): JSX.Element | null {
                       Machine Type
                     </label>
                     <div className="flex flex-col gap-2">
-                      <label className="flex items-center gap-2 p-2 rounded border border-rose-200 bg-rose-50 cursor-pointer">
+                      <label className="flex items-center gap-2 p-2 rounded border border-fuchsia-200 bg-fuchsia-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
-                          className="h-4 w-4 text-rose-600"
+                          className="h-4 w-4 text-fuchsia-600"
                           checked={
                             activeMachine.data["nmqsa_type"] === "standard"
                           }
                           onChange={() => updateField("nmqsa_type", "standard")}
                         />
-                        <span className="text-sm font-bold text-rose-800">
+                        <span className="text-sm font-bold text-fuchsia-800">
                           Standard
                         </span>
                       </label>
-                      <label className="flex items-center gap-2 p-2 rounded border border-rose-200 bg-rose-50 cursor-pointer">
+                      <label className="flex items-center gap-2 p-2 rounded border border-fuchsia-200 bg-fuchsia-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
-                          className="h-4 w-4 text-rose-600"
+                          className="h-4 w-4 text-fuchsia-600"
                           checked={
                             activeMachine.data["nmqsa_type"] === "stereotactic"
                           }
@@ -3966,21 +3969,21 @@ export default function App(): JSX.Element | null {
                             updateField("nmqsa_type", "stereotactic")
                           }
                         />
-                        <span className="text-sm font-bold text-rose-800">
+                        <span className="text-sm font-bold text-fuchsia-800">
                           Stereotactic
                         </span>
                       </label>
-                      <label className="flex items-center gap-2 p-2 rounded border border-rose-200 bg-rose-50 cursor-pointer">
+                      <label className="flex items-center gap-2 p-2 rounded border border-fuchsia-200 bg-fuchsia-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
-                          className="h-4 w-4 text-rose-600"
+                          className="h-4 w-4 text-fuchsia-600"
                           checked={
                             activeMachine.data["nmqsa_type"] === "cabinet"
                           }
                           onChange={() => updateField("nmqsa_type", "cabinet")}
                         />
-                        <span className="text-sm font-bold text-rose-800">
+                        <span className="text-sm font-bold text-fuchsia-800">
                           Cabinet
                         </span>
                       </label>
@@ -4179,6 +4182,44 @@ export default function App(): JSX.Element | null {
                         </>
                       )}
                     </>
+                  )}
+                </div>
+              )}
+
+              {/* Non-MQSA Preset Settings */}
+              {step.presetKvpField && (
+                <div className="mb-4 bg-slate-50 p-2 rounded flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[8px] uppercase font-bold text-slate-400">
+                      Set kVp
+                    </label>
+                    <input
+                      className="w-full bg-white border rounded px-1 text-xs"
+                      placeholder={step.defaultKvp || "-"}
+                      value={
+                        activeMachine.data[step.presetKvpField] ||
+                        step.defaultKvp ||
+                        ""
+                      }
+                      onChange={(e) =>
+                        updateField(step.presetKvpField, e.target.value)
+                      }
+                    />
+                  </div>
+                  {step.presetMasField && (
+                    <div className="flex-1">
+                      <label className="text-[8px] uppercase font-bold text-slate-400">
+                        Set mAs
+                      </label>
+                      <input
+                        className="w-full bg-white border rounded px-1 text-xs"
+                        placeholder="-"
+                        value={activeMachine.data[step.presetMasField] || ""}
+                        onChange={(e) =>
+                          updateField(step.presetMasField, e.target.value)
+                        }
+                      />
+                    </div>
                   )}
                 </div>
               )}
@@ -4914,6 +4955,7 @@ export default function App(): JSX.Element | null {
                       <option value="accelerator|Accelerator">
                         Accelerator
                       </option>
+                      <option value="non_mqsa|Non-MQSA">Non-MQSA</option>
                     </optgroup>
                   </select>
                 </div>
