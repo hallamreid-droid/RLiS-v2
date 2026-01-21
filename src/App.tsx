@@ -623,9 +623,8 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
-    presetKvpField: "manual_preset_kvp1",
-    presetMasField: "manual_preset_mas",
-    defaultKvp: "25",
+    settingsGroup: "nmqsa_m1", // Added settingsGroup
+    defaultPresets: { kvp: "25", mas: "" }, // Added defaultPresets
   },
   {
     id: "nmqsa_manual2",
@@ -635,8 +634,8 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
-    presetKvpField: "manual_preset_kvp2",
-    defaultKvp: "27",
+    settingsGroup: "nmqsa_m2",
+    defaultPresets: { kvp: "27", mas: "" },
   },
   {
     id: "nmqsa_manual3",
@@ -646,8 +645,8 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
-    presetKvpField: "manual_preset_kvp3",
-    defaultKvp: "29",
+    settingsGroup: "nmqsa_m3",
+    defaultPresets: { kvp: "29", mas: "" },
   },
   {
     id: "nmqsa_manual4",
@@ -657,8 +656,8 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
-    presetKvpField: "manual_preset_kvp4",
-    defaultKvp: "31",
+    settingsGroup: "nmqsa_m4",
+    defaultPresets: { kvp: "31", mas: "" },
   },
 ];
 
@@ -672,9 +671,8 @@ const NON_MQSA_STEREO_STEPS = [
     indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
-    presetKvpField: "stereo_preset_kvp1",
-    presetMasField: "stereo_preset_mas",
-    defaultKvp: "28",
+    settingsGroup: "nmqsa_s1",
+    defaultPresets: { kvp: "28", mas: "" },
   },
   {
     id: "nmqsa_stereo2",
@@ -684,8 +682,8 @@ const NON_MQSA_STEREO_STEPS = [
     indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
-    presetKvpField: "stereo_preset_kvp2",
-    defaultKvp: "31",
+    settingsGroup: "nmqsa_s2",
+    defaultPresets: { kvp: "31", mas: "" },
   },
 ];
 
@@ -2671,27 +2669,26 @@ export default function App(): JSX.Element | null {
         const cabinetFields = ["six_foot_input", "six_foot_output", "operator"];
 
         if (nmqsaType === "standard") {
-          // Blank stereo and cabinet fields
           stereoFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
-          // Apply defaults for manual preset kVp values
-          if (!finalData["manual_preset_kvp1"])
-            finalData["manual_preset_kvp1"] = "25";
-          if (!finalData["manual_preset_kvp2"])
-            finalData["manual_preset_kvp2"] = "27";
-          if (!finalData["manual_preset_kvp3"])
-            finalData["manual_preset_kvp3"] = "29";
-          if (!finalData["manual_preset_kvp4"])
-            finalData["manual_preset_kvp4"] = "31";
+
+          // Dynamic defaults matching the new settingsGroup names
+          finalData["manual_preset_kvp1"] =
+            machine.data["nmqsa_m1_preset_kvp"] || "25";
+          finalData["manual_preset_kvp2"] =
+            machine.data["nmqsa_m2_preset_kvp"] || "27";
+          finalData["manual_preset_kvp3"] =
+            machine.data["nmqsa_m3_preset_kvp"] || "29";
+          finalData["manual_preset_kvp4"] =
+            machine.data["nmqsa_m4_preset_kvp"] || "31";
         } else if (nmqsaType === "stereotactic") {
-          // Blank standard and cabinet fields
           standardFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
-          // Apply defaults for stereo preset kVp values
-          if (!finalData["stereo_preset_kvp1"])
-            finalData["stereo_preset_kvp1"] = "28";
-          if (!finalData["stereo_preset_kvp2"])
-            finalData["stereo_preset_kvp2"] = "31";
+
+          finalData["stereo_preset_kvp1"] =
+            machine.data["nmqsa_s1_preset_kvp"] || "28";
+          finalData["stereo_preset_kvp2"] =
+            machine.data["nmqsa_s2_preset_kvp"] || "31";
         } else if (nmqsaType === "cabinet") {
           // Blank standard and stereo fields
           standardFields.forEach((f) => (finalData[f] = ""));
