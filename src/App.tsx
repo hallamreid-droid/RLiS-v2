@@ -3565,7 +3565,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.accelerator
-                      ? "bg-lime-50 border-lime-200"
+                      ? "bg-red-50 border-red-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3573,7 +3573,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.accelerator
-                          ? "bg-lime-200 text-lime-700"
+                          ? "bg-red-200 text-red-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3583,7 +3583,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.accelerator
-                            ? "text-lime-900"
+                            ? "text-red-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3723,7 +3723,7 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "panoramic"
                     ? "bg-sky-100 text-sky-700"
                     : activeMachine.inspectionType === "accelerator"
-                    ? "bg-lime-100 text-lime-700"
+                    ? "bg-red-100 text-red-700"
                     : activeMachine.inspectionType === "non_mqsa"
                     ? "bg-fuchsia-100 text-fuchsia-700"
                     : "bg-blue-100 text-blue-700"
