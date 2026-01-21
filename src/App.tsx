@@ -1491,7 +1491,7 @@ export default function App(): JSX.Element | null {
         // FIX: Check Analytical FIRST because "diffraction" contains "ct"
         // Check CBCT before CT and Panoramic (since "panoramic ct" contains both)
         // Check MQSA first as it's a distinct category
-        if (credType.includes("mqsa")) {
+        if (credType.includes("mqsa") || credType.includes("sterotactic")) {
           inspectionType = "non_mqsa";
         } else if (credType.includes("industrial")) {
           inspectionType = "industrial";
@@ -2395,16 +2395,39 @@ export default function App(): JSX.Element | null {
       } else if (machine.inspectionType === "non_mqsa") {
         // Blank all non-MQSA fields
         blankFields([
-          "phantom_kvp1", "phantom_mas1", "phantom_R1", "phantom_time1",
-          "phantom_kvp2", "phantom_mas2", "phantom_R2", "phantom_time2",
-          "phantom_kvp3", "phantom_mas3", "phantom_R3", "phantom_time3",
-          "phantom_kvp4", "phantom_mas4", "phantom_R4", "phantom_time4",
-          "manual_kvp1", "manual_hvl1", "manual_kvp2", "manual_hvl2",
-          "manual_kvp3", "manual_hvl3", "manual_kvp4", "manual_hvl4",
+          "phantom_kvp1",
+          "phantom_mas1",
+          "phantom_R1",
+          "phantom_time1",
+          "phantom_kvp2",
+          "phantom_mas2",
+          "phantom_R2",
+          "phantom_time2",
+          "phantom_kvp3",
+          "phantom_mas3",
+          "phantom_R3",
+          "phantom_time3",
+          "phantom_kvp4",
+          "phantom_mas4",
+          "phantom_R4",
+          "phantom_time4",
+          "manual_kvp1",
+          "manual_hvl1",
+          "manual_kvp2",
+          "manual_hvl2",
+          "manual_kvp3",
+          "manual_hvl3",
+          "manual_kvp4",
+          "manual_hvl4",
           "standard_preset_mas",
-          "stereo_kvp1", "stereo_hvl1", "stereo_kvp2", "stereo_hvl2",
+          "stereo_kvp1",
+          "stereo_hvl1",
+          "stereo_kvp2",
+          "stereo_hvl2",
           "stereo_preset_mas",
-          "six_foot_input", "six_foot_output", "operator",
+          "six_foot_input",
+          "six_foot_output",
+          "operator",
         ]);
         finalData["phantom_kvp1"] = machine.data.noDataReason;
       }
@@ -2574,23 +2597,45 @@ export default function App(): JSX.Element | null {
 
         // Standard fields
         const standardPhantomFields = [
-          "phantom_kvp1", "phantom_mas1", "phantom_R1", "phantom_time1",
-          "phantom_kvp2", "phantom_mas2", "phantom_R2", "phantom_time2",
-          "phantom_kvp3", "phantom_mas3", "phantom_R3", "phantom_time3",
-          "phantom_kvp4", "phantom_mas4", "phantom_R4", "phantom_time4",
+          "phantom_kvp1",
+          "phantom_mas1",
+          "phantom_R1",
+          "phantom_time1",
+          "phantom_kvp2",
+          "phantom_mas2",
+          "phantom_R2",
+          "phantom_time2",
+          "phantom_kvp3",
+          "phantom_mas3",
+          "phantom_R3",
+          "phantom_time3",
+          "phantom_kvp4",
+          "phantom_mas4",
+          "phantom_R4",
+          "phantom_time4",
         ];
         const standardManualFields = [
-          "manual_kvp1", "manual_hvl1",
-          "manual_kvp2", "manual_hvl2",
-          "manual_kvp3", "manual_hvl3",
-          "manual_kvp4", "manual_hvl4",
+          "manual_kvp1",
+          "manual_hvl1",
+          "manual_kvp2",
+          "manual_hvl2",
+          "manual_kvp3",
+          "manual_hvl3",
+          "manual_kvp4",
+          "manual_hvl4",
         ];
-        const standardFields = [...standardPhantomFields, ...standardManualFields, "standard_preset_mas"];
+        const standardFields = [
+          ...standardPhantomFields,
+          ...standardManualFields,
+          "standard_preset_mas",
+        ];
 
         // Stereotactic fields
         const stereoFields = [
-          "stereo_kvp1", "stereo_hvl1",
-          "stereo_kvp2", "stereo_hvl2",
+          "stereo_kvp1",
+          "stereo_hvl1",
+          "stereo_kvp2",
+          "stereo_hvl2",
           "stereo_preset_mas",
         ];
 
@@ -2602,20 +2647,23 @@ export default function App(): JSX.Element | null {
           stereoFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
           // Ensure standard fields have values
-          if (!finalData["standard_preset_mas"]) finalData["standard_preset_mas"] = "";
+          if (!finalData["standard_preset_mas"])
+            finalData["standard_preset_mas"] = "";
         } else if (nmqsaType === "stereotactic") {
           // Blank standard and cabinet fields
           standardFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
           // Default stereo preset mAs
-          if (!finalData["stereo_preset_mas"]) finalData["stereo_preset_mas"] = "28";
+          if (!finalData["stereo_preset_mas"])
+            finalData["stereo_preset_mas"] = "28";
         } else if (nmqsaType === "cabinet") {
           // Blank standard and stereo fields
           standardFields.forEach((f) => (finalData[f] = ""));
           stereoFields.forEach((f) => (finalData[f] = ""));
           // Default cabinet scatter to <1
           if (!finalData["six_foot_input"]) finalData["six_foot_input"] = "<1";
-          if (!finalData["six_foot_output"]) finalData["six_foot_output"] = "<1";
+          if (!finalData["six_foot_output"])
+            finalData["six_foot_output"] = "<1";
           if (!finalData["operator"]) finalData["operator"] = "<1";
         } else {
           // No subtype selected - blank all
@@ -2733,12 +2781,11 @@ export default function App(): JSX.Element | null {
         : machine.inspectionType;
     const selectedTemplate = templates[templateType];
     if (!selectedTemplate) {
-      const templateName =
-        templateType === "dental" ? "Dental" :
-        templateType === "non_mqsa" ? "Non-MQSA" :
-        templateType === "accelerator" ? "Accelerator" :
-        "Gen Rad";
-      alert(`Please upload the ${templateName} Template in Settings!`);
+      alert(
+        `Please upload the ${
+          templateType === "dental" ? "Dental" : "Gen Rad"
+        } Template in Settings!`
+      );
       return;
     }
     const finalData = getMachineData(machine);
@@ -3636,7 +3683,9 @@ export default function App(): JSX.Element | null {
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
-                {activeMachine.inspectionType === "non_mqsa" ? "non-MQSA" : activeMachine.inspectionType.replace("_", " ")}
+                {activeMachine.inspectionType === "non_mqsa"
+                  ? "non-MQSA"
+                  : activeMachine.inspectionType.replace("_", " ")}
               </span>
             </div>
             <div className="text-[10px] font-mono text-slate-500">
@@ -3864,30 +3913,44 @@ export default function App(): JSX.Element | null {
                           type="radio"
                           name="nmqsa_type"
                           className="h-4 w-4 text-rose-600"
-                          checked={activeMachine.data["nmqsa_type"] === "standard"}
+                          checked={
+                            activeMachine.data["nmqsa_type"] === "standard"
+                          }
                           onChange={() => updateField("nmqsa_type", "standard")}
                         />
-                        <span className="text-sm font-bold text-rose-800">Standard</span>
+                        <span className="text-sm font-bold text-rose-800">
+                          Standard
+                        </span>
                       </label>
                       <label className="flex items-center gap-2 p-2 rounded border border-rose-200 bg-rose-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
                           className="h-4 w-4 text-rose-600"
-                          checked={activeMachine.data["nmqsa_type"] === "stereotactic"}
-                          onChange={() => updateField("nmqsa_type", "stereotactic")}
+                          checked={
+                            activeMachine.data["nmqsa_type"] === "stereotactic"
+                          }
+                          onChange={() =>
+                            updateField("nmqsa_type", "stereotactic")
+                          }
                         />
-                        <span className="text-sm font-bold text-rose-800">Stereotactic</span>
+                        <span className="text-sm font-bold text-rose-800">
+                          Stereotactic
+                        </span>
                       </label>
                       <label className="flex items-center gap-2 p-2 rounded border border-rose-200 bg-rose-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
                           className="h-4 w-4 text-rose-600"
-                          checked={activeMachine.data["nmqsa_type"] === "cabinet"}
+                          checked={
+                            activeMachine.data["nmqsa_type"] === "cabinet"
+                          }
                           onChange={() => updateField("nmqsa_type", "cabinet")}
                         />
-                        <span className="text-sm font-bold text-rose-800">Cabinet</span>
+                        <span className="text-sm font-bold text-rose-800">
+                          Cabinet
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -3902,7 +3965,9 @@ export default function App(): JSX.Element | null {
                         className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                         placeholder="Enter mAs"
                         value={activeMachine.data["standard_preset_mas"] || ""}
-                        onChange={(e) => updateField("standard_preset_mas", e.target.value)}
+                        onChange={(e) =>
+                          updateField("standard_preset_mas", e.target.value)
+                        }
                       />
                     </div>
                   )}
@@ -3917,7 +3982,9 @@ export default function App(): JSX.Element | null {
                         className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
                         placeholder="28"
                         value={activeMachine.data["stereo_preset_mas"] || "28"}
-                        onChange={(e) => updateField("stereo_preset_mas", e.target.value)}
+                        onChange={(e) =>
+                          updateField("stereo_preset_mas", e.target.value)
+                        }
                       />
                     </div>
                   )}
@@ -3926,7 +3993,8 @@ export default function App(): JSX.Element | null {
                   {activeMachine.data["nmqsa_type"] === "cabinet" && (
                     <div className="col-span-2 p-2 bg-rose-50 rounded border border-rose-200">
                       <p className="text-xs text-rose-700">
-                        Cabinet scatter measurements will default to {"<1"} if not changed.
+                        Cabinet scatter measurements will default to {"<1"} if
+                        not changed.
                       </p>
                     </div>
                   )}
@@ -4303,7 +4371,9 @@ export default function App(): JSX.Element | null {
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {m.inspectionType === "non_mqsa" ? "non-MQSA" : m.inspectionType.replace("_", " ")}
+                        {m.inspectionType === "non_mqsa"
+                          ? "non-MQSA"
+                          : m.inspectionType.replace("_", " ")}
                       </span>
                       <span className="text-xs text-slate-500 truncate">
                         {m.fullDetails}
@@ -4565,7 +4635,9 @@ export default function App(): JSX.Element | null {
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
-                        {m.inspectionType === "non_mqsa" ? "non-MQSA" : m.inspectionType.replace("_", " ")}
+                        {m.inspectionType === "non_mqsa"
+                          ? "non-MQSA"
+                          : m.inspectionType.replace("_", " ")}
                       </span>
                     </div>
                     <ChevronRight className="text-slate-300 h-4 w-4" />
@@ -4668,6 +4740,7 @@ export default function App(): JSX.Element | null {
                       Combination - R&F
                     </option>
                     <option value="accelerator|Accelerator">Accelerator</option>
+                    <option value="non_mqsa|Non-MQSA">Non-MQSA</option>
                   </optgroup>
                 </select>
               </div>
