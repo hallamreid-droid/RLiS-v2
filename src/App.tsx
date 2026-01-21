@@ -4103,8 +4103,8 @@ export default function App(): JSX.Element | null {
                       </div>
                     </>
                   ) : (
-                    // STANDARD INPUTS FOR GENERAL RAD
                     <>
+                      {/* STANDARD INPUTS FOR GENERAL RAD & NON-MQSA */}
                       <div className="flex-1">
                         <label className="text-[8px] uppercase font-bold text-slate-400">
                           Set kVp
@@ -4128,54 +4128,56 @@ export default function App(): JSX.Element | null {
                         />
                       </div>
 
-                      {/* General Rad and non-MQSA extra fields */}
+                      {/* Show mAs field for General Rad OR specific Non-MQSA steps */}
                       {(activeMachine.inspectionType === "general" ||
-                        activeMachine.inspectionType === "non_mqsa") && (
-                        <>
+                        step.id === "nmqsa_manual1" ||
+                        step.id === "nmqsa_stereo1") && (
+                        <div className="flex-1">
+                          <label className="text-[8px] uppercase font-bold text-slate-400">
+                            Set mAs
+                          </label>
+                          <input
+                            className="w-full bg-white border rounded px-1 text-xs"
+                            placeholder={step.defaultPresets.mas}
+                            value={
+                              activeMachine.data[
+                                `${step.settingsGroup}_preset_mas`
+                              ] || ""
+                            }
+                            onChange={(e) =>
+                              updateField(
+                                `${step.settingsGroup}_preset_mas`,
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+                      )}
+
+                      {/* Show Time field ONLY for General Rad */}
+                      {activeMachine.inspectionType === "general" &&
+                        step.defaultPresets.time !== null && (
                           <div className="flex-1">
                             <label className="text-[8px] uppercase font-bold text-slate-400">
-                              Set mAs
+                              Set Time
                             </label>
                             <input
                               className="w-full bg-white border rounded px-1 text-xs"
-                              placeholder={step.defaultPresets.mas}
+                              placeholder="-"
                               value={
                                 activeMachine.data[
-                                  `${step.settingsGroup}_preset_mas`
+                                  `${step.settingsGroup}_preset_time`
                                 ] || ""
                               }
                               onChange={(e) =>
                                 updateField(
-                                  `${step.settingsGroup}_preset_mas`,
+                                  `${step.settingsGroup}_preset_time`,
                                   e.target.value
                                 )
                               }
                             />
                           </div>
-                          {step.defaultPresets.time !== null && (
-                            <div className="flex-1">
-                              <label className="text-[8px] uppercase font-bold text-slate-400">
-                                Set Time
-                              </label>
-                              <input
-                                className="w-full bg-white border rounded px-1 text-xs"
-                                placeholder="-"
-                                value={
-                                  activeMachine.data[
-                                    `${step.settingsGroup}_preset_time`
-                                  ] || ""
-                                }
-                                onChange={(e) =>
-                                  updateField(
-                                    `${step.settingsGroup}_preset_time`,
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </div>
-                          )}
-                        </>
-                      )}
+                        )}
                     </>
                   )}
                 </div>
