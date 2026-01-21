@@ -4128,8 +4128,9 @@ export default function App(): JSX.Element | null {
                         />
                       </div>
 
-                      {/* General Rad extra fields */}
-                      {activeMachine.inspectionType === "general" && (
+                      {/* General Rad and non-MQSA extra fields */}
+                      {(activeMachine.inspectionType === "general" ||
+                        activeMachine.inspectionType === "non_mqsa") && (
                         <>
                           <div className="flex-1">
                             <label className="text-[8px] uppercase font-bold text-slate-400">
