@@ -584,7 +584,7 @@ const NON_MQSA_STANDARD_PHANTOM_STEPS = [
     label: "1. Phantom Exposure 1",
     desc: "Order: kVp, mAs, Dose, Time",
     fields: ["phantom_kvp1", "phantom_mas1", "phantom_R1", "phantom_time1"],
-    indices: ["kVp", "mAs", "mR", "s"],
+    indices: ["kvp", "mas", "mR", "time"],
     scanType: "screen",
   },
   {
@@ -592,7 +592,7 @@ const NON_MQSA_STANDARD_PHANTOM_STEPS = [
     label: "2. Phantom Exposure 2",
     desc: "Order: kVp, mAs, Dose, Time",
     fields: ["phantom_kvp2", "phantom_mas2", "phantom_R2", "phantom_time2"],
-    indices: ["kVp", "mAs", "mR", "s"],
+    indices: ["kvp", "mas", "mR", "time"],
     scanType: "screen",
   },
   {
@@ -600,7 +600,7 @@ const NON_MQSA_STANDARD_PHANTOM_STEPS = [
     label: "3. Phantom Exposure 3",
     desc: "Order: kVp, mAs, Dose, Time",
     fields: ["phantom_kvp3", "phantom_mas3", "phantom_R3", "phantom_time3"],
-    indices: ["kVp", "mAs", "mR", "s"],
+    indices: ["kvp", "mas", "mR", "time"],
     scanType: "screen",
   },
   {
@@ -608,7 +608,7 @@ const NON_MQSA_STANDARD_PHANTOM_STEPS = [
     label: "4. Phantom Exposure 4",
     desc: "Order: kVp, mAs, Dose, Time",
     fields: ["phantom_kvp4", "phantom_mas4", "phantom_R4", "phantom_time4"],
-    indices: ["kVp", "mAs", "mR", "s"],
+    indices: ["kvp", "mas", "mR", "time"],
     scanType: "screen",
   },
 ];
@@ -620,7 +620,7 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     label: "5. Manual Exposure 1",
     desc: "Order: kVp, HVL",
     fields: ["manual_kvp1", "manual_hvl1"],
-    indices: ["kVp", "mm Al"],
+    indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
     presetKvpField: "manual_preset_kvp1",
@@ -632,7 +632,7 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     label: "6. Manual Exposure 2",
     desc: "Order: kVp, HVL",
     fields: ["manual_kvp2", "manual_hvl2"],
-    indices: ["kVp", "mm Al"],
+    indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
     presetKvpField: "manual_preset_kvp2",
@@ -643,7 +643,7 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     label: "7. Manual Exposure 3",
     desc: "Order: kVp, HVL",
     fields: ["manual_kvp3", "manual_hvl3"],
-    indices: ["kVp", "mm Al"],
+    indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
     presetKvpField: "manual_preset_kvp3",
@@ -654,7 +654,7 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
     label: "8. Manual Exposure 4",
     desc: "Order: kVp, HVL",
     fields: ["manual_kvp4", "manual_hvl4"],
-    indices: ["kVp", "mm Al"],
+    indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
     presetKvpField: "manual_preset_kvp4",
@@ -669,7 +669,7 @@ const NON_MQSA_STEREO_STEPS = [
     label: "1. Stereo Exposure 1",
     desc: "Order: kVp, HVL",
     fields: ["stereo_kvp1", "stereo_hvl1"],
-    indices: ["kVp", "mm Al"],
+    indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
     presetKvpField: "stereo_preset_kvp1",
@@ -681,7 +681,7 @@ const NON_MQSA_STEREO_STEPS = [
     label: "2. Stereo Exposure 2",
     desc: "Order: kVp, HVL",
     fields: ["stereo_kvp2", "stereo_hvl2"],
-    indices: ["kVp", "mm Al"],
+    indices: ["kvp", "hvl"],
     scanType: "screen",
     showSettings: true,
     presetKvpField: "stereo_preset_kvp2",
@@ -3237,9 +3237,7 @@ export default function App(): JSX.Element | null {
                     <div>
                       <p
                         className={`text-sm font-bold ${
-                          templates.dental
-                            ? "text-blue-900"
-                            : "text-slate-500"
+                          templates.dental ? "text-blue-900" : "text-slate-500"
                         }`}
                       >
                         Dental Template
@@ -3989,7 +3987,6 @@ export default function App(): JSX.Element | null {
                       </label>
                     </div>
                   </div>
-
                 </>
               )}
             </div>
