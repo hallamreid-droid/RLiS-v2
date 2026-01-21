@@ -617,39 +617,44 @@ const NON_MQSA_STANDARD_PHANTOM_STEPS = [
 const NON_MQSA_STANDARD_MANUAL_STEPS = [
   {
     id: "nmqsa_manual1",
-    label: "5. Manual Exposure 1 (25 kVp)",
-    desc: "Order: kVp, HVL",
-    fields: ["manual_kvp1", "manual_hvl1"],
-    indices: ["kVp", "mm Al"],
+    label: "5. Manual Exposure 1",
+    desc: "Order: Preset kVp, Preset mAs, kVp, HVL",
+    fields: [
+      "manual_preset_kvp1",
+      "manual_preset_mas",
+      "manual_kvp1",
+      "manual_hvl1",
+    ],
+    indices: ["Preset kVp", "Preset mAs", "kVp", "mm Al"],
     scanType: "screen",
-    presetKvp: "25",
+    defaults: { manual_preset_kvp1: "25" },
   },
   {
     id: "nmqsa_manual2",
-    label: "6. Manual Exposure 2 (27 kVp)",
-    desc: "Order: kVp, HVL",
-    fields: ["manual_kvp2", "manual_hvl2"],
-    indices: ["kVp", "mm Al"],
+    label: "6. Manual Exposure 2",
+    desc: "Order: Preset kVp, kVp, HVL",
+    fields: ["manual_preset_kvp2", "manual_kvp2", "manual_hvl2"],
+    indices: ["Preset kVp", "kVp", "mm Al"],
     scanType: "screen",
-    presetKvp: "27",
+    defaults: { manual_preset_kvp2: "27" },
   },
   {
     id: "nmqsa_manual3",
-    label: "7. Manual Exposure 3 (29 kVp)",
-    desc: "Order: kVp, HVL",
-    fields: ["manual_kvp3", "manual_hvl3"],
-    indices: ["kVp", "mm Al"],
+    label: "7. Manual Exposure 3",
+    desc: "Order: Preset kVp, kVp, HVL",
+    fields: ["manual_preset_kvp3", "manual_kvp3", "manual_hvl3"],
+    indices: ["Preset kVp", "kVp", "mm Al"],
     scanType: "screen",
-    presetKvp: "29",
+    defaults: { manual_preset_kvp3: "29" },
   },
   {
     id: "nmqsa_manual4",
-    label: "8. Manual Exposure 4 (31 kVp)",
-    desc: "Order: kVp, HVL",
-    fields: ["manual_kvp4", "manual_hvl4"],
-    indices: ["kVp", "mm Al"],
+    label: "8. Manual Exposure 4",
+    desc: "Order: Preset kVp, kVp, HVL",
+    fields: ["manual_preset_kvp4", "manual_kvp4", "manual_hvl4"],
+    indices: ["Preset kVp", "kVp", "mm Al"],
     scanType: "screen",
-    presetKvp: "31",
+    defaults: { manual_preset_kvp4: "31" },
   },
 ];
 
@@ -657,21 +662,26 @@ const NON_MQSA_STANDARD_MANUAL_STEPS = [
 const NON_MQSA_STEREO_STEPS = [
   {
     id: "nmqsa_stereo1",
-    label: "1. Stereo Exposure 1 (28 kVp)",
-    desc: "Order: kVp, HVL",
-    fields: ["stereo_kvp1", "stereo_hvl1"],
-    indices: ["kVp", "mm Al"],
+    label: "1. Stereo Exposure 1",
+    desc: "Order: Preset kVp, Preset mAs, kVp, HVL",
+    fields: [
+      "stereo_preset_kvp1",
+      "stereo_preset_mas",
+      "stereo_kvp1",
+      "stereo_hvl1",
+    ],
+    indices: ["Preset kVp", "Preset mAs", "kVp", "mm Al"],
     scanType: "screen",
-    presetKvp: "28",
+    defaults: { stereo_preset_kvp1: "28" },
   },
   {
     id: "nmqsa_stereo2",
-    label: "2. Stereo Exposure 2 (31 kVp)",
-    desc: "Order: kVp, HVL",
-    fields: ["stereo_kvp2", "stereo_hvl2"],
-    indices: ["kVp", "mm Al"],
+    label: "2. Stereo Exposure 2",
+    desc: "Order: Preset kVp, kVp, HVL",
+    fields: ["stereo_preset_kvp2", "stereo_kvp2", "stereo_hvl2"],
+    indices: ["Preset kVp", "kVp", "mm Al"],
     scanType: "screen",
-    presetKvp: "31",
+    defaults: { stereo_preset_kvp2: "31" },
   },
 ];
 
@@ -2413,20 +2423,26 @@ export default function App(): JSX.Element | null {
           "phantom_mas4",
           "phantom_R4",
           "phantom_time4",
+          "manual_preset_kvp1",
+          "manual_preset_mas",
           "manual_kvp1",
           "manual_hvl1",
+          "manual_preset_kvp2",
           "manual_kvp2",
           "manual_hvl2",
+          "manual_preset_kvp3",
           "manual_kvp3",
           "manual_hvl3",
+          "manual_preset_kvp4",
           "manual_kvp4",
           "manual_hvl4",
-          "manual_preset_mas",
+          "stereo_preset_kvp1",
+          "stereo_preset_mas",
           "stereo_kvp1",
           "stereo_hvl1",
+          "stereo_preset_kvp2",
           "stereo_kvp2",
           "stereo_hvl2",
-          "stereo_preset_mas",
           "six_foot_input",
           "six_foot_output",
           "operator",
@@ -2617,28 +2633,34 @@ export default function App(): JSX.Element | null {
           "phantom_time4",
         ];
         const standardManualFields = [
+          "manual_preset_kvp1",
+          "manual_preset_mas",
           "manual_kvp1",
           "manual_hvl1",
+          "manual_preset_kvp2",
           "manual_kvp2",
           "manual_hvl2",
+          "manual_preset_kvp3",
           "manual_kvp3",
           "manual_hvl3",
+          "manual_preset_kvp4",
           "manual_kvp4",
           "manual_hvl4",
         ];
         const standardFields = [
           ...standardPhantomFields,
           ...standardManualFields,
-          "manual_preset_mas",
         ];
 
         // Stereotactic fields
         const stereoFields = [
+          "stereo_preset_kvp1",
+          "stereo_preset_mas",
           "stereo_kvp1",
           "stereo_hvl1",
+          "stereo_preset_kvp2",
           "stereo_kvp2",
           "stereo_hvl2",
-          "stereo_preset_mas",
         ];
 
         // Cabinet fields
@@ -2648,16 +2670,24 @@ export default function App(): JSX.Element | null {
           // Blank stereo and cabinet fields
           stereoFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
-          // Ensure standard fields have values
-          if (!finalData["manual_preset_mas"])
-            finalData["manual_preset_mas"] = "";
+          // Apply defaults for manual preset kVp values
+          if (!finalData["manual_preset_kvp1"])
+            finalData["manual_preset_kvp1"] = "25";
+          if (!finalData["manual_preset_kvp2"])
+            finalData["manual_preset_kvp2"] = "27";
+          if (!finalData["manual_preset_kvp3"])
+            finalData["manual_preset_kvp3"] = "29";
+          if (!finalData["manual_preset_kvp4"])
+            finalData["manual_preset_kvp4"] = "31";
         } else if (nmqsaType === "stereotactic") {
           // Blank standard and cabinet fields
           standardFields.forEach((f) => (finalData[f] = ""));
           cabinetFields.forEach((f) => (finalData[f] = ""));
-          // Default stereo preset mAs
-          if (!finalData["stereo_preset_mas"])
-            finalData["stereo_preset_mas"] = "28";
+          // Apply defaults for stereo preset kVp values
+          if (!finalData["stereo_preset_kvp1"])
+            finalData["stereo_preset_kvp1"] = "28";
+          if (!finalData["stereo_preset_kvp2"])
+            finalData["stereo_preset_kvp2"] = "31";
         } else if (nmqsaType === "cabinet") {
           // Blank standard and stereo fields
           standardFields.forEach((f) => (finalData[f] = ""));
@@ -3957,49 +3987,6 @@ export default function App(): JSX.Element | null {
                     </div>
                   </div>
 
-                  {/* Manual preset mAs for Standard workflow */}
-                  {activeMachine.data["nmqsa_type"] === "standard" && (
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase">
-                        Preset mAs (for 25-31 kVp exposures)
-                      </label>
-                      <input
-                        className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                        placeholder="Enter mAs"
-                        value={activeMachine.data["manual_preset_mas"] || ""}
-                        onChange={(e) =>
-                          updateField("manual_preset_mas", e.target.value)
-                        }
-                      />
-                    </div>
-                  )}
-
-                  {/* Stereotactic preset mAs */}
-                  {activeMachine.data["nmqsa_type"] === "stereotactic" && (
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase">
-                        Preset mAs
-                      </label>
-                      <input
-                        className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                        placeholder="28"
-                        value={activeMachine.data["stereo_preset_mas"] || "28"}
-                        onChange={(e) =>
-                          updateField("stereo_preset_mas", e.target.value)
-                        }
-                      />
-                    </div>
-                  )}
-
-                  {/* Cabinet - set defaults */}
-                  {activeMachine.data["nmqsa_type"] === "cabinet" && (
-                    <div className="col-span-2 p-2 bg-rose-50 rounded border border-rose-200">
-                      <p className="text-xs text-rose-700">
-                        Cabinet scatter measurements will default to {"<1"} if
-                        not changed.
-                      </p>
-                    </div>
-                  )}
                 </>
               )}
             </div>
@@ -4204,7 +4191,9 @@ export default function App(): JSX.Element | null {
                     </label>
                     <div className="relative">
                       <input
-                        value={activeMachine.data[k] || ""}
+                        value={
+                          activeMachine.data[k] || step.defaults?.[k] || ""
+                        }
                         onChange={(e) => updateField(k, e.target.value)}
                         className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
                         placeholder="-"
