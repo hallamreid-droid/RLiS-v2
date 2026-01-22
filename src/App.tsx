@@ -3365,7 +3365,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.bone_density
-                      ? "bg-pink-50 border-pink-200"
+                      ? "bg-stone-50 border-stone-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3373,7 +3373,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.bone_density
-                          ? "bg-pink-200 text-pink-700"
+                          ? "bg-stone-200 text-stone-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3383,7 +3383,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.bone_density
-                            ? "text-pink-900"
+                            ? "text-stone-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3531,7 +3531,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.cabinet
-                      ? "bg-stone-50 border-stone-200"
+                      ? "bg-emerald-50 border-emerald-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3539,7 +3539,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.cabinet
-                          ? "bg-stone-200 text-stone-700"
+                          ? "bg-emerald-200 text-emerald-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3549,7 +3549,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.cabinet
-                            ? "text-stone-900"
+                            ? "text-emerald-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3615,7 +3615,7 @@ export default function App(): JSX.Element | null {
                 <div
                   className={`flex items-center justify-between p-4 rounded-lg border ${
                     templates.non_mqsa
-                      ? "bg-fuchsia-50 border-fuchsia-200"
+                      ? "bg-pink-50 border-pink-200"
                       : "bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -3623,7 +3623,7 @@ export default function App(): JSX.Element | null {
                     <div
                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
                         templates.non_mqsa
-                          ? "bg-fuchsia-200 text-fuchsia-700"
+                          ? "bg-pink-200 text-pink-700"
                           : "bg-slate-200 text-slate-400"
                       }`}
                     >
@@ -3633,7 +3633,7 @@ export default function App(): JSX.Element | null {
                       <p
                         className={`text-sm font-bold ${
                           templates.non_mqsa
-                            ? "text-fuchsia-900"
+                            ? "text-pink-900"
                             : "text-slate-500"
                         }`}
                       >
@@ -3717,15 +3717,15 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "analytical"
                     ? "bg-orange-100 text-orange-700"
                     : activeMachine.inspectionType === "industrial"
-                    ? "bg-amber-100 text-amber-700"
+                    ? "bg-yellow-100 text-yellow-700"
                     : activeMachine.inspectionType === "fluoroscope"
                     ? "bg-indigo-100 text-indigo-700"
                     : activeMachine.inspectionType === "ct"
                     ? "bg-teal-100 text-teal-700"
                     : activeMachine.inspectionType === "cabinet"
-                    ? "bg-stone-100 text-stone-700"
+                    ? "bg-emerald-100 text-emerald-700"
                     : activeMachine.inspectionType === "bone_density"
-                    ? "bg-pink-100 text-pink-700"
+                    ? "bg-stone-100 text-stone-700"
                     : activeMachine.inspectionType === "cbct"
                     ? "bg-cyan-100 text-cyan-700"
                     : activeMachine.inspectionType === "panoramic"
@@ -3733,7 +3733,7 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "accelerator"
                     ? "bg-red-100 text-red-700"
                     : activeMachine.inspectionType === "non_mqsa"
-                    ? "bg-rose-100 text-rose-700"
+                    ? "bg-pink-100 text-pink-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -3962,25 +3962,25 @@ export default function App(): JSX.Element | null {
                       Machine Type
                     </label>
                     <div className="flex flex-col gap-2">
-                      <label className="flex items-center gap-2 p-2 rounded border border-fuchsia-200 bg-fuchsia-50 cursor-pointer">
+                      <label className="flex items-center gap-2 p-2 rounded border border-pink-200 bg-pink-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
-                          className="h-4 w-4 text-fuchsia-600"
+                          className="h-4 w-4 text-pink-600"
                           checked={
                             activeMachine.data["nmqsa_type"] === "standard"
                           }
                           onChange={() => updateField("nmqsa_type", "standard")}
                         />
-                        <span className="text-sm font-bold text-fuchsia-800">
+                        <span className="text-sm font-bold text-pink-800">
                           Standard
                         </span>
                       </label>
-                      <label className="flex items-center gap-2 p-2 rounded border border-fuchsia-200 bg-fuchsia-50 cursor-pointer">
+                      <label className="flex items-center gap-2 p-2 rounded border border-pink-200 bg-pink-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
-                          className="h-4 w-4 text-fuchsia-600"
+                          className="h-4 w-4 text-pink-600"
                           checked={
                             activeMachine.data["nmqsa_type"] === "stereotactic"
                           }
@@ -3988,21 +3988,21 @@ export default function App(): JSX.Element | null {
                             updateField("nmqsa_type", "stereotactic")
                           }
                         />
-                        <span className="text-sm font-bold text-fuchsia-800">
+                        <span className="text-sm font-bold text-pink-800">
                           Stereotactic
                         </span>
                       </label>
-                      <label className="flex items-center gap-2 p-2 rounded border border-fuchsia-200 bg-fuchsia-50 cursor-pointer">
+                      <label className="flex items-center gap-2 p-2 rounded border border-pink-200 bg-pink-50 cursor-pointer">
                         <input
                           type="radio"
                           name="nmqsa_type"
-                          className="h-4 w-4 text-fuchsia-600"
+                          className="h-4 w-4 text-pink-600"
                           checked={
                             activeMachine.data["nmqsa_type"] === "cabinet"
                           }
                           onChange={() => updateField("nmqsa_type", "cabinet")}
                         />
-                        <span className="text-sm font-bold text-fuchsia-800">
+                        <span className="text-sm font-bold text-pink-800">
                           Cabinet
                         </span>
                       </label>
@@ -4407,15 +4407,15 @@ export default function App(): JSX.Element | null {
                             : m.inspectionType === "analytical"
                             ? "bg-orange-100 text-orange-700"
                             : m.inspectionType === "industrial"
-                            ? "bg-amber-100 text-amber-700"
+                            ? "bg-yellow-100 text-yellow-700"
                             : m.inspectionType === "fluoroscope"
                             ? "bg-indigo-100 text-indigo-700"
                             : m.inspectionType === "ct"
                             ? "bg-teal-100 text-teal-700"
                             : m.inspectionType === "cabinet"
-                            ? "bg-stone-100 text-stone-700"
+                            ? "bg-emerald-100 text-emerald-700"
                             : m.inspectionType === "bone_density"
-                            ? "bg-pink-100 text-pink-700"
+                            ? "bg-stone-100 text-stone-700"
                             : m.inspectionType === "cbct"
                             ? "bg-cyan-100 text-cyan-700"
                             : m.inspectionType === "panoramic"
@@ -4423,7 +4423,7 @@ export default function App(): JSX.Element | null {
                             : m.inspectionType === "accelerator"
                             ? "bg-red-100 text-red-700"
                             : m.inspectionType === "non_mqsa"
-                            ? "bg-rose-100 text-rose-700"
+                            ? "bg-pink-100 text-pink-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
@@ -4794,15 +4794,15 @@ export default function App(): JSX.Element | null {
                             : m.inspectionType === "analytical"
                             ? "bg-orange-100 text-orange-700"
                             : m.inspectionType === "industrial"
-                            ? "bg-amber-100 text-amber-700"
+                            ? "bg-yellow-100 text-yellow-700"
                             : m.inspectionType === "fluoroscope"
                             ? "bg-indigo-100 text-indigo-700"
                             : m.inspectionType === "ct"
                             ? "bg-teal-100 text-teal-700"
                             : m.inspectionType === "cabinet"
-                            ? "bg-stone-100 text-stone-700"
+                            ? "bg-emerald-100 text-emerald-700"
                             : m.inspectionType === "bone_density"
-                            ? "bg-pink-100 text-pink-700"
+                            ? "bg-stone-100 text-stone-700"
                             : m.inspectionType === "cbct"
                             ? "bg-cyan-100 text-cyan-700"
                             : m.inspectionType === "panoramic"
@@ -4810,7 +4810,7 @@ export default function App(): JSX.Element | null {
                             : m.inspectionType === "accelerator"
                             ? "bg-red-100 text-red-700"
                             : m.inspectionType === "non_mqsa"
-                            ? "bg-rose-100 text-rose-700"
+                            ? "bg-pink-100 text-pink-700"
                             : "bg-blue-100 text-blue-700"
                         }`}
                       >
