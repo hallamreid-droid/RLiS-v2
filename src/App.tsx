@@ -1030,6 +1030,14 @@ export default function App(): JSX.Element | null {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesText, setNotesText] = useState("");
 
+  // Facility-level notes state
+  const [facilityNotes, setFacilityNotes] = useState<Record<string, string>>({});
+  const [showFacilityNotesModal, setShowFacilityNotesModal] = useState(false);
+  const [facilityNotesText, setFacilityNotesText] = useState("");
+
+  // Complete All tracking state
+  const [autoCompletedMachineIds, setAutoCompletedMachineIds] = useState<string[]>([]);
+
   const [templates, setTemplates] = useState<
     Record<string, ArrayBuffer | null>
   >({
@@ -4334,8 +4342,11 @@ export default function App(): JSX.Element | null {
               <h1 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
                 Facility
               </h1>
-              <div className="text-lg font-bold text-slate-800 leading-tight">
+              <div className="text-lg font-bold text-slate-800 leading-tight flex items-center gap-1.5">
                 {activeFacilityMachines[0]?.registrantName || activeFacilityId}
+                {activeFacilityId && facilityNotes[activeFacilityId] && (
+                  <FileText size={14} className="text-amber-500 flex-shrink-0" />
+                )}
               </div>
             </div>
           </div>
@@ -4476,10 +4487,76 @@ export default function App(): JSX.Element | null {
                     setShowMachineMenu(false);
                     setShowXXMachineModal(true);
                   }}
-                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors"
+                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
                 >
+                  <Zap size={18} className="text-blue-500" />
                   Add XX Machine
                 </button>
+                <button
+                  onClick={() => {
+                    setFacilityNotesText(activeFacilityId ? facilityNotes[activeFacilityId] || "" : "");
+                    setShowMachineMenu(false);
+                    setShowFacilityNotesModal(true);
+                  }}
+                  className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
+                >
+                  <FileText size={18} className="text-amber-500" />
+                  Facility Notes
+                  {activeFacilityId && facilityNotes[activeFacilityId] && (
+                    <span className="text-xs text-amber-500 ml-auto">
+                      Has notes
+                    </span>
+                  )}
+                </button>
+                {autoCompletedMachineIds.length > 0 &&
+                autoCompletedMachineIds.some((id) =>
+                  activeFacilityMachines.some((m) => m.id === id)
+                ) ? (
+                  <button
+                    onClick={() => {
+                      // Undo: set auto-completed machines back to incomplete
+                      setMachines((prev) =>
+                        prev.map((m) =>
+                          autoCompletedMachineIds.includes(m.id)
+                            ? { ...m, isComplete: false }
+                            : m
+                        )
+                      );
+                      setAutoCompletedMachineIds([]);
+                      setShowMachineMenu(false);
+                    }}
+                    className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
+                  >
+                    <XCircle size={18} className="text-orange-500" />
+                    Undo Complete All
+                  </button>
+                ) : (
+                  activeFacilityMachines.some((m) => !m.isComplete) && (
+                    <button
+                      onClick={() => {
+                        // Find all incomplete machines in this facility
+                        const incompleteMachineIds = activeFacilityMachines
+                          .filter((m) => !m.isComplete)
+                          .map((m) => m.id);
+                        // Store them for undo
+                        setAutoCompletedMachineIds(incompleteMachineIds);
+                        // Mark them all as complete with empty data
+                        setMachines((prev) =>
+                          prev.map((m) =>
+                            incompleteMachineIds.includes(m.id)
+                              ? { ...m, isComplete: true }
+                              : m
+                          )
+                        );
+                        setShowMachineMenu(false);
+                      }}
+                      className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3"
+                    >
+                      <CheckCircle size={18} className="text-emerald-500" />
+                      Complete All
+                    </button>
+                  )
+                )}
               </div>
               <div className="p-4 pt-2">
                 <button
@@ -4619,6 +4696,53 @@ export default function App(): JSX.Element | null {
                     setShowNotesModal(false);
                     setMachineMenuId(null);
                     setNotesText("");
+                  }}
+                  className="flex-1 py-3 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- FACILITY NOTES MODAL --- */}
+        {showFacilityNotesModal && activeFacilityId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 text-center">
+                  Facility Notes
+                </h3>
+              </div>
+              <div className="p-4">
+                <textarea
+                  value={facilityNotesText}
+                  onChange={(e) => setFacilityNotesText(e.target.value)}
+                  placeholder="Add notes about this facility..."
+                  className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                  rows={5}
+                  autoFocus
+                />
+              </div>
+              <div className="p-4 pt-0 flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowFacilityNotesModal(false);
+                    setFacilityNotesText("");
+                  }}
+                  className="flex-1 py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setFacilityNotes((prev) => ({
+                      ...prev,
+                      [activeFacilityId]: facilityNotesText,
+                    }));
+                    setShowFacilityNotesModal(false);
+                    setFacilityNotesText("");
                   }}
                   className="flex-1 py-3 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700"
                 >
