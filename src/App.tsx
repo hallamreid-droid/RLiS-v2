@@ -3717,7 +3717,7 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "analytical"
                     ? "bg-orange-100 text-orange-700"
                     : activeMachine.inspectionType === "industrial"
-                    ? "bg-yellow-100 text-yellow-700"
+                    ? "bg-amber-100 text-amber-700"
                     : activeMachine.inspectionType === "fluoroscope"
                     ? "bg-indigo-100 text-indigo-700"
                     : activeMachine.inspectionType === "ct"
@@ -3733,7 +3733,7 @@ export default function App(): JSX.Element | null {
                     : activeMachine.inspectionType === "accelerator"
                     ? "bg-red-100 text-red-700"
                     : activeMachine.inspectionType === "non_mqsa"
-                    ? "bg-fuchsia-100 text-fuchsia-700"
+                    ? "bg-rose-100 text-rose-700"
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
@@ -4737,10 +4737,20 @@ export default function App(): JSX.Element | null {
                 </button>
                 <button
                   onClick={() => {
-                    setFacilityNotes((prev) => ({
-                      ...prev,
-                      [activeFacilityId]: facilityNotesText,
-                    }));
+                    const trimmedNote = facilityNotesText.trim();
+                    if (trimmedNote) {
+                      setFacilityNotes((prev) => ({
+                        ...prev,
+                        [activeFacilityId]: trimmedNote,
+                      }));
+                    } else {
+                      // Remove the note if empty
+                      setFacilityNotes((prev) => {
+                        const updated = { ...prev };
+                        delete updated[activeFacilityId];
+                        return updated;
+                      });
+                    }
                     setShowFacilityNotesModal(false);
                     setFacilityNotesText("");
                   }}
@@ -4858,12 +4868,10 @@ export default function App(): JSX.Element | null {
                       Intraoral Hand Held
                     </option>
                   </optgroup>
-                  <optgroup label="CBCT">
-                    <option value="cbct|CBCT">CBCT</option>
-                  </optgroup>
                   <optgroup label="Panoramic">
                     <option value="panoramic|Panoramic">Panoramic</option>
                     <option value="panoramic|Panoramic CT">Panoramic CT</option>
+                    <option value="cbct|CBCT">CBCT</option>
                   </optgroup>
                   <optgroup label="Radiographic">
                     <option value="general|Radiographic">Radiographic</option>
@@ -5037,14 +5045,12 @@ export default function App(): JSX.Element | null {
                         Intraoral Hand Held
                       </option>
                     </optgroup>
-                    <optgroup label="CBCT">
-                      <option value="cbct|CBCT">CBCT</option>
-                    </optgroup>
                     <optgroup label="Panoramic">
                       <option value="panoramic|Panoramic">Panoramic</option>
                       <option value="panoramic|Panoramic CT">
                         Panoramic CT
                       </option>
+                      <option value="cbct|CBCT">CBCT</option>
                     </optgroup>
                     <optgroup label="Radiographic">
                       <option value="general|Radiographic">Radiographic</option>
