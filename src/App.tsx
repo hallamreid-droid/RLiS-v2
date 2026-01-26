@@ -1780,13 +1780,19 @@ export default function App(): JSX.Element | null {
 
   const updateField = (key: string, value: string) => {
     if (!activeMachineId) return;
-    setMachines((prev) =>
-      prev.map((m) =>
+    setMachines((prev) => {
+      const updated = prev.map((m) =>
         m.id === activeMachineId
           ? { ...m, data: { ...m.data, [key]: value } }
           : m
-      )
-    );
+      );
+      // Save to Firebase immediately
+      const updatedMachine = updated.find((m) => m.id === activeMachineId);
+      if (updatedMachine) {
+        saveMachineToFirestore(updatedMachine);
+      }
+      return updated;
+    });
   };
 
   const updateMachineDetails = (
@@ -1794,18 +1800,32 @@ export default function App(): JSX.Element | null {
     value: string
   ) => {
     if (!activeMachineId) return;
-    setMachines((prev) =>
-      prev.map((m) => (m.id === activeMachineId ? { ...m, [key]: value } : m))
-    );
+    setMachines((prev) => {
+      const updated = prev.map((m) =>
+        m.id === activeMachineId ? { ...m, [key]: value } : m
+      );
+      // Save to Firebase immediately
+      const updatedMachine = updated.find((m) => m.id === activeMachineId);
+      if (updatedMachine) {
+        saveMachineToFirestore(updatedMachine);
+      }
+      return updated;
+    });
   };
 
   const updateMachineType = (newType: InspectionType) => {
     if (!activeMachineId) return;
-    setMachines((prev) =>
-      prev.map((m) =>
+    setMachines((prev) => {
+      const updated = prev.map((m) =>
         m.id === activeMachineId ? { ...m, inspectionType: newType } : m
-      )
-    );
+      );
+      // Save to Firebase immediately
+      const updatedMachine = updated.find((m) => m.id === activeMachineId);
+      if (updatedMachine) {
+        saveMachineToFirestore(updatedMachine);
+      }
+      return updated;
+    });
   };
 
   const updateMachineTypeById = (
@@ -2110,23 +2130,18 @@ export default function App(): JSX.Element | null {
 
     // Use functional update to ensure we read from the latest state
     // This is important because updateField may have queued state changes
-    let machineToSave: Machine | null = null;
-
     setMachines((prev) => {
       const machine = prev.find((m) => m.id === activeMachineId);
       if (!machine) return prev;
 
       const { noDataReason, ...cleanData } = machine.data;
       const updatedMachine = { ...machine, isComplete: true, data: cleanData };
-      machineToSave = updatedMachine;
+
+      // Save to Firestore inside callback to ensure we have latest data
+      saveMachineToFirestore(updatedMachine);
 
       return prev.map((m) => (m.id === activeMachineId ? updatedMachine : m));
     });
-
-    // Save to Firestore
-    if (machineToSave) {
-      saveMachineToFirestore(machineToSave);
-    }
 
     // Handle multi-tube sync - don't pass machine, let it read from latest state
     // This ensures consistency since handleMultiTubeSync also uses setMachines
