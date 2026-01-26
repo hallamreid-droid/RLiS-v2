@@ -959,6 +959,9 @@ export default function App(): JSX.Element | null {
     settings: 0,
   });
 
+  // Auto-save debounce timer ref
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Custom setView that saves/restores scroll positions
   const setView = (
     newView: "facility-list" | "machine-list" | "mobile-form" | "settings",
@@ -1332,6 +1335,46 @@ export default function App(): JSX.Element | null {
       localStorage.setItem("rayScanMachines", JSON.stringify(machines));
     }
   }, [machines, currentUser]);
+
+  // Auto-save: debounced save when active machine data changes
+  useEffect(() => {
+    if (!activeMachineId || !currentUser) return;
+
+    // Clear any existing timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Set a new timer to save after 2 seconds of no changes
+    autoSaveTimerRef.current = setTimeout(() => {
+      const machine = machines.find((m) => m.id === activeMachineId);
+      if (machine) {
+        saveMachineToFirestore(machine);
+      }
+    }, 2000);
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [machines, activeMachineId, currentUser]);
+
+  // Immediate save function for blur/navigation events
+  const saveActiveMachineNow = () => {
+    // Clear debounce timer since we're saving immediately
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+
+    if (!activeMachineId || !currentUser) return;
+    const machine = machines.find((m) => m.id === activeMachineId);
+    if (machine) {
+      saveMachineToFirestore(machine);
+    }
+  };
 
   const parseDetailsWithGemini = async (machine: Machine) => {
     if (!apiKey || (machine.make && machine.model && machine.serial)) return;
@@ -2265,6 +2308,8 @@ export default function App(): JSX.Element | null {
   };
 
   const handleBackFromInspection = () => {
+    // Save current machine data immediately before navigating away
+    saveActiveMachineNow();
     // handleMultiTubeSync now uses functional update internally to read latest state
     handleMultiTubeSync();
     setActiveMachineId(null);
@@ -3789,6 +3834,7 @@ export default function App(): JSX.Element | null {
                     placeholder="1"
                     value={activeMachine.data["tube_no"] || ""}
                     onChange={(e) => updateField("tube_no", e.target.value)}
+                    onBlur={saveActiveMachineNow}
                   />
                 </div>
               )}
@@ -3809,6 +3855,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("preset_kvp", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3822,6 +3869,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("preset_mas", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3835,6 +3883,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("preset_time", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                 </>
@@ -3851,6 +3900,7 @@ export default function App(): JSX.Element | null {
                     placeholder="1"
                     value={activeMachine.data["num_tubes"] || ""}
                     onChange={(e) => updateField("num_tubes", e.target.value)}
+                    onBlur={saveActiveMachineNow}
                   />
                 </div>
               )}
@@ -3861,12 +3911,14 @@ export default function App(): JSX.Element | null {
                     type="checkbox"
                     className="h-4 w-4 text-indigo-600 rounded"
                     checked={activeMachine.data["has_hlc"] === "true"}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       updateField(
                         "has_hlc",
                         e.target.checked ? "true" : "false"
-                      )
-                    }
+                      );
+                      // Save immediately for checkbox since there's no blur
+                      setTimeout(saveActiveMachineNow, 0);
+                    }}
                   />
                   <span className="text-xs font-bold text-indigo-800">
                     Has High Level Control (HLC)?
@@ -3886,6 +3938,7 @@ export default function App(): JSX.Element | null {
                       placeholder="1"
                       value={activeMachine.data["num_tubes"] || ""}
                       onChange={(e) => updateField("num_tubes", e.target.value)}
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3899,6 +3952,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("max_energy", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3912,6 +3966,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("license_required", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3925,6 +3980,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("license_number", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3938,6 +3994,7 @@ export default function App(): JSX.Element | null {
                       onChange={(e) =>
                         updateField("onboard_imaging", e.target.value)
                       }
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                   <div>
@@ -3949,6 +4006,7 @@ export default function App(): JSX.Element | null {
                       placeholder="RSO Name"
                       value={activeMachine.data["rso_name"] || ""}
                       onChange={(e) => updateField("rso_name", e.target.value)}
+                      onBlur={saveActiveMachineNow}
                     />
                   </div>
                 </>
@@ -3970,7 +4028,10 @@ export default function App(): JSX.Element | null {
                           checked={
                             activeMachine.data["nmqsa_type"] === "standard"
                           }
-                          onChange={() => updateField("nmqsa_type", "standard")}
+                          onChange={() => {
+                            updateField("nmqsa_type", "standard");
+                            setTimeout(saveActiveMachineNow, 0);
+                          }}
                         />
                         <span className="text-sm font-bold text-pink-800">
                           Standard
@@ -3984,9 +4045,10 @@ export default function App(): JSX.Element | null {
                           checked={
                             activeMachine.data["nmqsa_type"] === "stereotactic"
                           }
-                          onChange={() =>
-                            updateField("nmqsa_type", "stereotactic")
-                          }
+                          onChange={() => {
+                            updateField("nmqsa_type", "stereotactic");
+                            setTimeout(saveActiveMachineNow, 0);
+                          }}
                         />
                         <span className="text-sm font-bold text-pink-800">
                           Stereotactic
@@ -4000,7 +4062,10 @@ export default function App(): JSX.Element | null {
                           checked={
                             activeMachine.data["nmqsa_type"] === "cabinet"
                           }
-                          onChange={() => updateField("nmqsa_type", "cabinet")}
+                          onChange={() => {
+                            updateField("nmqsa_type", "cabinet");
+                            setTimeout(saveActiveMachineNow, 0);
+                          }}
                         />
                         <span className="text-sm font-bold text-pink-800">
                           Cabinet
@@ -4257,6 +4322,7 @@ export default function App(): JSX.Element | null {
                           activeMachine.data[k] || step.defaults?.[k] || ""
                         }
                         onChange={(e) => updateField(k, e.target.value)}
+                        onBlur={saveActiveMachineNow}
                         className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
                         placeholder="-"
                       />
