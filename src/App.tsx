@@ -2923,8 +2923,23 @@ export default function App(): JSX.Element | null {
     }
   };
 
-  const deleteAllFacilities = () => {
+  const deleteAllFacilities = async () => {
     if (window.confirm("Are you sure you want to clear ALL facilities?")) {
+      // Get unique facilities to archive
+      const uniqueFacilities = new Map<string, string>();
+      machines.forEach((m) => {
+        if (!uniqueFacilities.has(m.entityId)) {
+          uniqueFacilities.set(m.entityId, m.registrantName);
+        }
+      });
+
+      // Archive each facility to history before deleting
+      const facilityEntries = Array.from(uniqueFacilities.entries());
+      for (let i = 0; i < facilityEntries.length; i++) {
+        const [entityId, facilityName] = facilityEntries[i];
+        await archiveFacilityToHistory(entityId, facilityName);
+      }
+
       // Delete all machines from Firestore
       machines.forEach((m) => deleteMachineFromFirestore(m.id));
       setMachines([]);
