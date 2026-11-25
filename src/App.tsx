@@ -1338,7 +1338,7 @@ export default function App(): JSX.Element | null {
     setIsParsingDetails(true);
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
       const prompt = `Parse X-ray string: "${machine.fullDetails}". Return JSON: { "make": "", "model": "", "serial": "" }.`;
       const result = await model.generateContent(prompt);
       const text = result.response
@@ -1671,7 +1671,7 @@ export default function App(): JSX.Element | null {
     setIsScanning(stepId || "unknown");
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
 
       const imageParts = await Promise.all(
         Array.from(files).map((file) => fileToGenerativePart(file))
