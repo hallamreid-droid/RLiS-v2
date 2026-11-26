@@ -67,6 +67,10 @@ import {
   onSnapshot,
   serverTimestamp,
   Bytes,
+  query,
+  orderBy,
+  limit,
+  getCountFromServer,
 } from "firebase/firestore";
 
 // --- CONFIGURATION ---
@@ -1078,6 +1082,11 @@ const EMPTY_TEMPLATE_NAMES: Record<string, string> = Object.fromEntries(
   TEMPLATE_TYPES.map((t) => [t, "No Template"])
 );
 
+// --- HISTORY LIMITS ---
+const HISTORY_PAGE_SIZE = 15;
+const HISTORY_MAX_PAGES = 10;
+const HISTORY_MAX_ENTRIES = HISTORY_PAGE_SIZE * HISTORY_MAX_PAGES; // 150
+
 export default function App(): JSX.Element | null {
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -1142,6 +1151,7 @@ export default function App(): JSX.Element | null {
   const [settingsTab, setSettingsTab] = useState<
     "apiKey" | "templates" | "history"
   >("apiKey");
+  const [historyPage, setHistoryPage] = useState(1);
   const [inspectionHistory, setInspectionHistory] = useState<
     Array<{
       id: string;
@@ -1322,29 +1332,30 @@ export default function App(): JSX.Element | null {
   }, [currentUser]);
 
   // --- FIRESTORE SYNC: Load inspection history ---
+  // Only listens while the History tab is open, and only fetches the newest
+  // HISTORY_MAX_ENTRIES entries, to keep Firestore reads low.
+  const isHistoryTabOpen = view === "settings" && settingsTab === "history";
   useEffect(() => {
     if (!currentUser) {
       setInspectionHistory([]);
       return;
     }
+    if (!isHistoryTabOpen) return;
 
-    const historyRef = collection(db, "users", currentUser.uid, "history");
+    const historyQuery = query(
+      collection(db, "users", currentUser.uid, "history"),
+      orderBy("completedAt", "desc"),
+      limit(HISTORY_MAX_ENTRIES)
+    );
 
     const unsubscribe = onSnapshot(
-      historyRef,
+      historyQuery,
       (snapshot) => {
         const loadedHistory: typeof inspectionHistory = [];
         snapshot.forEach((doc) => {
           loadedHistory.push({ id: doc.id, ...doc.data() } as any);
         });
-        // Sort by completedAt descending (most recent first)
-        loadedHistory.sort(
-          (a, b) =>
-            new Date(b.completedAt).getTime() -
-            new Date(a.completedAt).getTime()
-        );
-        // Keep only last 20
-        setInspectionHistory(loadedHistory.slice(0, 20));
+        setInspectionHistory(loadedHistory);
       },
       (error) => {
         console.error("History sync error:", error);
@@ -1352,7 +1363,16 @@ export default function App(): JSX.Element | null {
     );
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, isHistoryTabOpen]);
+
+  // Keep the current history page in range as entries come and go
+  const historyPageCount = Math.max(
+    1,
+    Math.ceil(inspectionHistory.length / HISTORY_PAGE_SIZE)
+  );
+  useEffect(() => {
+    if (historyPage > historyPageCount) setHistoryPage(historyPageCount);
+  }, [historyPage, historyPageCount]);
 
   // --- FIRESTORE HELPER: Archive facility to history ---
   const archiveFacilityToHistory = async (
@@ -1382,6 +1402,19 @@ export default function App(): JSX.Element | null {
       `${entityId}_${Date.now()}`
     );
     await setDoc(historyRef, historyEntry);
+  };
+
+  // --- FIRESTORE HELPER: Delete history beyond the newest HISTORY_MAX_ENTRIES ---
+  const pruneHistory = async () => {
+    if (!currentUser) return;
+    const historyRef = collection(db, "users", currentUser.uid, "history");
+    const countSnap = await getCountFromServer(historyRef);
+    const excess = countSnap.data().count - HISTORY_MAX_ENTRIES;
+    if (excess <= 0) return;
+    const oldest = await getDocs(
+      query(historyRef, orderBy("completedAt", "asc"), limit(excess))
+    );
+    await Promise.all(oldest.docs.map((d) => deleteDoc(d.ref)));
   };
 
   // --- AUTH FUNCTIONS ---
@@ -3238,9 +3271,11 @@ export default function App(): JSX.Element | null {
       window.confirm(`Delete facility "${facilityName}" and all its machines?`)
     ) {
       // Archive to history (best-effort; don't block the delete on it)
-      archiveFacilityToHistory(entityId, facilityName).catch((err) =>
-        console.error("Failed to archive facility to history:", err)
-      );
+      archiveFacilityToHistory(entityId, facilityName)
+        .then(pruneHistory)
+        .catch((err) =>
+          console.error("Failed to archive facility to history:", err)
+        );
 
       // Get machines to delete from Firestore
       const machinesToDelete = machines.filter((m) => m.entityId === entityId);
@@ -3260,11 +3295,15 @@ export default function App(): JSX.Element | null {
       });
 
       // Archive each facility to history (best-effort; don't block the delete on it)
+      const archives: Promise<void>[] = [];
       uniqueFacilities.forEach((facilityName, entityId) => {
-        archiveFacilityToHistory(entityId, facilityName).catch((err) =>
-          console.error("Failed to archive facility to history:", err)
-        );
+        archives.push(archiveFacilityToHistory(entityId, facilityName));
       });
+      Promise.all(archives)
+        .then(pruneHistory)
+        .catch((err) =>
+          console.error("Failed to archive facilities to history:", err)
+        );
 
       // Delete all machines from Firestore
       machines.forEach((m) => deleteMachineFromFirestore(m.id));
@@ -4177,15 +4216,77 @@ export default function App(): JSX.Element | null {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {inspectionHistory.map((entry) => (
-                    <HistoryEntryCard
-                      key={entry.id}
-                      entry={entry}
-                      onDownload={handleDownloadHistoryZip}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="space-y-3">
+                    {inspectionHistory
+                      .slice(
+                        (historyPage - 1) * HISTORY_PAGE_SIZE,
+                        historyPage * HISTORY_PAGE_SIZE
+                      )
+                      .map((entry) => (
+                        <HistoryEntryCard
+                          key={entry.id}
+                          entry={entry}
+                          onDownload={handleDownloadHistoryZip}
+                        />
+                      ))}
+                  </div>
+
+                  {/* PAGINATION */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-center text-sm font-bold text-slate-700 mb-3">
+                      Page {historyPage} of {historyPageCount}
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => {
+                          setHistoryPage((p) => Math.max(1, p - 1));
+                          window.scrollTo(0, 0);
+                        }}
+                        disabled={historyPage === 1}
+                        className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-40 disabled:active:scale-100"
+                        title="Previous page"
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {Array.from({ length: historyPageCount }, (_, i) => i + 1).map(
+                          (pageNum) => (
+                            <button
+                              key={pageNum}
+                              onClick={() => {
+                                setHistoryPage(pageNum);
+                                window.scrollTo(0, 0);
+                              }}
+                              className={`w-8 h-8 rounded-lg text-sm font-bold transition-all active:scale-95 ${
+                                pageNum === historyPage
+                                  ? "bg-blue-600 text-white"
+                                  : "text-slate-600 hover:bg-slate-100"
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          )
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setHistoryPage((p) => Math.min(historyPageCount, p + 1));
+                          window.scrollTo(0, 0);
+                        }}
+                        disabled={historyPage === historyPageCount}
+                        className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-40 disabled:active:scale-100"
+                        title="Next page"
+                      >
+                        <ArrowRight size={16} />
+                      </button>
+                    </div>
+                    <p className="text-center text-[11px] text-slate-400 mt-3">
+                      Showing your {inspectionHistory.length} most recent of up to{" "}
+                      {HISTORY_MAX_ENTRIES}. Older entries are deleted automatically.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
           )}
