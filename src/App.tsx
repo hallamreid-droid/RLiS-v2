@@ -801,28 +801,36 @@ const NON_MQSA_CABINET_STEPS = [
   },
 ];
 
-// --- COMPLIANCE CHECKS (NAC 459.580: Intraoral dental radiographic systems) ---
-// 459.580(7): kVp within 10% and exposure time within 20% of the indicated value
-//             (absent manufacturer specifications).
-// 459.580(6): Timer reproducibility, four tests at identical settings <= 0.5 s:
-//             T_avg >= 5 * (T_max - T_min)  ->  (T_max - T_min) <= 0.2 * T_avg
-// 459.580(10): Exposure reproducibility, four exposures at identical technique:
-//             E_avg >= 5 * (E_max - E_min)  ->  (E_max - E_min) <= 0.2 * E_avg
-const DENTAL_KVP_TOLERANCE = 0.1;
-const DENTAL_TIME_TOLERANCE = 0.2;
-const DENTAL_REPRO_FACTOR = 0.2; // 1/5 per NAC 459.580(6) and (10)
-const DENTAL_TIMER_REPRO_MAX_SEC = 0.5;
-const DENTAL_MS_THRESHOLD = 5; // time values above this are milliseconds
+// --- COMPLIANCE CHECKS ---
+// Intraoral dental: NAC 459.580.  General radiographic (stationary, mobile,
+// U-arm): NAC 459.622 and 459.624.  Both use the same tolerances:
+//  - kVp within 10% and exposure time within 20% of the indicated value
+//    (absent manufacturer specifications), checked on every exposure.
+//  - Timer reproducibility, four tests at identical settings <= 0.5 s:
+//    T_avg >= 5 * (T_max - T_min)  ->  (T_max - T_min) <= 0.2 * T_avg
+//  - Exposure reproducibility, four exposures at identical technique:
+//    E_avg >= 5 * (E_max - E_min)  ->  (E_max - E_min) <= 0.2 * E_avg
+//  - General rad only, linearity (NAC 459.622(7)): average mR/mAs at two
+//    techniques: |X1 - X2| <= 0.10 * (X1 + X2), checked for every pair.
+const KVP_TOLERANCE = 0.1;
+const TIME_TOLERANCE = 0.2;
+const REPRO_FACTOR = 0.2; // 1/5 per the T >= 5(Tmax-Tmin) / E >= 5(Emax-Emin) rule
+const TIMER_REPRO_MAX_SEC = 0.5;
+const LINEARITY_FACTOR = 0.1;
+const MS_THRESHOLD = 5; // time values above this are milliseconds
 
 // 21 CFR 1020.30(m)(1) Table 1 (adopted by NAC 459.564(5)): minimum HVL in
 // mm Al by measured kVp, with linear interpolation between listed points.
-//   "Specified Dental Systems": intraoral dental made after Dec 1, 1980
-//   "I - Other X-Ray Systems":  intraoral dental made on/before Dec 1, 1980
-// The app doesn't know the manufacture date, so an HVL between the two limits
-// is a *possible* discrepancy; below both limits it fails for any age.
+//   Specified Dental Systems: intraoral dental made after Dec 1, 1980
+//   I - Other X-Ray Systems:  intraoral dental made on/before Dec 1, 1980, and
+//                             all other systems made before June 10, 2006
+//   II - Other X-Ray Systems: non-intraoral systems made on/after June 10, 2006
+// The app doesn't know the manufacture date, so an HVL between the newer and
+// older limits is a *possible* discrepancy; below both it fails for any age.
 const HVL_TABLE_KVP = [30, 40, 50, 51, 60, 70, 71, 80, 90, 100, 110, 120, 130, 140, 150];
-const HVL_MIN_DENTAL_POST_1980 = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 2.1, 2.3, 2.5, 2.7, 3.0, 3.2, 3.5, 3.8, 4.1];
-const HVL_MIN_DENTAL_PRE_1980 = [0.3, 0.4, 0.5, 1.2, 1.3, 1.5, 2.1, 2.3, 2.5, 2.7, 3.0, 3.2, 3.5, 3.8, 4.1];
+const HVL_MIN_SPECIFIED_DENTAL = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 2.1, 2.3, 2.5, 2.7, 3.0, 3.2, 3.5, 3.8, 4.1];
+const HVL_MIN_OTHER_I = [0.3, 0.4, 0.5, 1.2, 1.3, 1.5, 2.1, 2.3, 2.5, 2.7, 3.0, 3.2, 3.5, 3.8, 4.1];
+const HVL_MIN_OTHER_II = [0.3, 0.4, 0.5, 1.3, 1.5, 1.8, 2.5, 2.9, 3.2, 3.6, 3.9, 4.3, 4.7, 5.0, 5.4];
 
 const interpolateHvl = (kvp: number, mins: number[]) => {
   const xs = HVL_TABLE_KVP;
@@ -842,112 +850,235 @@ const parseNum = (v: string | undefined): number | null => {
 };
 
 const fmt = (n: number) => String(Number(n.toPrecision(4)));
+const fmtMs = (sec: number) => `${fmt(sec * 1000)} ms`;
+const mean = (vals: number[]) => vals.reduce((a, b) => a + b, 0) / vals.length;
 
-const checkDentalCompliance = (machine: Machine): ComplianceFailure[] => {
-  if (machine.inspectionType !== "dental" || machine.data.noDataReason)
-    return [];
-  const d = machine.data;
-  const failures: ComplianceFailure[] = [];
+// Times may be entered/reported in ms (usual) or s. Exposures are never longer
+// than a few seconds, so any value above 5 is taken as ms. Each value is
+// converted on its own, so the preset and the readings can differ.
+const toSec = (n: number | null) =>
+  n === null ? null : n > MS_THRESHOLD ? n / 1000 : n;
 
-  // kVp accuracy
-  const setKvp = parseNum(d["preset_kvp"]);
-  const measKvp = parseNum(d["kvp"]);
-  if (setKvp && measKvp !== null) {
-    const dev = Math.abs(measKvp - setKvp) / setKvp;
-    if (dev > DENTAL_KVP_TOLERANCE)
-      failures.push({
-        badge: "kVp ACCURACY",
-        detail: `Measured ${fmt(measKvp)} kVp vs set ${fmt(setKvp)} kVp (${fmt(
-          dev * 100
-        )}% off, limit 10%)`,
-      });
+type Exposure = {
+  label: string;
+  kvp: number | null;
+  setKvp: number | null;
+  sec: number | null;
+  setSec: number | null;
+};
+
+const checkKvpAccuracy = (exps: Exposure[]): ComplianceFailure[] => {
+  const bad = exps.flatMap((e) =>
+    e.kvp !== null && e.setKvp
+      ? [{ ...e, kvp: e.kvp, setKvp: e.setKvp, dev: Math.abs(e.kvp - e.setKvp) / e.setKvp }]
+      : []
+  ).filter((e) => e.dev > KVP_TOLERANCE);
+  if (!bad.length) return [];
+  return [
+    {
+      badge: "kVp ACCURACY",
+      detail: `Limit 10%. ${bad
+        .map(
+          (e) =>
+            `${e.label}: ${fmt(e.kvp)} kVp vs set ${fmt(e.setKvp)} (${fmt(
+              e.dev * 100
+            )}% off)`
+        )
+        .join("; ")}`,
+    },
+  ];
+};
+
+const checkTimerAccuracy = (exps: Exposure[]): ComplianceFailure[] => {
+  const bad = exps.flatMap((e) =>
+    e.sec !== null && e.setSec
+      ? [{ ...e, sec: e.sec, setSec: e.setSec, dev: Math.abs(e.sec - e.setSec) / e.setSec }]
+      : []
+  ).filter((e) => e.dev > TIME_TOLERANCE);
+  if (!bad.length) return [];
+  return [
+    {
+      badge: "TIMER ACCURACY",
+      detail: `Limit 20%. ${bad
+        .map(
+          (e) =>
+            `${e.label}: ${fmtMs(e.sec)} vs set ${fmtMs(e.setSec)} (${fmt(
+              e.dev * 100
+            )}% off)`
+        )
+        .join("; ")}`,
+    },
+  ];
+};
+
+// Four readings at identical technique: (max - min) <= 0.2 * average
+const checkRepro = (
+  raw: (number | null)[],
+  kind: "time" | "dose"
+): ComplianceFailure[] => {
+  const vals = raw.filter((n): n is number => n !== null);
+  if (vals.length !== 4) return [];
+  const avg = mean(vals);
+  const range = Math.max(...vals) - Math.min(...vals);
+  if (range <= REPRO_FACTOR * avg) return [];
+  if (kind === "time") {
+    if (avg > TIMER_REPRO_MAX_SEC) return []; // only required at <= 0.5 s
+    return [
+      {
+        badge: "TIME REPRO",
+        detail: `Time range ${fmtMs(range)} exceeds 0.2 x avg ${fmtMs(avg)}`,
+      },
+    ];
   }
+  return [
+    {
+      badge: "DOSE REPRO",
+      detail: `Dose range ${fmt(range)} exceeds 0.2 x avg ${fmt(avg)}`,
+    },
+  ];
+};
 
-  // HVL vs. measured kVp (falls back to the set kVp)
-  const hvl = parseNum(d["hvl"]);
-  const hvlKvp = measKvp ?? setKvp;
-  if (hvl !== null && hvlKvp) {
-    const minNew = interpolateHvl(hvlKvp, HVL_MIN_DENTAL_POST_1980);
-    const minOld = interpolateHvl(hvlKvp, HVL_MIN_DENTAL_PRE_1980);
-    const at = `at ${fmt(hvlKvp)} kVp`;
-    if (hvl < minOld)
-      failures.push({
+const checkHvl = (
+  hvl: number | null,
+  kvp: number | null,
+  newer: { mins: number[]; label: string },
+  older: { mins: number[]; label: string }
+): ComplianceFailure[] => {
+  if (hvl === null || !kvp) return [];
+  const minNew = interpolateHvl(kvp, newer.mins);
+  const minOld = interpolateHvl(kvp, older.mins);
+  const at = `at ${fmt(kvp)} kVp`;
+  if (hvl < minOld)
+    return [
+      {
         badge: "HVL LOW",
-        detail: `HVL ${fmt(hvl)} mm Al ${at} is below the minimum for any intraoral unit (${fmt(
+        detail: `HVL ${fmt(hvl)} mm Al ${at} is below the minimum for any age of unit (${fmt(
           minOld
-        )} mm Al pre-12/1/1980, ${fmt(minNew)} mm Al after)`,
-      });
-    else if (hvl < minNew)
-      failures.push({
+        )} mm Al ${older.label}, ${fmt(minNew)} mm Al ${newer.label})`,
+      },
+    ];
+  if (hvl < minNew)
+    return [
+      {
         badge: "POSSIBLE HVL",
         detail: `HVL ${fmt(hvl)} mm Al ${at} is below ${fmt(
           minNew
-        )} mm Al required for units made after 12/1/1980. OK only if made on/before 12/1/1980 (min ${fmt(
-          minOld
-        )} mm Al)`,
-      });
-  }
+        )} mm Al required for units ${newer.label}. OK only if ${
+          older.label
+        } (min ${fmt(minOld)} mm Al)`,
+      },
+    ];
+  return [];
+};
 
-  // Times may be entered/reported in ms (usual) or s. Dental exposures are
-  // never longer than a few seconds, so any value above 5 is taken as ms.
-  // Each value is converted on its own, so preset and readings can differ.
-  const toSec = (n: number | null) =>
-    n === null ? null : n > DENTAL_MS_THRESHOLD ? n / 1000 : n;
-  const setTime = toSec(parseNum(d["preset_time"]));
-  const timeReadings = ["time1", "time2", "time3", "time4"].map((k, i) => ({
-    n: i + 1,
-    sec: toSec(parseNum(d[k])),
+const checkDentalCompliance = (machine: Machine): ComplianceFailure[] => {
+  const d = machine.data;
+  const setKvp = parseNum(d["preset_kvp"]);
+  const setSec = toSec(parseNum(d["preset_time"]));
+  const kvp = parseNum(d["kvp"]);
+
+  // The kVp is read on the first exposure only; time on all four
+  const exps: Exposure[] = [1, 2, 3, 4].map((n) => ({
+    label: `Exp ${n}`,
+    kvp: n === 1 ? kvp : null,
+    setKvp,
+    sec: toSec(parseNum(d[`time${n}`])),
+    setSec,
   }));
-  const times = timeReadings
-    .map((t) => t.sec)
-    .filter((n): n is number => n !== null);
-  const ms = (sec: number) => `${fmt(sec * 1000)} ms`;
 
-  // Timer accuracy: every exposure must be within 20% of the set time
-  if (setTime) {
-    const bad = timeReadings
-      .filter((t): t is { n: number; sec: number } => t.sec !== null)
-      .map((t) => ({ ...t, dev: Math.abs(t.sec - setTime) / setTime }))
-      .filter((t) => t.dev > DENTAL_TIME_TOLERANCE);
-    if (bad.length)
-      failures.push({
-        badge: "TIMER ACCURACY",
-        detail: `Set ${ms(setTime)}; limit 20%. ${bad
-          .map((t) => `Exp ${t.n}: ${ms(t.sec)} (${fmt(t.dev * 100)}% off)`)
-          .join("; ")}`,
-      });
-  }
+  return [
+    ...checkKvpAccuracy(exps),
+    ...checkHvl(
+      parseNum(d["hvl"]),
+      kvp ?? setKvp,
+      { mins: HVL_MIN_SPECIFIED_DENTAL, label: "made after 12/1/1980" },
+      { mins: HVL_MIN_OTHER_I, label: "made on/before 12/1/1980" }
+    ),
+    ...checkTimerAccuracy(exps),
+    ...checkRepro(exps.map((e) => e.sec), "time"),
+    ...checkRepro([1, 2, 3, 4].map((n) => parseNum(d[`mR${n}`])), "dose"),
+  ];
+};
 
-  const reproFails = (vals: number[]) => {
-    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const range = Math.max(...vals) - Math.min(...vals);
-    return { fail: range > DENTAL_REPRO_FACTOR * avg, avg, range };
-  };
+// General rad techniques (see GENERAL_STEPS). Blank presets fall back to the
+// same defaults the form shows and the report uses.
+const GENERAL_TECHNIQUES = [
+  { group: "g1", kvp: "70", mas: "10", steps: ["g1"] },
+  { group: "g2", kvp: "70", mas: "16", steps: ["g2a", "g2b", "g2c", "g2d"] },
+  { group: "g3", kvp: "70", mas: "20", steps: ["g3"] },
+  { group: "g4", kvp: "90", mas: "40", steps: ["g4"] },
+];
 
-  // Timer reproducibility (only required when settings are <= 0.5 s)
-  if (times.length === 4) {
-    const r = reproFails(times);
-    if (r.avg <= DENTAL_TIMER_REPRO_MAX_SEC && r.fail)
-      failures.push({
-        badge: "TIME REPRO",
-        detail: `Time range ${ms(r.range)} exceeds 0.2 x avg ${ms(r.avg)}`,
-      });
-  }
+const checkGeneralCompliance = (machine: Machine): ComplianceFailure[] => {
+  const d = machine.data;
+  const preset = (group: string, key: string, fallback: string) =>
+    parseNum(d[`${group}_preset_${key}`] || fallback);
 
-  // Exposure (dose) reproducibility
-  const doses = ["mR1", "mR2", "mR3", "mR4"]
-    .map((k) => parseNum(d[k]))
-    .filter((n): n is number => n !== null);
-  if (doses.length === 4) {
-    const r = reproFails(doses);
-    if (r.fail)
-      failures.push({
-        badge: "DOSE REPRO",
-        detail: `Dose range ${fmt(r.range)} exceeds 0.2 x avg ${fmt(r.avg)}`,
-      });
-  }
+  let expNo = 0;
+  const exps: (Exposure & { step: string })[] = GENERAL_TECHNIQUES.flatMap(
+    (tech) =>
+      tech.steps.map((step) => ({
+        step,
+        label: `Exp ${++expNo}`,
+        kvp: parseNum(d[`${step}_kvp`]),
+        setKvp: preset(tech.group, "kvp", tech.kvp),
+        sec: toSec(parseNum(d[`${step}_time`])),
+        setSec: toSec(preset(tech.group, "time", "")),
+      }))
+  );
+  const g2 = exps.filter((e) => e.step.startsWith("g2"));
+  const g4 = exps.find((e) => e.step === "g4")!;
 
-  return failures;
+  // Linearity: average mR / indicated mAs at techniques 1-3, every pair
+  const ratios = GENERAL_TECHNIQUES.slice(0, 3).map((tech, i) => {
+    const doses = tech.steps
+      .map((step) => parseNum(d[`${step}_mr`]))
+      .filter((n): n is number => n !== null && n > 0);
+    const mas = preset(tech.group, "mas", tech.mas);
+    return {
+      tech: i + 1,
+      x: doses.length && mas && mas > 0 ? mean(doses) / mas : null,
+    };
+  });
+  const badPairs: string[] = [];
+  for (let i = 0; i < ratios.length; i++)
+    for (let j = i + 1; j < ratios.length; j++) {
+      const a = ratios[i].x;
+      const b = ratios[j].x;
+      if (a === null || b === null) continue;
+      const diff = Math.abs(a - b);
+      const limit = LINEARITY_FACTOR * (a + b);
+      if (diff > limit)
+        badPairs.push(
+          `Tech ${ratios[i].tech} vs ${ratios[j].tech}: ${fmt(a)} vs ${fmt(
+            b
+          )} mR/mAs (diff ${fmt(diff)} > ${fmt(limit)})`
+        );
+    }
+  const linearity: ComplianceFailure[] = badPairs.length
+    ? [{ badge: "LINEARITY", detail: `|X1-X2| must be <= 0.10(X1+X2). ${badPairs.join("; ")}` }]
+    : [];
+
+  return [
+    ...checkKvpAccuracy(exps),
+    ...checkHvl(
+      parseNum(d["g4_hvl"]),
+      g4.kvp ?? g4.setKvp,
+      { mins: HVL_MIN_OTHER_II, label: "made on/after 6/10/2006" },
+      { mins: HVL_MIN_OTHER_I, label: "made before 6/10/2006" }
+    ),
+    ...checkTimerAccuracy(exps),
+    ...checkRepro(g2.map((e) => e.sec), "time"),
+    ...checkRepro(g2.map((e) => parseNum(d[`${e.step}_mr`])), "dose"),
+    ...linearity,
+  ];
+};
+
+const checkCompliance = (machine: Machine): ComplianceFailure[] => {
+  if (machine.data.noDataReason) return [];
+  if (machine.inspectionType === "dental") return checkDentalCompliance(machine);
+  if (machine.inspectionType === "general") return checkGeneralCompliance(machine);
+  return [];
 };
 
 // --- FIELD LABEL MAPPING ---
@@ -4937,7 +5068,7 @@ export default function App(): JSX.Element | null {
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
                     m.isComplete
                       ? m.data.noDataReason ||
-                        checkDentalCompliance(m).length > 0
+                        checkCompliance(m).length > 0
                         ? "bg-amber-50"
                         : "bg-emerald-50"
                       : "hover:bg-slate-50 cursor-pointer"
@@ -5001,7 +5132,7 @@ export default function App(): JSX.Element | null {
                       </span>
                     )}
                     {m.isComplete &&
-                      checkDentalCompliance(m).map((f) => (
+                      checkCompliance(m).map((f) => (
                         <span
                           key={f.badge}
                           title={f.detail}
