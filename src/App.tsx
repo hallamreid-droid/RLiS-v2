@@ -1072,9 +1072,15 @@ const checkGeneralCompliance = (machine: Machine): ComplianceFailure[] => {
 //    (459.570(2)(b)). Older units have no listed limit, so over 20 is a
 //    *possible* discrepancy.
 // Dose-rate units. The RaySafe shows R/min for most units and mR/min for mini
-// C-arms. The unit comes from (in order): text typed with the value, the unit
-// the scan read off the screen (or the user picked), else a guess: no
-// fluoroscope legally reads over 100 R/min, so a bigger number is mR/min.
+// C-arms. The app decides the unit itself, unless the user has corrected it
+// by tapping the "Read as ..." note (stored as <field>_unit_override):
+//  1. A unit typed with the value ("450 mR/min"), or the unit the photo scan
+//     read off the screen.
+//  2. A sanity check on that: no fluoroscope reads over 100 R/min, so an
+//     "R/min" reading above 100 must really be mR/min (a misread prefix).
+//  3. With no unit at all, the size of the number and the machine decide:
+//     above 100 is mR/min; for a mini C-arm (which runs at a few hundred
+//     mR/min to a few R/min) anything above 20 is mR/min.
 // Gy units use NAC 459.570's own equivalence (10 R/min = 100 mSv/min).
 type DoseRateUnit = "R/min" | "mR/min" | "mGy/min" | "uGy/s";
 const DOSE_RATE_TO_R_PER_MIN: Record<DoseRateUnit, number> = {
@@ -1094,25 +1100,32 @@ const normalizeDoseRateUnit = (raw: string | undefined): DoseRateUnit | null => 
   return null;
 };
 
-const getDoseRateUnit = (
-  data: { [key: string]: string },
-  field: string
-): { unit: DoseRateUnit; guessed: boolean } => {
-  const typed = normalizeDoseRateUnit(
-    (data[field] || "").replace(/^[\s\d.,<>-]+/, "")
-  );
-  if (typed) return { unit: typed, guessed: false };
-  const stored = normalizeDoseRateUnit(data[`${field}_unit`]);
-  if (stored) return { unit: stored, guessed: false };
-  const n = parseNum(data[field]);
-  return { unit: n !== null && n > 100 ? "mR/min" : "R/min", guessed: true };
+const MINI_C_ARM_HINTS = ["mini", "orthoscan", "fluoroscan", "insight"];
+const isMiniCArm = (machine: Machine) => {
+  const text = [machine.type, machine.fullDetails, machine.make, machine.model]
+    .join(" ")
+    .toLowerCase();
+  return MINI_C_ARM_HINTS.some((h) => text.includes(h));
+};
+
+const getDoseRateUnit = (machine: Machine, field: string): DoseRateUnit => {
+  const d = machine.data;
+  const override = normalizeDoseRateUnit(d[`${field}_unit_override`]);
+  if (override) return override;
+  const n = parseNum(d[field]);
+  const given =
+    normalizeDoseRateUnit((d[field] || "").replace(/^[\s\d.,<>-]+/, "")) ||
+    normalizeDoseRateUnit(d[`${field}_unit`]);
+  if (given) return given === "R/min" && n !== null && n > 100 ? "mR/min" : given;
+  const cutoff = isMiniCArm(machine) ? 20 : 100;
+  return n !== null && n > cutoff ? "mR/min" : "R/min";
 };
 
 // Reading converted to R/min, plus how to show it
-const readDoseRate = (data: { [key: string]: string }, field: string) => {
-  const n = parseNum(data[field]);
+const readDoseRate = (machine: Machine, field: string) => {
+  const n = parseNum(machine.data[field]);
   if (n === null) return null;
-  const { unit } = getDoseRateUnit(data, field);
+  const unit = getDoseRateUnit(machine, field);
   const rMin = n * DOSE_RATE_TO_R_PER_MIN[unit];
   const shown =
     unit === "R/min"
@@ -1147,7 +1160,7 @@ const checkFluoroCompliance = (machine: Machine): ComplianceFailure[] => {
     });
 
   const dose: ComplianceFailure[] = [];
-  const rate = readDoseRate(d, "r/min");
+  const rate = readDoseRate(machine, "r/min");
   const limit = hasHlc ? FLUORO_MAX_R_MIN_HLC_OFF : FLUORO_MAX_R_MIN_NO_HLC;
   if (rate && rate.rMin > limit)
     dose.push({
@@ -1156,7 +1169,7 @@ const checkFluoroCompliance = (machine: Machine): ComplianceFailure[] => {
         ? `${rate.shown} exceeds ${limit} R/min, the limit without HLC activated on a unit that has HLC`
         : `${rate.shown} exceeds ${limit} R/min, the limit for a unit without HLC`,
     });
-  const boostRate = hasHlc ? readDoseRate(d, "r/min_boost") : null;
+  const boostRate = hasHlc ? readDoseRate(machine, "r/min_boost") : null;
   if (boostRate && boostRate.rMin > FLUORO_MAX_R_MIN_HLC_ON)
     dose.push({
       badge: "POSSIBLE HLC RATE",
@@ -1687,6 +1700,8 @@ export default function App(): JSX.Element | null {
   const [facilityNotes, setFacilityNotes] = useState<Record<string, string>>({});
   const [showFacilityNotesModal, setShowFacilityNotesModal] = useState(false);
   const [facilityNotesText, setFacilityNotesText] = useState("");
+  // Fluoro dose-rate field whose "Read as" unit picker is open
+  const [unitPickerField, setUnitPickerField] = useState<string | null>(null);
 
   // Complete All tracking state
   const [autoCompletedMachineIds, setAutoCompletedMachineIds] = useState<string[]>([]);
@@ -2602,7 +2617,8 @@ export default function App(): JSX.Element | null {
           
           - For kVp, this figure is in the top left box on the screen. 
           - For mR, we want the DOSE RATE (R/min, mR/min, mGy/min, uGy/s) not the total dose. This figure is in the middle middle box.
-          - For mR_unit, return the unit shown next to the dose rate exactly as displayed (e.g. "R/min" or "mR/min"). Read the prefix carefully: "mR/min" and "R/min" differ by 1000x.
+          - For mR_unit, return the unit shown next to the dose rate exactly as displayed (e.g. "R/min", "mR/min" or "mGy/min"). Read the prefix carefully: "mR/min" and "R/min" differ by 1000x.
+          - Context for the unit: this machine is "${[activeMachine?.type, activeMachine?.make, activeMachine?.model].filter(Boolean).join(" ")}". Most fluoroscopes read about 1-20 R/min; mini C-arms usually read in mR/min (hundreds to thousands). If the prefix is hard to see, use this to decide.
           - For time, this figure is in the top right box.
           - For HVL, this figure is in the middle left box.
         `;
@@ -2640,9 +2656,11 @@ export default function App(): JSX.Element | null {
           key === "mR" &&
           val !== null &&
           val !== undefined
-        )
+        ) {
           updates[`${field}_unit`] =
             normalizeDoseRateUnit(data["mR_unit"]) || "";
+          updates[`${field}_unit_override`] = ""; // a new scan replaces a manual correction
+        }
       });
       if (Object.keys(updates).length > 0) {
         if (activeMachineId)
@@ -5046,43 +5064,59 @@ export default function App(): JSX.Element | null {
                     </div>
                     {activeMachine.inspectionType === "fluoroscope" &&
                       (k === "r/min" || k === "r/min_boost") &&
+                      parseNum(activeMachine.data[k]) !== null &&
                       (() => {
-                        const { unit, guessed } = getDoseRateUnit(
-                          activeMachine.data,
-                          k
-                        );
+                        const unit = getDoseRateUnit(activeMachine, k);
+                        const overridden =
+                          !!activeMachine.data[`${k}_unit_override`];
+                        const setOverride = (u: string) => {
+                          updateField(`${k}_unit_override`, u);
+                          setUnitPickerField(null);
+                        };
                         return (
-                          <div className="flex items-center gap-1 mt-1.5">
-                            {(["R/min", "mR/min"] as const).map((u) => (
-                              <button
-                                key={u}
-                                type="button"
-                                onClick={() => {
-                                  updateField(`${k}_unit`, u);
-                                  // A unit typed into the box would override the toggle
-                                  const v = activeMachine.data[k] || "";
-                                  const num = v.match(/^[\s<>]*[\d.,]+/);
-                                  if (num && num[0].trim() !== v.trim())
-                                    updateField(k, num[0].trim());
-                                }}
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
-                                  unit === u
-                                    ? "bg-blue-600 border-blue-600 text-white"
-                                    : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
-                                }`}
-                              >
-                                {u}
-                              </button>
-                            ))}
-                            {unit !== "R/min" && unit !== "mR/min" && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white">
-                                {unit}
-                              </span>
-                            )}
-                            {guessed && activeMachine.data[k] && (
-                              <span className="text-[9px] text-slate-400 ml-1">
-                                auto
-                              </span>
+                          <div className="mt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setUnitPickerField(
+                                  unitPickerField === k ? null : k
+                                )
+                              }
+                              className="text-[10px] text-slate-400 hover:text-blue-600 underline decoration-dotted underline-offset-2 flex items-center gap-1"
+                              title="Tap to change the unit"
+                            >
+                              Read as {unit}
+                              {overridden && " (set by you)"}
+                              <Edit3 size={10} />
+                            </button>
+                            {unitPickerField === k && (
+                              <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                                {(["R/min", "mR/min", "mGy/min"] as const).map(
+                                  (u) => (
+                                    <button
+                                      key={u}
+                                      type="button"
+                                      onClick={() => setOverride(u)}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                        unit === u
+                                          ? "bg-blue-600 border-blue-600 text-white"
+                                          : "bg-white border-slate-200 text-slate-500 hover:border-blue-400"
+                                      }`}
+                                    >
+                                      {u}
+                                    </button>
+                                  )
+                                )}
+                                {overridden && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setOverride("")}
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                                  >
+                                    Let app decide
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
                         );
