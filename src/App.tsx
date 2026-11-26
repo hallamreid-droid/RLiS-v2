@@ -1368,7 +1368,18 @@ export default function App(): JSX.Element | null {
   };
 
   const processTemplateFiles = (files: FileList | File[]) => {
-    Array.from(files).forEach((file) => {
+    const allFiles = Array.from(files);
+    const isWordFile = (file: File) => /\.(doc|docx)$/i.test(file.name);
+    const invalidFiles = allFiles.filter((file) => !isWordFile(file));
+    if (invalidFiles.length > 0) {
+      alert(
+        `Please upload a .doc or .docx file. Not uploaded: ${invalidFiles
+          .map((f) => f.name)
+          .join(", ")}`
+      );
+    }
+
+    allFiles.filter(isWordFile).forEach((file) => {
       const name = file.name.toLowerCase();
       let type: InspectionType | null = null;
 
@@ -1419,6 +1430,7 @@ export default function App(): JSX.Element | null {
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) processTemplateFiles(files);
+    e.target.value = "";
   };
 
   const handleTemplateDragOver = (e: React.DragEvent) => {
@@ -3261,7 +3273,7 @@ export default function App(): JSX.Element | null {
                   </div>
                   <input
                     type="file"
-                    accept=".docx"
+                    accept=".doc,.docx"
                     multiple
                     onChange={handleBulkTemplateUpload}
                     className="hidden"
