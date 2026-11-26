@@ -801,6 +801,110 @@ const NON_MQSA_CABINET_STEPS = [
   },
 ];
 
+// --- COMPLIANCE CHECKS (NAC 459.580: Intraoral dental radiographic systems) ---
+// 459.580(7): kVp within 10% and exposure time within 20% of the indicated value
+//             (absent manufacturer specifications).
+// 459.580(6): Timer reproducibility, four tests at identical settings <= 0.5 s:
+//             T_avg >= 5 * (T_max - T_min)  ->  (T_max - T_min) <= 0.2 * T_avg
+// 459.580(10): Exposure reproducibility, four exposures at identical technique:
+//             E_avg >= 5 * (E_max - E_min)  ->  (E_max - E_min) <= 0.2 * E_avg
+const DENTAL_KVP_TOLERANCE = 0.1;
+const DENTAL_TIME_TOLERANCE = 0.2;
+const DENTAL_REPRO_FACTOR = 0.2; // 1/5 per NAC 459.580(6) and (10)
+const DENTAL_TIMER_REPRO_MAX_SEC = 0.5;
+
+type ComplianceFailure = { badge: string; detail: string };
+
+const parseNum = (v: string | undefined): number | null => {
+  if (v === undefined || v === null) return null;
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+
+const fmt = (n: number) => String(Number(n.toPrecision(4)));
+
+const checkDentalCompliance = (machine: Machine): ComplianceFailure[] => {
+  if (machine.inspectionType !== "dental" || machine.data.noDataReason)
+    return [];
+  const d = machine.data;
+  const failures: ComplianceFailure[] = [];
+
+  // kVp accuracy
+  const setKvp = parseNum(d["preset_kvp"]);
+  const measKvp = parseNum(d["kvp"]);
+  if (setKvp && measKvp !== null) {
+    const dev = Math.abs(measKvp - setKvp) / setKvp;
+    if (dev > DENTAL_KVP_TOLERANCE)
+      failures.push({
+        badge: "kVp ACCURACY",
+        detail: `Measured ${fmt(measKvp)} kVp vs set ${fmt(setKvp)} kVp (${fmt(
+          dev * 100
+        )}% off, limit 10%)`,
+      });
+  }
+
+  // Readings: preset time is entered in seconds; the meter may report ms.
+  // If the measurements are ~1000x the preset, treat them as ms.
+  const rawTimes = ["time1", "time2", "time3", "time4"]
+    .map((k) => parseNum(d[k]))
+    .filter((n): n is number => n !== null);
+  const setTime = parseNum(d["preset_time"]);
+  let timeScale = 1;
+  if (rawTimes.length) {
+    const avg = rawTimes.reduce((a, b) => a + b, 0) / rawTimes.length;
+    const looksLikeMs = setTime ? avg / setTime > 50 : avg > 5;
+    if (looksLikeMs) timeScale = 1 / 1000;
+  }
+  const times = rawTimes.map((t) => t * timeScale);
+
+  // Timer accuracy (first technique scan)
+  const time1 = parseNum(d["time1"]);
+  const measTime = time1 !== null ? time1 * timeScale : null;
+  if (setTime && measTime !== null) {
+    const dev = Math.abs(measTime - setTime) / setTime;
+    if (dev > DENTAL_TIME_TOLERANCE)
+      failures.push({
+        badge: "TIMER ACCURACY",
+        detail: `Measured ${fmt(measTime)} s vs set ${fmt(setTime)} s (${fmt(
+          dev * 100
+        )}% off, limit 20%)`,
+      });
+  }
+
+  const reproFails = (vals: number[]) => {
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const range = Math.max(...vals) - Math.min(...vals);
+    return { fail: range > DENTAL_REPRO_FACTOR * avg, avg, range };
+  };
+
+  // Timer reproducibility (only required when settings are <= 0.5 s)
+  if (times.length === 4) {
+    const r = reproFails(times);
+    if (r.avg <= DENTAL_TIMER_REPRO_MAX_SEC && r.fail)
+      failures.push({
+        badge: "TIME REPRO",
+        detail: `Time range ${fmt(r.range)} s exceeds 0.2 x avg ${fmt(
+          r.avg
+        )} s`,
+      });
+  }
+
+  // Exposure (dose) reproducibility
+  const doses = ["mR1", "mR2", "mR3", "mR4"]
+    .map((k) => parseNum(d[k]))
+    .filter((n): n is number => n !== null);
+  if (doses.length === 4) {
+    const r = reproFails(doses);
+    if (r.fail)
+      failures.push({
+        badge: "DOSE REPRO",
+        detail: `Dose range ${fmt(r.range)} exceeds 0.2 x avg ${fmt(r.avg)}`,
+      });
+  }
+
+  return failures;
+};
+
 // --- FIELD LABEL MAPPING ---
 const getFieldLabel = (field: string): string => {
   const labels: Record<string, string> = {
@@ -4991,7 +5095,8 @@ export default function App(): JSX.Element | null {
                   }}
                   className={`p-4 border-b border-slate-50 flex justify-between items-center last:border-0 transition-colors ${
                     m.isComplete
-                      ? m.data.noDataReason
+                      ? m.data.noDataReason ||
+                        checkDentalCompliance(m).length > 0
                         ? "bg-amber-50"
                         : "bg-emerald-50"
                       : "hover:bg-slate-50 cursor-pointer"
@@ -5054,6 +5159,16 @@ export default function App(): JSX.Element | null {
                           : "NOT IN FACILITY"}
                       </span>
                     )}
+                    {m.isComplete &&
+                      checkDentalCompliance(m).map((f) => (
+                        <span
+                          key={f.badge}
+                          title={f.detail}
+                          className="text-[9px] font-bold uppercase px-2 py-1 rounded bg-amber-100 text-amber-700"
+                        >
+                          {f.badge}
+                        </span>
+                      ))}
                     {m.isComplete && (
                       <button
                         onClick={(e) => {
