@@ -958,20 +958,9 @@ const HistoryEntryCard: React.FC<{
           </p>
           <p className="text-xs text-slate-500">
             {formattedDate} at {formattedTime} • {machineCount} machine
-            {machineCount !== 1 ? "s" : ""}
+            {machineCount !== 1 ? "s" : ""} • {pageCount} page
+            {pageCount !== 1 ? "s" : ""}
           </p>
-          <span
-            className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-              pageCount > 0
-                ? "bg-emerald-100 text-emerald-700"
-                : "bg-slate-100 text-slate-400"
-            }`}
-          >
-            <FileText size={11} />
-            {pageCount > 0
-              ? `${pageCount} machine page${pageCount !== 1 ? "s" : ""} to download`
-              : "No machine pages"}
-          </span>
         </div>
         {downloading ? (
           <div className="p-2">
@@ -1024,11 +1013,6 @@ const HistoryEntryCard: React.FC<{
                     </span>
                   )}
                 </span>
-                {pageCount > 0 && (
-                  <span className="text-xs font-bold text-blue-500">
-                    {pageCount}
-                  </span>
-                )}
               </button>
             </div>
             <div className="p-4 pt-2">
