@@ -1074,10 +1074,123 @@ const checkGeneralCompliance = (machine: Machine): ComplianceFailure[] => {
   ];
 };
 
+// Fluoroscopic (C-arm, mobile C-arm, O-arm, fluoroscope): NAC 459.570 limits
+// the entrance exposure rate measured at the max kVp:
+//  - No high level control (HLC): <= 10 R/min (459.570(1))
+//  - With HLC, HLC not activated: <= 5 R/min (459.570(2)(a))
+//  - With HLC activated: <= 20 R/min if made on/after May 19, 1995
+//    (459.570(2)(b)). Older units have no listed limit, so over 20 is a
+//    *possible* discrepancy.
+// Dose-rate units. The RaySafe shows R/min for most units and mR/min for mini
+// C-arms. The unit comes from (in order): text typed with the value, the unit
+// the scan read off the screen (or the user picked), else a guess: no
+// fluoroscope legally reads over 100 R/min, so a bigger number is mR/min.
+// Gy units use NAC 459.570's own equivalence (10 R/min = 100 mSv/min).
+type DoseRateUnit = "R/min" | "mR/min" | "mGy/min" | "uGy/s";
+const DOSE_RATE_TO_R_PER_MIN: Record<DoseRateUnit, number> = {
+  "R/min": 1,
+  "mR/min": 1 / 1000,
+  "mGy/min": 1 / 10,
+  "uGy/s": 60 / 1000 / 10,
+};
+
+const normalizeDoseRateUnit = (raw: string | undefined): DoseRateUnit | null => {
+  const u = (raw || "").replace(/\s/g, "").replace("µ", "u").replace("μ", "u").toLowerCase();
+  if (!u) return null;
+  if (u.startsWith("mr")) return "mR/min";
+  if (u.startsWith("r")) return "R/min";
+  if (u.startsWith("mgy")) return "mGy/min";
+  if (u.startsWith("ugy")) return "uGy/s";
+  return null;
+};
+
+const getDoseRateUnit = (
+  data: { [key: string]: string },
+  field: string
+): { unit: DoseRateUnit; guessed: boolean } => {
+  const typed = normalizeDoseRateUnit(
+    (data[field] || "").replace(/^[\s\d.,<>-]+/, "")
+  );
+  if (typed) return { unit: typed, guessed: false };
+  const stored = normalizeDoseRateUnit(data[`${field}_unit`]);
+  if (stored) return { unit: stored, guessed: false };
+  const n = parseNum(data[field]);
+  return { unit: n !== null && n > 100 ? "mR/min" : "R/min", guessed: true };
+};
+
+// Reading converted to R/min, plus how to show it
+const readDoseRate = (data: { [key: string]: string }, field: string) => {
+  const n = parseNum(data[field]);
+  if (n === null) return null;
+  const { unit } = getDoseRateUnit(data, field);
+  const rMin = n * DOSE_RATE_TO_R_PER_MIN[unit];
+  const shown =
+    unit === "R/min"
+      ? `${fmt(n)} R/min`
+      : `${fmt(n)} ${unit} (${fmt(rMin)} R/min)`;
+  return { rMin, shown };
+};
+
+const FLUORO_MAX_R_MIN_NO_HLC = 10;
+const FLUORO_MAX_R_MIN_HLC_OFF = 5;
+const FLUORO_MAX_R_MIN_HLC_ON = 20;
+
+const checkFluoroCompliance = (machine: Machine): ComplianceFailure[] => {
+  const d = machine.data;
+  const hasHlc = d["has_hlc"] === "true";
+  const exps: Exposure[] = [
+    {
+      label: "Standard",
+      kvp: parseNum(d["kvp"]),
+      setKvp: parseNum(d["f1_preset_kvp"] || "120"),
+      sec: null,
+      setSec: null,
+    },
+  ];
+  if (hasHlc)
+    exps.push({
+      label: "Boost",
+      kvp: parseNum(d["kvp_boost"]),
+      setKvp: parseNum(d["f1_boost_preset_kvp"] || "120"),
+      sec: null,
+      setSec: null,
+    });
+
+  const dose: ComplianceFailure[] = [];
+  const rate = readDoseRate(d, "r/min");
+  const limit = hasHlc ? FLUORO_MAX_R_MIN_HLC_OFF : FLUORO_MAX_R_MIN_NO_HLC;
+  if (rate && rate.rMin > limit)
+    dose.push({
+      badge: "DOSE RATE",
+      detail: hasHlc
+        ? `${rate.shown} exceeds ${limit} R/min, the limit without HLC activated on a unit that has HLC`
+        : `${rate.shown} exceeds ${limit} R/min, the limit for a unit without HLC`,
+    });
+  const boostRate = hasHlc ? readDoseRate(d, "r/min_boost") : null;
+  if (boostRate && boostRate.rMin > FLUORO_MAX_R_MIN_HLC_ON)
+    dose.push({
+      badge: "POSSIBLE HLC RATE",
+      detail: `Boost ${boostRate.shown} exceeds ${FLUORO_MAX_R_MIN_HLC_ON} R/min, the limit with HLC activated for units made on/after 5/19/1995. No limit is listed for older units`,
+    });
+
+  const standard = exps[0];
+  return [
+    ...checkKvpAccuracy(exps),
+    ...checkHvl(
+      parseNum(d["hvl"]),
+      standard.kvp ?? standard.setKvp,
+      { mins: HVL_MIN_OTHER_II, label: "made on/after 6/10/2006" },
+      { mins: HVL_MIN_OTHER_I, label: "made before 6/10/2006" }
+    ),
+    ...dose,
+  ];
+};
+
 const checkCompliance = (machine: Machine): ComplianceFailure[] => {
   if (machine.data.noDataReason) return [];
   if (machine.inspectionType === "dental") return checkDentalCompliance(machine);
   if (machine.inspectionType === "general") return checkGeneralCompliance(machine);
+  if (machine.inspectionType === "fluoroscope") return checkFluoroCompliance(machine);
   return [];
 };
 
@@ -2158,7 +2271,11 @@ export default function App(): JSX.Element | null {
         name.includes("fluorescence")
       )
         type = "analytical";
-      else if (name.includes("fluoro") || name.includes("c-arm"))
+      else if (
+        name.includes("fluoro") ||
+        name.includes("c-arm") ||
+        name.includes("o-arm")
+      )
         type = "fluoroscope";
       else if (
         name.includes("ct ") ||
@@ -2348,6 +2465,7 @@ export default function App(): JSX.Element | null {
         } else if (
           credType.includes("fluoroscope") ||
           credType.includes("c-arm") ||
+          credType.includes("o-arm") ||
           credType.includes("fluoro")
         ) {
           inspectionType = "fluoroscope";
@@ -2508,10 +2626,11 @@ export default function App(): JSX.Element | null {
         // --- FLUORO SCREEN SCAN (RATE ONLY) ---
         prompt = `
           Analyze RaySafe screen. Return JSON.
-          Find "kvp", "mR", "time", "hvl". Ignore pulses. Do not convert units. Do not return units. If you see "4.50 R/min", return "4.50"
+          Find "kvp", "mR", "mR_unit", "time", "hvl". Ignore pulses. Do not convert units. Do not return units in the number fields. If you see "4.50 R/min", return "mR": "4.50" and "mR_unit": "R/min". If you see "450 mR/min", return "mR": "450" and "mR_unit": "mR/min".
           
           - For kVp, this figure is in the top left box on the screen. 
-          - For mR, we want the DOSE RATE (R/min, mGy/min, uGy/s) not the total dose. This figure is in the middle middle box.
+          - For mR, we want the DOSE RATE (R/min, mR/min, mGy/min, uGy/s) not the total dose. This figure is in the middle middle box.
+          - For mR_unit, return the unit shown next to the dose rate exactly as displayed (e.g. "R/min" or "mR/min"). Read the prefix carefully: "mR/min" and "R/min" differ by 1000x.
           - For time, this figure is in the top right box.
           - For HVL, this figure is in the middle left box.
         `;
@@ -2542,6 +2661,16 @@ export default function App(): JSX.Element | null {
         const key = indices[i];
         const val = data[key];
         if (val !== null && val !== undefined) updates[field] = val.toString();
+        // Fluoro dose rate: keep the unit the screen showed next to the value
+        if (
+          scanType === "screen" &&
+          activeMachine?.inspectionType === "fluoroscope" &&
+          key === "mR" &&
+          val !== null &&
+          val !== undefined
+        )
+          updates[`${field}_unit`] =
+            normalizeDoseRateUnit(data["mR_unit"]) || "";
       });
       if (Object.keys(updates).length > 0) {
         if (activeMachineId)
@@ -4948,6 +5077,49 @@ export default function App(): JSX.Element | null {
                       />
                       {/* PENCIL SYMBOL REMOVED HERE */}
                     </div>
+                    {activeMachine.inspectionType === "fluoroscope" &&
+                      (k === "r/min" || k === "r/min_boost") &&
+                      (() => {
+                        const { unit, guessed } = getDoseRateUnit(
+                          activeMachine.data,
+                          k
+                        );
+                        return (
+                          <div className="flex items-center gap-1 mt-1.5">
+                            {(["R/min", "mR/min"] as const).map((u) => (
+                              <button
+                                key={u}
+                                type="button"
+                                onClick={() => {
+                                  updateField(`${k}_unit`, u);
+                                  // A unit typed into the box would override the toggle
+                                  const v = activeMachine.data[k] || "";
+                                  const num = v.match(/^[\s<>]*[\d.,]+/);
+                                  if (num && num[0].trim() !== v.trim())
+                                    updateField(k, num[0].trim());
+                                }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                  unit === u
+                                    ? "bg-blue-600 border-blue-600 text-white"
+                                    : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
+                                }`}
+                              >
+                                {u}
+                              </button>
+                            ))}
+                            {unit !== "R/min" && unit !== "mR/min" && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white">
+                                {unit}
+                              </span>
+                            )}
+                            {guessed && activeMachine.data[k] && (
+                              <span className="text-[9px] text-slate-400 ml-1">
+                                auto
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                   </div>
                 ))}
               </div>
