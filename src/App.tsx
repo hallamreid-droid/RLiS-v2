@@ -61,9 +61,12 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
+  getDocs,
   deleteDoc,
   onSnapshot,
   serverTimestamp,
+  Bytes,
 } from "firebase/firestore";
 
 // --- CONFIGURATION ---
@@ -86,34 +89,105 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
-const saveTemplateToDB = async (
-  type: string,
-  name: string,
-  buffer: ArrayBuffer
-) => {
-  const db = await openDB();
-  const tx = db.transaction(STORE_NAME, "readwrite");
-  const store = tx.objectStore(STORE_NAME);
-  store.put({ type, name, buffer });
-};
-
-const getTemplatesFromDB = async () => {
-  const db = await openDB();
+// Legacy: templates used to be stored only in this browser. Read once to
+// migrate them into the signed-in user's account, then cleared.
+const getLegacyTemplatesFromDB = async () => {
+  const idb = await openDB();
   return new Promise<{ type: string; name: string; buffer: ArrayBuffer }[]>(
     (resolve) => {
-      const tx = db.transaction(STORE_NAME, "readonly");
+      const tx = idb.transaction(STORE_NAME, "readonly");
       const store = tx.objectStore(STORE_NAME);
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve([]);
     }
   );
 };
 
-const deleteTemplateFromDB = async (type: string) => {
-  const db = await openDB();
-  const tx = db.transaction(STORE_NAME, "readwrite");
-  const store = tx.objectStore(STORE_NAME);
-  store.delete(type);
+const clearLegacyTemplatesDB = async () => {
+  const idb = await openDB();
+  const tx = idb.transaction(STORE_NAME, "readwrite");
+  tx.objectStore(STORE_NAME).clear();
+};
+
+// --- PER-USER TEMPLATE STORAGE (Firestore) ---
+// Firestore documents max out at 1 MiB, so each template file is split into
+// ~900 KB chunks: users/{uid}/templates/{type} holds the name and chunk count,
+// users/{uid}/templates/{type}/chunks/{i} holds the bytes.
+const TEMPLATE_CHUNK_SIZE = 900 * 1024;
+
+const saveTemplateToFirestore = async (
+  uid: string,
+  type: string,
+  name: string,
+  buffer: ArrayBuffer
+) => {
+  const bytes = new Uint8Array(buffer);
+  const chunkCount = Math.max(1, Math.ceil(bytes.length / TEMPLATE_CHUNK_SIZE));
+  const templateRef = doc(db, "users", uid, "templates", type);
+  const chunksRef = collection(templateRef, "chunks");
+
+  for (let i = 0; i < chunkCount; i++) {
+    const slice = bytes.slice(
+      i * TEMPLATE_CHUNK_SIZE,
+      (i + 1) * TEMPLATE_CHUNK_SIZE
+    );
+    await setDoc(doc(chunksRef, String(i)), {
+      data: Bytes.fromUint8Array(slice),
+    });
+  }
+  await setDoc(templateRef, {
+    name,
+    chunkCount,
+    size: bytes.length,
+    updatedAt: serverTimestamp(),
+  });
+
+  // Remove leftover chunks from a previous, larger version of this template
+  const existing = await getDocs(chunksRef);
+  await Promise.all(
+    existing.docs
+      .filter((d) => Number(d.id) >= chunkCount)
+      .map((d) => deleteDoc(d.ref))
+  );
+};
+
+const loadTemplatesFromFirestore = async (uid: string) => {
+  const metaSnap = await getDocs(collection(db, "users", uid, "templates"));
+  const results = await Promise.all(
+    metaSnap.docs.map(async (metaDoc) => {
+      const meta = metaDoc.data();
+      const chunkCount: number = meta.chunkCount || 0;
+      const chunkSnap = await getDocs(collection(metaDoc.ref, "chunks"));
+      const chunks = chunkSnap.docs
+        .filter((d) => Number(d.id) < chunkCount)
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map((d) => (d.data().data as Bytes).toUint8Array());
+      if (chunks.length !== chunkCount) return null; // incomplete upload
+      const total = chunks.reduce((sum, c) => sum + c.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      chunks.forEach((c) => {
+        merged.set(c, offset);
+        offset += c.length;
+      });
+      return {
+        type: metaDoc.id,
+        name: meta.name as string,
+        buffer: merged.buffer as ArrayBuffer,
+      };
+    })
+  );
+  return results.filter(
+    (t): t is { type: string; name: string; buffer: ArrayBuffer } => t !== null
+  );
+};
+
+const deleteTemplateFromFirestore = async (uid: string, type: string) => {
+  const templateRef = doc(db, "users", uid, "templates", type);
+  await deleteDoc(templateRef);
+  const chunkSnap = await getDocs(collection(templateRef, "chunks"));
+  await Promise.all(chunkSnap.docs.map((d) => deleteDoc(d.ref)));
 };
 
 // --- TYPES ---
@@ -985,6 +1059,25 @@ const getInitials = (profile: UserProfile | null): string => {
     .charAt(0)}`.toUpperCase();
 };
 
+const TEMPLATE_TYPES = [
+  "dental",
+  "general",
+  "analytical",
+  "fluoroscope",
+  "ct",
+  "cabinet",
+  "bone_density",
+  "industrial",
+  "accelerator",
+  "non_mqsa",
+];
+const EMPTY_TEMPLATES: Record<string, ArrayBuffer | null> = Object.fromEntries(
+  TEMPLATE_TYPES.map((t) => [t, null])
+);
+const EMPTY_TEMPLATE_NAMES: Record<string, string> = Object.fromEntries(
+  TEMPLATE_TYPES.map((t) => [t, "No Template"])
+);
+
 export default function App(): JSX.Element | null {
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -1093,32 +1186,11 @@ export default function App(): JSX.Element | null {
   // Complete All tracking state
   const [autoCompletedMachineIds, setAutoCompletedMachineIds] = useState<string[]>([]);
 
-  const [templates, setTemplates] = useState<
-    Record<string, ArrayBuffer | null>
-  >({
-    dental: null,
-    general: null,
-    analytical: null,
-    fluoroscope: null,
-    ct: null,
-    cabinet: null,
-    bone_density: null,
-    industrial: null,
-    accelerator: null,
-    non_mqsa: null,
-  });
-  const [templateNames, setTemplateNames] = useState<Record<string, string>>({
-    dental: "No Template",
-    general: "No Template",
-    analytical: "No Template",
-    fluoroscope: "No Template",
-    ct: "No Template",
-    cabinet: "No Template",
-    bone_density: "No Template",
-    industrial: "No Template",
-    accelerator: "No Template",
-    non_mqsa: "No Template",
-  });
+  const [templates, setTemplates] =
+    useState<Record<string, ArrayBuffer | null>>(EMPTY_TEMPLATES);
+  const [templateNames, setTemplateNames] =
+    useState<Record<string, string>>(EMPTY_TEMPLATE_NAMES);
+  const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isScanning, setIsScanning] = useState<string | null>(null);
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [isParsingDetails, setIsParsingDetails] = useState(false);
@@ -1449,9 +1521,6 @@ export default function App(): JSX.Element | null {
       document.head.appendChild(script);
     }
 
-    const savedKey = localStorage.getItem("rayScanApiKey");
-    if (savedKey) setApiKey(savedKey);
-
     const savedMachines = localStorage.getItem("rayScanMachines");
     if (savedMachines) {
       try {
@@ -1469,18 +1538,75 @@ export default function App(): JSX.Element | null {
         console.error("Failed to load machines", e);
       }
     }
-
-    getTemplatesFromDB().then((storedTemplates) => {
-      const loadedTemplates: any = { ...templates };
-      const loadedNames: any = { ...templateNames };
-      storedTemplates.forEach((t) => {
-        loadedTemplates[t.type] = t.buffer;
-        loadedNames[t.type] = t.name;
-      });
-      setTemplates(loadedTemplates);
-      setTemplateNames(loadedNames);
-    });
   }, []);
+
+  // --- PER-USER SETTINGS: load this user's API key and templates on login ---
+  useEffect(() => {
+    if (apiKeySaveTimer.current) {
+      clearTimeout(apiKeySaveTimer.current);
+      apiKeySaveTimer.current = null;
+    }
+    setApiKey("");
+    setTemplates(EMPTY_TEMPLATES);
+    setTemplateNames(EMPTY_TEMPLATE_NAMES);
+    if (!currentUser) return;
+
+    const uid = currentUser.uid;
+    let cancelled = false;
+
+    // API key (stored on the user's profile document)
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "users", uid));
+        let key: string = snap.data()?.geminiApiKey || "";
+        // One-time migration of a key that was saved in this browser before
+        const legacyKey = localStorage.getItem("rayScanApiKey");
+        if (!key && legacyKey) {
+          key = legacyKey;
+          await setDoc(
+            doc(db, "users", uid),
+            { geminiApiKey: key },
+            { merge: true }
+          );
+        }
+        localStorage.removeItem("rayScanApiKey");
+        if (!cancelled) setApiKey(key);
+      } catch (error) {
+        console.error("Failed to load API key:", error);
+      }
+    })();
+
+    // Templates
+    (async () => {
+      try {
+        let stored = await loadTemplatesFromFirestore(uid);
+        // One-time migration of templates that were saved in this browser before
+        const legacy = await getLegacyTemplatesFromDB().catch(() => []);
+        if (stored.length === 0 && legacy.length > 0) {
+          for (const t of legacy) {
+            await saveTemplateToFirestore(uid, t.type, t.name, t.buffer);
+          }
+          stored = legacy;
+        }
+        if (legacy.length > 0) await clearLegacyTemplatesDB().catch(() => {});
+        if (cancelled) return;
+        const loadedTemplates = { ...EMPTY_TEMPLATES };
+        const loadedNames = { ...EMPTY_TEMPLATE_NAMES };
+        stored.forEach((t) => {
+          loadedTemplates[t.type] = t.buffer;
+          loadedNames[t.type] = t.name;
+        });
+        setTemplates(loadedTemplates);
+        setTemplateNames(loadedNames);
+      } catch (error) {
+        console.error("Failed to load templates:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser]);
 
   // Machines are now synced via Firestore onSnapshot listener
   // Local storage backup for offline (optional)
@@ -1521,7 +1647,16 @@ export default function App(): JSX.Element | null {
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setApiKey(val);
-    localStorage.setItem("rayScanApiKey", val);
+    if (!currentUser) return;
+    const uid = currentUser.uid;
+    // Save to the user's account shortly after they stop typing
+    if (apiKeySaveTimer.current) clearTimeout(apiKeySaveTimer.current);
+    apiKeySaveTimer.current = setTimeout(() => {
+      apiKeySaveTimer.current = null;
+      setDoc(doc(db, "users", uid), { geminiApiKey: val }, { merge: true }).catch(
+        (error) => console.error("Failed to save API key:", error)
+      );
+    }, 600);
   };
 
   const processTemplateFiles = (files: FileList | File[]) => {
@@ -1576,7 +1711,19 @@ export default function App(): JSX.Element | null {
             const buffer = evt.target?.result as ArrayBuffer;
             setTemplates((prev) => ({ ...prev, [type!]: buffer }));
             setTemplateNames((prev) => ({ ...prev, [type!]: file.name }));
-            saveTemplateToDB(type!, file.name, buffer);
+            if (currentUser) {
+              saveTemplateToFirestore(
+                currentUser.uid,
+                type!,
+                file.name,
+                buffer
+              ).catch((error) => {
+                console.error("Failed to save template:", error);
+                alert(
+                  `Couldn't save "${file.name}" to your account. It will only be available until you reload.`
+                );
+              });
+            }
           }
         };
         reader.readAsArrayBuffer(file);
@@ -1614,7 +1761,11 @@ export default function App(): JSX.Element | null {
     e.stopPropagation();
     setTemplates((prev) => ({ ...prev, [type]: null }));
     setTemplateNames((prev) => ({ ...prev, [type]: "No Template" }));
-    deleteTemplateFromDB(type);
+    if (currentUser) {
+      deleteTemplateFromFirestore(currentUser.uid, type).catch((error) =>
+        console.error("Failed to delete template:", error)
+      );
+    }
   };
 
   // --- REUSABLE DATA PROCESSOR FOR EXCEL ---
@@ -3545,7 +3696,7 @@ export default function App(): JSX.Element | null {
               />
 
               <p className="text-[11px] text-slate-400 mt-2">
-                Key is saved locally in your browser.
+                Key is saved to your account.
               </p>
             </div>
           )}
