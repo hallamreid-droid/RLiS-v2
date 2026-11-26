@@ -2913,8 +2913,10 @@ export default function App(): JSX.Element | null {
     if (
       window.confirm(`Delete facility "${facilityName}" and all its machines?`)
     ) {
-      // Archive to history before deleting
-      await archiveFacilityToHistory(entityId, facilityName);
+      // Archive to history (best-effort; don't block the delete on it)
+      archiveFacilityToHistory(entityId, facilityName).catch((err) =>
+        console.error("Failed to archive facility to history:", err)
+      );
 
       // Get machines to delete from Firestore
       const machinesToDelete = machines.filter((m) => m.entityId === entityId);
@@ -2933,12 +2935,12 @@ export default function App(): JSX.Element | null {
         }
       });
 
-      // Archive each facility to history before deleting
-      const facilityEntries = Array.from(uniqueFacilities.entries());
-      for (let i = 0; i < facilityEntries.length; i++) {
-        const [entityId, facilityName] = facilityEntries[i];
-        await archiveFacilityToHistory(entityId, facilityName);
-      }
+      // Archive each facility to history (best-effort; don't block the delete on it)
+      uniqueFacilities.forEach((facilityName, entityId) => {
+        archiveFacilityToHistory(entityId, facilityName).catch((err) =>
+          console.error("Failed to archive facility to history:", err)
+        );
+      });
 
       // Delete all machines from Firestore
       machines.forEach((m) => deleteMachineFromFirestore(m.id));
