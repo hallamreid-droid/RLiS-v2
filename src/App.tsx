@@ -2053,9 +2053,15 @@ export default function App(): JSX.Element | null {
     }
   };
 
-  const removeTemplate = (type: string, e: React.MouseEvent) => {
+  const removeTemplate = (type: string, label: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (
+      !window.confirm(
+        `Delete the ${label} template "${templateNames[type]}"? You'll need to upload it again to generate ${label} reports.`
+      )
+    )
+      return;
     setTemplates((prev) => ({ ...prev, [type]: null }));
     setTemplateNames((prev) => ({ ...prev, [type]: "No Template" }));
     if (currentUser) {
@@ -4089,7 +4095,7 @@ export default function App(): JSX.Element | null {
                             className="text-emerald-500 shrink-0"
                           />
                           <button
-                            onClick={(e) => removeTemplate(type, e)}
+                            onClick={(e) => removeTemplate(type, label, e)}
                             className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors shrink-0"
                             title="Remove template"
                           >
@@ -4107,10 +4113,6 @@ export default function App(): JSX.Element | null {
           {/* History Tab Content */}
           {settingsTab === "history" && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="text-blue-500" size={20} />
-                <h3 className="font-bold text-slate-700">Inspection History</h3>
-              </div>
               {inspectionHistory.length === 0 ? (
                 <div className="bg-white p-8 rounded-xl border border-slate-200 text-center">
                   <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
