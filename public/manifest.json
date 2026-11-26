@@ -1,6 +1,6 @@
 {
-  "name": "RayScan - X-Ray Inspection Tool",
-  "short_name": "RayScan",
+  "name": "RLiS - X-Ray Inspection Tool",
+  "short_name": "RLiS",
   "description": "Mobile X-ray machine inspection app with offline support",
   "start_url": "/",
   "display": "standalone",

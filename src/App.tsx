@@ -35,6 +35,11 @@ import {
   ChevronDown,
   ChevronUp,
   Shield,
+  Mail,
+  Lock,
+  ArrowRight,
+  UserPlus,
+  LogIn,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -43,12 +48,12 @@ import { saveAs } from "file-saver";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Firebase imports
-import { auth, db, googleProvider } from "./firebase";
+import { auth, db } from "./firebase";
 import {
   onAuthStateChanged,
-  signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  updateProfile,
   signOut,
   User as FirebaseUser,
 } from "firebase/auth";
@@ -938,14 +943,64 @@ const HistoryEntryCard: React.FC<{
   );
 };
 
+// --- AUTH ERROR MESSAGES ---
+const getAuthErrorMessage = (code: string | undefined): string => {
+  switch (code) {
+    case "auth/invalid-email":
+      return "That email address isn't valid.";
+    case "auth/user-not-found":
+      return "No account found with that email.";
+    case "auth/wrong-password":
+      return "Incorrect password. Please try again.";
+    case "auth/invalid-credential":
+    case "auth/invalid-login-credentials":
+      return "Incorrect email or password. Please try again.";
+    case "auth/user-disabled":
+      return "This account has been disabled.";
+    case "auth/email-already-in-use":
+      return "An account with that email already exists. Try logging in instead.";
+    case "auth/weak-password":
+      return "Password must be at least 6 characters.";
+    case "auth/missing-password":
+      return "Please enter your password.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a moment and try again.";
+    case "auth/network-request-failed":
+      return "Network error. Check your connection and try again.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
+};
+
+type UserProfile = {
+  firstName: string;
+  lastName: string;
+  institution: string;
+};
+
+const getInitials = (profile: UserProfile | null): string => {
+  if (!profile) return "";
+  return `${profile.firstName.trim().charAt(0)}${profile.lastName
+    .trim()
+    .charAt(0)}`.toUpperCase();
+};
+
 export default function App(): JSX.Element | null {
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authScreen, setAuthScreen] = useState<"welcome" | "login" | "signup">(
+    "welcome"
+  );
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authFirstName, setAuthFirstName] = useState("");
+  const [authLastName, setAuthLastName] = useState("");
+  const [authInstitution, setAuthInstitution] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const [view, setViewState] = useState<
     "facility-list" | "machine-list" | "mobile-form" | "settings"
@@ -1076,6 +1131,37 @@ export default function App(): JSX.Element | null {
     });
     return () => unsubscribe();
   }, []);
+
+  // --- FIRESTORE SYNC: Load user profile (name, institution) ---
+  useEffect(() => {
+    if (!currentUser) {
+      setUserProfile(null);
+      setProfileLoading(false);
+      return;
+    }
+    setProfileLoading(true);
+    const unsubscribe = onSnapshot(
+      doc(db, "users", currentUser.uid),
+      (snapshot) => {
+        const data = snapshot.data();
+        if (data && data.firstName && data.lastName) {
+          setUserProfile({
+            firstName: data.firstName,
+            lastName: data.lastName,
+            institution: data.institution || "",
+          });
+        } else {
+          setUserProfile(null);
+        }
+        setProfileLoading(false);
+      },
+      (error) => {
+        console.error("Profile sync error:", error);
+        setProfileLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [currentUser]);
 
   // --- INACTIVITY AUTO-LOGOUT (48 hours) ---
   const INACTIVITY_TIMEOUT = 48 * 60 * 60 * 1000; // 48 hours in milliseconds
@@ -1227,26 +1313,94 @@ export default function App(): JSX.Element | null {
   };
 
   // --- AUTH FUNCTIONS ---
-  const handleGoogleLogin = async () => {
-    try {
-      setAuthError(null);
-      await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
-      setAuthError(error.message);
-    }
+  const switchAuthScreen = (screen: "welcome" | "login" | "signup") => {
+    setAuthError(null);
+    setAuthPassword("");
+    setAuthScreen(screen);
+  };
+
+  const saveUserProfile = async (uid: string, profile: UserProfile) => {
+    await setDoc(
+      doc(db, "users", uid),
+      { ...profile, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
+
+    const email = authEmail.trim();
+    const profile: UserProfile = {
+      firstName: authFirstName.trim(),
+      lastName: authLastName.trim(),
+      institution: authInstitution.trim(),
+    };
+    if (
+      authScreen === "signup" &&
+      (!profile.firstName || !profile.lastName || !profile.institution)
+    ) {
+      setAuthError("Please fill in your first name, last name and institution.");
+      return;
+    }
+    if (!email) {
+      setAuthError("Please enter your email.");
+      return;
+    }
+    if (!authPassword) {
+      setAuthError("Please enter your password.");
+      return;
+    }
+
+    setAuthSubmitting(true);
     try {
-      if (authMode === "login") {
-        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      if (authScreen === "login") {
+        await signInWithEmailAndPassword(auth, email, authPassword);
       } else {
-        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        const cred = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          authPassword
+        );
+        await saveUserProfile(cred.user.uid, profile);
+        await updateProfile(cred.user, {
+          displayName: `${profile.firstName} ${profile.lastName}`,
+        });
       }
+      setAuthPassword("");
     } catch (error: any) {
-      setAuthError(error.message);
+      console.error("Auth error:", error);
+      setAuthError(getAuthErrorMessage(error?.code));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleCompleteProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setAuthError(null);
+    const profile: UserProfile = {
+      firstName: authFirstName.trim(),
+      lastName: authLastName.trim(),
+      institution: authInstitution.trim(),
+    };
+    if (!profile.firstName || !profile.lastName || !profile.institution) {
+      setAuthError("Please fill in your first name, last name and institution.");
+      return;
+    }
+    setAuthSubmitting(true);
+    try {
+      await saveUserProfile(currentUser.uid, profile);
+      await updateProfile(currentUser, {
+        displayName: `${profile.firstName} ${profile.lastName}`,
+      });
+    } catch (error: any) {
+      console.error("Profile save error:", error);
+      setAuthError("Couldn't save your profile. Please try again.");
+    } finally {
+      setAuthSubmitting(false);
     }
   };
 
@@ -1254,6 +1408,9 @@ export default function App(): JSX.Element | null {
     localStorage.removeItem(ACTIVITY_KEY);
     await signOut(auth);
     setView("facility-list");
+    setAuthScreen("welcome");
+    setAuthError(null);
+    setAuthPassword("");
   };
 
   // --- FIRESTORE HELPER: Save machine ---
@@ -2307,7 +2464,11 @@ export default function App(): JSX.Element | null {
       .replace(/ \(\d\)$/, "");
 
     let finalData: any = {
-      inspector: "RH",
+      inspector: getInitials(userProfile),
+      inspector_initials: getInitials(userProfile),
+      inspector_name: userProfile
+        ? `${userProfile.firstName} ${userProfile.lastName}`
+        : "",
       make: machine.make,
       model: machine.model,
       serial: machine.serial,
@@ -3051,119 +3212,263 @@ export default function App(): JSX.Element | null {
     );
   }
 
-  // Login Screen
+  // --- AUTH SCREENS (welcome / login / signup / complete profile) ---
+  const authInputClass =
+    "w-full pl-10 pr-3 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-slate-800 bg-white";
+  const authLabelClass =
+    "text-xs font-bold text-slate-500 uppercase block mb-1";
+
+  const renderAuthInput = (
+    label: string,
+    icon: React.ReactNode,
+    props: React.InputHTMLAttributes<HTMLInputElement>
+  ) => (
+    <div>
+      <label className={authLabelClass}>{label}</label>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+          {icon}
+        </span>
+        <input {...props} className={authInputClass} />
+      </div>
+    </div>
+  );
+
+  const renderAuthError = () =>
+    authError && (
+      <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg mb-4 text-sm flex items-start gap-2">
+        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+        <span>{authError}</span>
+      </div>
+    );
+
+  const renderAuthShell = (content: React.ReactNode) => (
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900 flex items-center justify-center p-4 relative overflow-hidden font-sans">
+      {/* Decorative background rings */}
+      <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full border-[40px] border-white/5 pointer-events-none" />
+      <div className="absolute -bottom-40 -left-40 w-[28rem] h-[28rem] rounded-full border-[48px] border-white/5 pointer-events-none" />
+      <div className="absolute top-1/3 left-10 w-24 h-24 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+      <div className="relative w-full max-w-md">{content}</div>
+    </div>
+  );
+
+  const renderSubmitButton = (label: string, icon: React.ReactNode) => (
+    <button
+      type="submit"
+      disabled={authSubmitting}
+      className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:active:scale-100"
+    >
+      {authSubmitting ? <Loader2 size={18} className="animate-spin" /> : icon}
+      {label}
+    </button>
+  );
+
+  // Welcome / Login / Signup
   if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <div className="bg-blue-600 p-3 rounded-xl">
-              <ScanLine className="text-white h-8 w-8" />
-            </div>
-            <h1 className="text-3xl font-bold text-slate-800">RayScan</h1>
+    if (authScreen === "welcome") {
+      return renderAuthShell(
+        <div className="text-center text-white">
+          <div className="inline-flex bg-white/15 backdrop-blur p-5 rounded-3xl shadow-2xl ring-1 ring-white/20 mb-6">
+            <ScanLine className="text-white h-14 w-14" />
           </div>
-
-          <h2 className="text-xl font-bold text-slate-700 mb-6 text-center">
-            {authMode === "login" ? "Welcome Back" : "Create Account"}
-          </h2>
-
-          {authError && (
-            <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg mb-4 text-sm">
-              {authError}
-            </div>
-          )}
-
-          <form onSubmit={handleEmailAuth} className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
-                Password
-              </label>
-              <input
-                type="password"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="Enter password"
-                required
-                minLength={6}
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 active:scale-95 transition-all"
-            >
-              {authMode === "login" ? "Sign In" : "Create Account"}
-            </button>
-          </form>
-
-          <div className="my-6 flex items-center gap-4">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-xs text-slate-400 uppercase">or</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-
-          <button
-            onClick={handleGoogleLogin}
-            className="w-full py-3 border border-slate-200 rounded-lg font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center gap-3"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-              />
-            </svg>
-            Continue with Google
-          </button>
-
-          <p className="text-center text-sm text-slate-500 mt-6">
-            {authMode === "login" ? (
-              <>
-                Don't have an account?{" "}
-                <button
-                  onClick={() => setAuthMode("signup")}
-                  className="text-blue-600 font-bold hover:underline"
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button
-                  onClick={() => setAuthMode("login")}
-                  className="text-blue-600 font-bold hover:underline"
-                >
-                  Sign in
-                </button>
-              </>
-            )}
+          <h1 className="text-6xl font-extrabold tracking-tight mb-3">RLiS</h1>
+          <p className="text-2xl font-semibold text-blue-50 mb-2">Welcome</p>
+          <p className="text-blue-100 text-sm max-w-xs mx-auto mb-10 leading-relaxed">
+            Your X-ray inspection workspace. Import facilities, run
+            inspections on site, and generate reports in one place.
           </p>
+
+          <div className="bg-white rounded-2xl shadow-2xl p-6 space-y-3 text-left">
+            <button
+              onClick={() => switchAuthScreen("login")}
+              className="w-full py-3.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <LogIn size={18} />
+              Log In
+            </button>
+            <button
+              onClick={() => switchAuthScreen("signup")}
+              className="w-full py-3.5 border border-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <UserPlus size={18} />
+              Sign Up
+            </button>
+          </div>
         </div>
+      );
+    }
+
+    const isLogin = authScreen === "login";
+    return renderAuthShell(
+      <div className="bg-white rounded-2xl shadow-2xl w-full p-8">
+        <button
+          onClick={() => switchAuthScreen("welcome")}
+          className="p-2 -ml-2 -mt-2 mb-2 text-slate-500 hover:bg-slate-50 rounded-full active:scale-95 transition-transform"
+          title="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+
+        <div className="flex items-center justify-center gap-3 mb-6">
+          <div className="bg-blue-600 p-3 rounded-xl">
+            <ScanLine className="text-white h-7 w-7" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-800">RLiS</h1>
+        </div>
+
+        <h2 className="text-xl font-bold text-slate-700 mb-1 text-center">
+          {isLogin ? "Welcome Back" : "Create Your Account"}
+        </h2>
+        <p className="text-sm text-slate-400 text-center mb-6">
+          {isLogin
+            ? "Log in with your email and password"
+            : "Your name will appear as the inspector on your reports"}
+        </p>
+
+        {renderAuthError()}
+
+        <form onSubmit={handleEmailAuth} className="space-y-4" noValidate>
+          {!isLogin && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                {renderAuthInput("First Name", <User size={16} />, {
+                  type: "text",
+                  value: authFirstName,
+                  onChange: (e) => setAuthFirstName(e.target.value),
+                  placeholder: "First",
+                  autoComplete: "given-name",
+                })}
+                {renderAuthInput("Last Name", <User size={16} />, {
+                  type: "text",
+                  value: authLastName,
+                  onChange: (e) => setAuthLastName(e.target.value),
+                  placeholder: "Last",
+                  autoComplete: "family-name",
+                })}
+              </div>
+              {renderAuthInput("Institution", <Building2 size={16} />, {
+                type: "text",
+                value: authInstitution,
+                onChange: (e) => setAuthInstitution(e.target.value),
+                placeholder: "Your institution",
+                autoComplete: "organization",
+              })}
+            </>
+          )}
+          {renderAuthInput("Email", <Mail size={16} />, {
+            type: "email",
+            value: authEmail,
+            onChange: (e) => setAuthEmail(e.target.value),
+            placeholder: "you@example.com",
+            autoComplete: "email",
+          })}
+          {renderAuthInput("Password", <Lock size={16} />, {
+            type: "password",
+            value: authPassword,
+            onChange: (e) => setAuthPassword(e.target.value),
+            placeholder: isLogin ? "Enter password" : "At least 6 characters",
+            autoComplete: isLogin ? "current-password" : "new-password",
+          })}
+          {renderSubmitButton(
+            isLogin ? "Log In" : "Create Account",
+            isLogin ? <LogIn size={18} /> : <ArrowRight size={18} />
+          )}
+        </form>
+
+        <p className="text-center text-sm text-slate-500 mt-6">
+          {isLogin ? (
+            <>
+              Don't have an account?{" "}
+              <button
+                onClick={() => switchAuthScreen("signup")}
+                className="text-blue-600 font-bold hover:underline"
+              >
+                Sign up
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <button
+                onClick={() => switchAuthScreen("login")}
+                className="text-blue-600 font-bold hover:underline"
+              >
+                Log in
+              </button>
+            </>
+          )}
+        </p>
+      </div>
+    );
+  }
+
+  // Profile still loading after login
+  if (profileLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Signed in but no name on file (e.g. accounts created before sign-up asked for it)
+  if (!userProfile) {
+    return renderAuthShell(
+      <div className="bg-white rounded-2xl shadow-2xl w-full p-8">
+        <div className="flex items-center justify-center gap-3 mb-6">
+          <div className="bg-blue-600 p-3 rounded-xl">
+            <ScanLine className="text-white h-7 w-7" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-800">RLiS</h1>
+        </div>
+        <h2 className="text-xl font-bold text-slate-700 mb-1 text-center">
+          Complete Your Profile
+        </h2>
+        <p className="text-sm text-slate-400 text-center mb-6">
+          Your name will appear as the inspector on your reports
+        </p>
+
+        {renderAuthError()}
+
+        <form onSubmit={handleCompleteProfile} className="space-y-4" noValidate>
+          <div className="grid grid-cols-2 gap-3">
+            {renderAuthInput("First Name", <User size={16} />, {
+              type: "text",
+              value: authFirstName,
+              onChange: (e) => setAuthFirstName(e.target.value),
+              placeholder: "First",
+              autoComplete: "given-name",
+            })}
+            {renderAuthInput("Last Name", <User size={16} />, {
+              type: "text",
+              value: authLastName,
+              onChange: (e) => setAuthLastName(e.target.value),
+              placeholder: "Last",
+              autoComplete: "family-name",
+            })}
+          </div>
+          {renderAuthInput("Institution", <Building2 size={16} />, {
+            type: "text",
+            value: authInstitution,
+            onChange: (e) => setAuthInstitution(e.target.value),
+            placeholder: "Your institution",
+            autoComplete: "organization",
+          })}
+          {renderSubmitButton("Continue", <ArrowRight size={18} />)}
+        </form>
+
+        <p className="text-center text-xs text-slate-400 mt-6">
+          Signed in as {currentUser.email} ·{" "}
+          <button
+            onClick={handleLogout}
+            className="text-blue-600 font-bold hover:underline"
+          >
+            Sign out
+          </button>
+        </p>
       </div>
     );
   }
@@ -5191,10 +5496,12 @@ export default function App(): JSX.Element | null {
             <ScanLine className="text-white h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">RayScan</h1>
+            <h1 className="text-xl font-bold text-slate-800">RLiS</h1>
             {currentUser && (
-              <p className="text-[10px] text-slate-400 truncate max-w-[150px]">
-                {currentUser.email}
+              <p className="text-[10px] text-slate-400 truncate max-w-[180px]">
+                {userProfile
+                  ? `${userProfile.firstName} ${userProfile.lastName}`
+                  : currentUser.email}
               </p>
             )}
           </div>
@@ -5228,7 +5535,7 @@ export default function App(): JSX.Element | null {
                 Sign Out?
               </h3>
               <p className="text-slate-500 text-sm">
-                Are you sure you want to sign out of RayScan?
+                Are you sure you want to sign out of RLiS?
               </p>
             </div>
             <div className="p-4 pt-0 flex gap-3">
