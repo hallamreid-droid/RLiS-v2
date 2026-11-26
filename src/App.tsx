@@ -814,6 +814,25 @@ const DENTAL_REPRO_FACTOR = 0.2; // 1/5 per NAC 459.580(6) and (10)
 const DENTAL_TIMER_REPRO_MAX_SEC = 0.5;
 const DENTAL_MS_THRESHOLD = 5; // time values above this are milliseconds
 
+// 21 CFR 1020.30(m)(1) Table 1 (adopted by NAC 459.564(5)): minimum HVL in
+// mm Al by measured kVp, with linear interpolation between listed points.
+//   "Specified Dental Systems": intraoral dental made after Dec 1, 1980
+//   "I - Other X-Ray Systems":  intraoral dental made on/before Dec 1, 1980
+// The app doesn't know the manufacture date, so an HVL between the two limits
+// is a *possible* discrepancy; below both limits it fails for any age.
+const HVL_TABLE_KVP = [30, 40, 50, 51, 60, 70, 71, 80, 90, 100, 110, 120, 130, 140, 150];
+const HVL_MIN_DENTAL_POST_1980 = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 2.1, 2.3, 2.5, 2.7, 3.0, 3.2, 3.5, 3.8, 4.1];
+const HVL_MIN_DENTAL_PRE_1980 = [0.3, 0.4, 0.5, 1.2, 1.3, 1.5, 2.1, 2.3, 2.5, 2.7, 3.0, 3.2, 3.5, 3.8, 4.1];
+
+const interpolateHvl = (kvp: number, mins: number[]) => {
+  const xs = HVL_TABLE_KVP;
+  // Find the bracketing segment (extrapolate off either end)
+  let i = 0;
+  while (i < xs.length - 2 && kvp > xs[i + 1]) i++;
+  const t = (kvp - xs[i]) / (xs[i + 1] - xs[i]);
+  return mins[i] + t * (mins[i + 1] - mins[i]);
+};
+
 type ComplianceFailure = { badge: string; detail: string };
 
 const parseNum = (v: string | undefined): number | null => {
@@ -841,6 +860,31 @@ const checkDentalCompliance = (machine: Machine): ComplianceFailure[] => {
         detail: `Measured ${fmt(measKvp)} kVp vs set ${fmt(setKvp)} kVp (${fmt(
           dev * 100
         )}% off, limit 10%)`,
+      });
+  }
+
+  // HVL vs. measured kVp (falls back to the set kVp)
+  const hvl = parseNum(d["hvl"]);
+  const hvlKvp = measKvp ?? setKvp;
+  if (hvl !== null && hvlKvp) {
+    const minNew = interpolateHvl(hvlKvp, HVL_MIN_DENTAL_POST_1980);
+    const minOld = interpolateHvl(hvlKvp, HVL_MIN_DENTAL_PRE_1980);
+    const at = `at ${fmt(hvlKvp)} kVp`;
+    if (hvl < minOld)
+      failures.push({
+        badge: "HVL LOW",
+        detail: `HVL ${fmt(hvl)} mm Al ${at} is below the minimum for any intraoral unit (${fmt(
+          minOld
+        )} mm Al pre-12/1/1980, ${fmt(minNew)} mm Al after)`,
+      });
+    else if (hvl < minNew)
+      failures.push({
+        badge: "POSSIBLE HVL",
+        detail: `HVL ${fmt(hvl)} mm Al ${at} is below ${fmt(
+          minNew
+        )} mm Al required for units made after 12/1/1980. OK only if made on/before 12/1/1980 (min ${fmt(
+          minOld
+        )} mm Al)`,
       });
   }
 
