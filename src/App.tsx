@@ -918,11 +918,15 @@ const HistoryEntryCard: React.FC<{
   entry: HistoryEntry;
   onDownload: (entry: HistoryEntry) => void;
 }> = ({ entry, onDownload }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  const handleDownload = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  // Machine pages that can be downloaded = completed machines
+  const pageCount = entry.machines.filter((m) => m.isComplete).length;
+  const machineCount = entry.machines.length;
+
+  const handleDownload = async () => {
+    setShowMenu(false);
     setDownloading(true);
     try {
       await onDownload(entry);
@@ -930,6 +934,7 @@ const HistoryEntryCard: React.FC<{
       setDownloading(false);
     }
   };
+
   const completedDate = new Date(entry.completedAt);
   const formattedDate = completedDate.toLocaleDateString("en-US", {
     month: "short",
@@ -942,82 +947,102 @@ const HistoryEntryCard: React.FC<{
   });
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-            <Building2 className="text-blue-600" size={18} />
-          </div>
-          <div className="text-left">
-            <p className="font-bold text-slate-800">{entry.facilityName}</p>
-            <p className="text-xs text-slate-500">
-              {formattedDate} at {formattedTime} • {entry.machines.length}{" "}
-              machine{entry.machines.length !== 1 ? "s" : ""}
-            </p>
-          </div>
+    <>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+        <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+          <Building2 className="text-blue-600" size={18} />
         </div>
-        {expanded ? (
-          <ChevronUp className="text-slate-400" size={20} />
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-slate-800 truncate">
+            {entry.facilityName}
+          </p>
+          <p className="text-xs text-slate-500">
+            {formattedDate} at {formattedTime} • {machineCount} machine
+            {machineCount !== 1 ? "s" : ""}
+          </p>
+          <span
+            className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+              pageCount > 0
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-slate-100 text-slate-400"
+            }`}
+          >
+            <FileText size={11} />
+            {pageCount > 0
+              ? `${pageCount} machine page${pageCount !== 1 ? "s" : ""} to download`
+              : "No machine pages"}
+          </span>
+        </div>
+        {downloading ? (
+          <div className="p-2">
+            <Loader2 className="animate-spin text-blue-600" size={18} />
+          </div>
         ) : (
-          <ChevronDown className="text-slate-400" size={20} />
+          <button
+            onClick={() => setShowMenu(true)}
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+            title="More"
+          >
+            <MoreVertical size={18} />
+          </button>
         )}
-      </button>
-      {expanded && (
-        <div className="border-t border-slate-100 bg-slate-50 p-3 space-y-2">
-          {entry.machines.map((machine, idx) => (
-            <div
-              key={idx}
-              className="bg-white p-3 rounded-lg border border-slate-200 flex items-center justify-between"
-            >
-              <div className="flex items-center gap-2">
-                <div
-                  className={`h-6 w-6 rounded-full flex items-center justify-center ${
-                    machine.isComplete ? "bg-emerald-100" : "bg-slate-100"
-                  }`}
-                >
-                  {machine.isComplete ? (
-                    <CheckCircle className="text-emerald-600" size={14} />
-                  ) : (
-                    <XCircle className="text-slate-400" size={14} />
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-700">
-                    {machine.location}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {machine.type} • {machine.make} - {machine.model} -{" "}
-                    {machine.serial}
-                  </p>
-                </div>
-              </div>
+      </div>
+
+      {/* --- HISTORY ENTRY MENU MODAL --- */}
+      {showMenu && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowMenu(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-100 text-center">
+              <h3 className="text-lg font-bold text-slate-800 truncate">
+                {entry.facilityName}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {formattedDate} at {formattedTime}
+              </p>
             </div>
-          ))}
-          {entry.machines.some((m) => m.isComplete) && (
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              className="mt-2 py-1.5 px-4 bg-blue-600 text-white rounded-full font-medium text-xs hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 mx-auto"
-            >
-              {downloading ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Download size={16} />
-                  Download Reports (.zip)
-                </>
-              )}
-            </button>
-          )}
+            <div className="p-2 space-y-1">
+              <button
+                onClick={handleDownload}
+                disabled={pageCount === 0}
+                className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3 disabled:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              >
+                <Download
+                  size={18}
+                  className={pageCount > 0 ? "text-blue-500" : "text-slate-300"}
+                />
+                <span className="flex-1">
+                  Download Machine Pages
+                  {pageCount === 0 && (
+                    <span className="block text-xs font-normal text-slate-400">
+                      No machine pages were generated for this inspection
+                    </span>
+                  )}
+                </span>
+                {pageCount > 0 && (
+                  <span className="text-xs font-bold text-blue-500">
+                    {pageCount}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="p-4 pt-2">
+              <button
+                onClick={() => setShowMenu(false)}
+                className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
