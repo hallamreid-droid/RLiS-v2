@@ -5087,7 +5087,6 @@ export default function App(): JSX.Element | null {
                             >
                               Read as {unit}
                               {overridden && " (set by you)"}
-                              <Edit3 size={10} />
                             </button>
                             {unitPickerField === k && (
                               <div className="flex flex-wrap items-center gap-1 mt-1.5">
