@@ -554,11 +554,11 @@ const FLUORO_STEPS = [
   {
     id: "f3",
     label: "Physicist Report Data",
-    desc: "Scan the previous report (multiple pages allowed).",
+    desc: "Scan the previous report for the physicist's name and date.",
     isManualEntry: false,
     scanType: "document",
-    fields: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "pname", "pdate"],
-    indices: ["pkvp", "pma", "pr/min", "phvl", "phvl_kvp", "pname", "pdate"],
+    fields: ["pname", "pdate"],
+    indices: ["pname", "pdate"],
   },
 ];
 
@@ -628,16 +628,6 @@ const FLUORO_BOOST_MEASURE_STEP = {
   defaultPresets: { mas: "Boost mA", kvp: "120", time: null },
   fields: ["kvp_boost", "r/min_boost"],
   indices: ["kvp", "mR"],
-  scanType: "screen",
-};
-
-const FLUORO_BOOST_PHYSICIST_STEP = {
-  id: "f3_boost",
-  label: "3b. Physicist Data (Boost)",
-  desc: "Manual Entry (Boost Data)",
-  isManualEntry: true,
-  fields: ["pkvp_boost", "pma_boost", "pr/min_boost"],
-  indices: [] as string[],
   scanType: "screen",
 };
 
@@ -2596,32 +2586,14 @@ export default function App(): JSX.Element | null {
       let prompt = "";
 
       if (scanType === "document") {
-        if (activeMachine?.inspectionType === "ct") {
-          // --- CT DOCUMENT SCAN (NAME & DATE ONLY) ---
-          prompt = `
-            Analyze these report images. Return JSON.
-            TASK: Find "Physicist Name" and "Date" of inspection.
-            IGNORE all measurement data.
-            Return keys: "pname", "pdate".
-            Use null if missing.
-          `;
-        } else {
-          // --- FLUORO DOCUMENT SCAN (FULL DATA + NAME/DATE) ---
-          prompt = ` 
-            TASK:
-            1. Analyze these report images. Return JSON.
-            2. Find "Physicist Name" and "Date" (split into two fields: "pname" and "pdate").
-            3. Next, SCAN ALL PAGES for the physicist's measurements.
-            4. Next, return keys: "pkvp", "pma", "pr/min", "pkvp_boost", "pma_boost", "pr/min_boost", "phvl", "phvl_kvp", "pname", "pdate".
-
-            Requirements: 
-            1. For kVp, mA, and Rate, only extract the data corresponding to the maximum output settings. Ignore data from lower settings (e.g. 70 kVp, 80 kVp).
-            2. For HVL, only extract the HVL value corresponding to a kVp setting around 80. If figures at this setting cannot be found, default to HVL corresonding to the maximum output setting.
-            2. DO NOT CONVERT UNITS. Return exactly as shown.
-            3. For dose rate, ignore measurements that use Gy as the unit. We only care about R/min, mR/min, etc.
-            4. Use null if missing.
-          `;
-        }
+        // --- PHYSICIST REPORT SCAN (NAME & DATE ONLY; used by CT and fluoro) ---
+        prompt = `
+          Analyze these report images. Return JSON.
+          TASK: Find "Physicist Name" and "Date" of inspection.
+          IGNORE all measurement data.
+          Return keys: "pname", "pdate".
+          Use null if missing.
+        `;
       } else if (activeMachine?.inspectionType === "fluoroscope") {
         // --- FLUORO SCREEN SCAN (RATE ONLY) ---
         prompt = `
@@ -3921,11 +3893,6 @@ export default function App(): JSX.Element | null {
       fields: [...FLUORO_STEPS[1].fields],
       indices: [...FLUORO_STEPS[1].indices],
     };
-
-    if (hasHLC) {
-      reportStep.fields.push("pkvp_boost", "pma_boost", "pr/min_boost");
-      reportStep.indices.push("pkvp_boost", "pma_boost", "pr/min_boost");
-    }
 
     fluoroSteps.push(reportStep);
     currentSteps = fluoroSteps;
