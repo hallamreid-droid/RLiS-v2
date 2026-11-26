@@ -812,6 +812,7 @@ const DENTAL_KVP_TOLERANCE = 0.1;
 const DENTAL_TIME_TOLERANCE = 0.2;
 const DENTAL_REPRO_FACTOR = 0.2; // 1/5 per NAC 459.580(6) and (10)
 const DENTAL_TIMER_REPRO_MAX_SEC = 0.5;
+const DENTAL_MS_THRESHOLD = 5; // time values above this are milliseconds
 
 type ComplianceFailure = { badge: string; detail: string };
 
@@ -843,31 +844,33 @@ const checkDentalCompliance = (machine: Machine): ComplianceFailure[] => {
       });
   }
 
-  // Readings: preset time is entered in seconds; the meter may report ms.
-  // If the measurements are ~1000x the preset, treat them as ms.
-  const rawTimes = ["time1", "time2", "time3", "time4"]
-    .map((k) => parseNum(d[k]))
+  // Times may be entered/reported in ms (usual) or s. Dental exposures are
+  // never longer than a few seconds, so any value above 5 is taken as ms.
+  // Each value is converted on its own, so preset and readings can differ.
+  const toSec = (n: number | null) =>
+    n === null ? null : n > DENTAL_MS_THRESHOLD ? n / 1000 : n;
+  const setTime = toSec(parseNum(d["preset_time"]));
+  const timeReadings = ["time1", "time2", "time3", "time4"].map((k, i) => ({
+    n: i + 1,
+    sec: toSec(parseNum(d[k])),
+  }));
+  const times = timeReadings
+    .map((t) => t.sec)
     .filter((n): n is number => n !== null);
-  const setTime = parseNum(d["preset_time"]);
-  let timeScale = 1;
-  if (rawTimes.length) {
-    const avg = rawTimes.reduce((a, b) => a + b, 0) / rawTimes.length;
-    const looksLikeMs = setTime ? avg / setTime > 50 : avg > 5;
-    if (looksLikeMs) timeScale = 1 / 1000;
-  }
-  const times = rawTimes.map((t) => t * timeScale);
+  const ms = (sec: number) => `${fmt(sec * 1000)} ms`;
 
-  // Timer accuracy (first technique scan)
-  const time1 = parseNum(d["time1"]);
-  const measTime = time1 !== null ? time1 * timeScale : null;
-  if (setTime && measTime !== null) {
-    const dev = Math.abs(measTime - setTime) / setTime;
-    if (dev > DENTAL_TIME_TOLERANCE)
+  // Timer accuracy: every exposure must be within 20% of the set time
+  if (setTime) {
+    const bad = timeReadings
+      .filter((t): t is { n: number; sec: number } => t.sec !== null)
+      .map((t) => ({ ...t, dev: Math.abs(t.sec - setTime) / setTime }))
+      .filter((t) => t.dev > DENTAL_TIME_TOLERANCE);
+    if (bad.length)
       failures.push({
         badge: "TIMER ACCURACY",
-        detail: `Measured ${fmt(measTime)} s vs set ${fmt(setTime)} s (${fmt(
-          dev * 100
-        )}% off, limit 20%)`,
+        detail: `Set ${ms(setTime)}; limit 20%. ${bad
+          .map((t) => `Exp ${t.n}: ${ms(t.sec)} (${fmt(t.dev * 100)}% off)`)
+          .join("; ")}`,
       });
   }
 
@@ -883,9 +886,7 @@ const checkDentalCompliance = (machine: Machine): ComplianceFailure[] => {
     if (r.avg <= DENTAL_TIMER_REPRO_MAX_SEC && r.fail)
       failures.push({
         badge: "TIME REPRO",
-        detail: `Time range ${fmt(r.range)} s exceeds 0.2 x avg ${fmt(
-          r.avg
-        )} s`,
+        detail: `Time range ${ms(r.range)} exceeds 0.2 x avg ${ms(r.avg)}`,
       });
   }
 
@@ -1016,6 +1017,7 @@ type HistoryEntry = {
   entityId: string;
   completedAt: string;
   machines: Machine[];
+  facilityNote?: string; // absent on entries archived before notes were saved
 };
 
 const HistoryEntryCard: React.FC<{
@@ -1023,7 +1025,27 @@ const HistoryEntryCard: React.FC<{
   onDownload: (entry: HistoryEntry) => void;
 }> = ({ entry, onDownload }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Facility note first, then each machine's note
+  const notes: { kind: "facility" | "machine"; title: string; sub: string; text: string }[] = [];
+  if (entry.facilityNote?.trim())
+    notes.push({
+      kind: "facility",
+      title: entry.facilityName,
+      sub: entry.entityId,
+      text: entry.facilityNote.trim(),
+    });
+  entry.machines.forEach((m) => {
+    if (m.data?.note?.trim())
+      notes.push({
+        kind: "machine",
+        title: m.location,
+        sub: [m.make, m.model, m.serial].filter(Boolean).join(" - "),
+        text: m.data.note.trim(),
+      });
+  });
 
   // Machine pages that can be downloaded = completed machines
   const pageCount = entry.machines.filter((m) => m.isComplete).length;
@@ -1118,6 +1140,27 @@ const HistoryEntryCard: React.FC<{
                   )}
                 </span>
               </button>
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  setShowNotes(true);
+                }}
+                disabled={notes.length === 0}
+                className="w-full p-4 text-left hover:bg-slate-50 rounded-xl font-medium text-slate-700 transition-colors flex items-center gap-3 disabled:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              >
+                <FileText
+                  size={18}
+                  className={notes.length > 0 ? "text-amber-500" : "text-slate-300"}
+                />
+                <span className="flex-1">
+                  Read Notes
+                  <span className="block text-xs font-normal text-slate-400">
+                    {notes.length === 0
+                      ? "No notes were made for this inspection"
+                      : `${notes.length} note${notes.length !== 1 ? "s" : ""}`}
+                  </span>
+                </span>
+              </button>
             </div>
             <div className="p-4 pt-2">
               <button
@@ -1125,6 +1168,67 @@ const HistoryEntryCard: React.FC<{
                 className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- HISTORY NOTES MODAL --- */}
+      {showNotes && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowNotes(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[85vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-100 text-center">
+              <h3 className="text-lg font-bold text-slate-800 truncate">
+                Notes
+              </h3>
+              <p className="text-xs text-slate-500 truncate">
+                {entry.facilityName} • {formattedDate}
+              </p>
+            </div>
+            <div className="p-3 space-y-2 overflow-y-auto">
+              {notes.map((n, i) => (
+                <div
+                  key={i}
+                  className="p-3 rounded-lg border border-slate-200 bg-slate-50"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                        n.kind === "facility"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {n.kind === "facility" ? "Facility" : "Machine"}
+                    </span>
+                    <span className="text-sm font-bold text-slate-800 truncate">
+                      {n.title}
+                    </span>
+                  </div>
+                  {n.sub && (
+                    <div className="text-[10px] font-mono text-slate-500 mb-1 truncate">
+                      {n.sub}
+                    </div>
+                  )}
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap break-words">
+                    {n.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowNotes(false)}
+                className="w-full py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-lg"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -1444,6 +1548,31 @@ export default function App(): JSX.Element | null {
     return () => unsubscribe();
   }, [currentUser]);
 
+  // --- FIRESTORE SYNC: Load facility notes ---
+  // One doc per facility at users/{uid}/facilityNotes/{docId}; the entityId is
+  // stored in the doc so IDs containing "/" still map back correctly.
+  useEffect(() => {
+    if (!currentUser) {
+      setFacilityNotes({});
+      return;
+    }
+    const unsubscribe = onSnapshot(
+      collection(db, "users", currentUser.uid, "facilityNotes"),
+      (snapshot) => {
+        const notes: Record<string, string> = {};
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data.note) notes[data.entityId || d.id] = data.note;
+        });
+        setFacilityNotes(notes);
+      },
+      (error) => {
+        console.error("Facility notes sync error:", error);
+      }
+    );
+    return () => unsubscribe();
+  }, [currentUser]);
+
   // --- FIRESTORE SYNC: Load inspection history ---
   // Only listens while the History tab is open, and only fetches the newest
   // HISTORY_MAX_ENTRIES entries, to keep Firestore reads low.
@@ -1501,6 +1630,7 @@ export default function App(): JSX.Element | null {
       facilityName,
       entityId,
       completedAt: new Date().toISOString(),
+      facilityNote: facilityNotes[entityId] || "",
       machines: facilityMachines.map((m) => ({
         ...m,
         // Remove any circular references or functions
@@ -1657,6 +1787,27 @@ export default function App(): JSX.Element | null {
     if (!currentUser) return;
     const machineRef = doc(db, "users", currentUser.uid, "machines", machineId);
     await deleteDoc(machineRef);
+  };
+
+  // --- FIRESTORE HELPERS: Facility notes ---
+  const facilityNoteRef = (uid: string, entityId: string) =>
+    doc(db, "users", uid, "facilityNotes", entityId.replace(/\//g, "_"));
+
+  const saveFacilityNote = (entityId: string, note: string) => {
+    if (currentUser) {
+      const ref = facilityNoteRef(currentUser.uid, entityId);
+      (note
+        ? setDoc(ref, { entityId, note, updatedAt: serverTimestamp() })
+        : deleteDoc(ref)
+      ).catch((err) => console.error("Failed to save facility note:", err));
+    }
+    // Update local state immediately (the listener will confirm it)
+    setFacilityNotes((prev) => {
+      const updated = { ...prev };
+      if (note) updated[entityId] = note;
+      else delete updated[entityId];
+      return updated;
+    });
   };
 
   useEffect(() => {
@@ -3394,6 +3545,7 @@ export default function App(): JSX.Element | null {
       const machinesToDelete = machines.filter((m) => m.entityId === entityId);
       machinesToDelete.forEach((m) => deleteMachineFromFirestore(m.id));
       setMachines((prev) => prev.filter((m) => m.entityId !== entityId));
+      if (facilityNotes[entityId]) saveFacilityNote(entityId, "");
     }
   };
 
@@ -3421,6 +3573,7 @@ export default function App(): JSX.Element | null {
       // Delete all machines from Firestore
       machines.forEach((m) => deleteMachineFromFirestore(m.id));
       setMachines([]);
+      Object.keys(facilityNotes).forEach((id) => saveFacilityNote(id, ""));
     }
   };
 
@@ -5462,20 +5615,11 @@ export default function App(): JSX.Element | null {
                 </button>
                 <button
                   onClick={() => {
-                    const trimmedNote = facilityNotesText.trim();
-                    if (trimmedNote) {
-                      setFacilityNotes((prev) => ({
-                        ...prev,
-                        [activeFacilityId]: trimmedNote,
-                      }));
-                    } else {
-                      // Remove the note if empty
-                      setFacilityNotes((prev) => {
-                        const updated = { ...prev };
-                        delete updated[activeFacilityId];
-                        return updated;
-                      });
-                    }
+                    // An empty note removes it
+                    saveFacilityNote(
+                      activeFacilityId,
+                      facilityNotesText.trim()
+                    );
                     setShowFacilityNotesModal(false);
                     setFacilityNotesText("");
                   }}
@@ -6020,6 +6164,12 @@ export default function App(): JSX.Element | null {
                       <div className="font-bold text-sm text-slate-800">
                         {fac.name}
                       </div>
+                      {facilityNotes[fac.entityId] && (
+                        <FileText
+                          size={12}
+                          className="text-amber-500 flex-shrink-0"
+                        />
+                      )}
                     </div>
                     <div className="flex gap-2 items-center">
                       <div className="flex items-center gap-1 text-slate-400 text-xs">
