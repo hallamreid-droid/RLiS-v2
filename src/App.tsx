@@ -4687,7 +4687,6 @@ export default function App(): JSX.Element | null {
                     </label>
                     <input
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="70"
                       value={activeMachine.data["preset_kvp"] || ""}
                       onChange={(e) =>
                         updateField("preset_kvp", e.target.value)
@@ -4700,7 +4699,6 @@ export default function App(): JSX.Element | null {
                     </label>
                     <input
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="10"
                       value={activeMachine.data["preset_mas"] || ""}
                       onChange={(e) =>
                         updateField("preset_mas", e.target.value)
@@ -4713,7 +4711,6 @@ export default function App(): JSX.Element | null {
                     </label>
                     <input
                       className="w-full p-2.5 border rounded text-sm font-bold text-slate-700"
-                      placeholder="0.10"
                       value={activeMachine.data["preset_time"] || ""}
                       onChange={(e) =>
                         updateField("preset_time", e.target.value)
