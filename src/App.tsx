@@ -304,6 +304,23 @@ const isScatterStep = (step: { label?: string; fields?: string[] }) =>
   SCATTER_PATTERN.test(step.label || "") ||
   (step.fields || []).some((f) => SCATTER_PATTERN.test(f));
 
+// Scatter fields the downloaded doc fills with "<1" when left empty (see the
+// "<1" defaults in generateDoc). The form shows a greyed-out "<1" in them.
+// Keep the two lists in step.
+const SCATTER_LT1_FIELDS: Partial<Record<InspectionType, string[]>> = {
+  dental: ["operator location"],
+  cbct: ["operator location"],
+  panoramic: ["operator location"],
+  general: ["g6_scatter"], // operator only; 6ft (g5) has no default
+  analytical: ["scatter_6ft", "scatter_operator"],
+  bone_density: ["scatter_6ft", "scatter_operator"],
+  industrial: ["scatter_6ft", "scatter_operator"],
+  ct: ["operator_scatter"],
+  cabinet: ["entrance", "exit", "operator_scatter"],
+  accelerator: ["door_scatter", "console_scatter"],
+  non_mqsa: ["six_foot_input", "six_foot_output", "operator"], // cabinet subtype
+};
+
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -3513,7 +3530,6 @@ export default function App(): JSX.Element | null {
         finalData["mas4"] = machine.data["g4_preset_mas"] || "40";
 
         if (!finalData["g6_scatter"]) finalData["g6_scatter"] = "<1";
-        if (!finalData["g5_scatter"]) finalData["g5_scatter"] = "<1";
         const g1_mr = parseFloat(machine.data["g1_mr"] || "0");
         const mas1 = parseFloat(finalData["mas1"]);
         finalData["g1_calc"] =
@@ -5156,7 +5172,13 @@ export default function App(): JSX.Element | null {
                         }
                         onChange={(e) => updateField(k, e.target.value)}
                         className="w-full font-mono text-lg border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-transparent transition-colors py-1"
-                        placeholder="-"
+                        placeholder={
+                          SCATTER_LT1_FIELDS[
+                            activeMachine.inspectionType
+                          ]?.includes(k)
+                            ? "<1"
+                            : "-"
+                        }
                       />
                       {/* PENCIL SYMBOL REMOVED HERE */}
                     </div>
