@@ -2761,7 +2761,7 @@ export default function App(): JSX.Element | null {
     scanAbortRef.current = null;
     setIsScanning(null);
   };
-
+//noodles
   const handleScanClick = (
     e: React.ChangeEvent<HTMLInputElement>,
     fields: string[],
