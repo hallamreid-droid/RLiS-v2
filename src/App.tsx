@@ -1613,6 +1613,19 @@ const TEMPLATE_TYPES = [
   "accelerator",
   "non_mqsa",
 ];
+// Names shown to the user, matching the Templates list in Settings
+const TEMPLATE_LABELS: Record<string, string> = {
+  dental: "Dental",
+  general: "General",
+  analytical: "Analytical",
+  fluoroscope: "Fluoroscope",
+  ct: "CT",
+  cabinet: "Cabinet / Baggage",
+  bone_density: "Bone Density",
+  industrial: "Industrial",
+  accelerator: "Accelerator",
+  non_mqsa: "Non-MQSA",
+};
 const EMPTY_TEMPLATES: Record<string, ArrayBuffer | null> = Object.fromEntries(
   TEMPLATE_TYPES.map((t) => [t, null])
 );
@@ -3875,8 +3888,8 @@ export default function App(): JSX.Element | null {
     if (!selectedTemplate) {
       alert(
         `Please upload the ${
-          templateType === "dental" ? "Dental" : "Gen Rad"
-        } Template in Settings!`
+          TEMPLATE_LABELS[templateType] || templateType
+        } Template in Settings`
       );
       return;
     }
