@@ -1,9 +1,9 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import {
-  getFirestore,
-  enableIndexedDbPersistence,
-  connectFirestoreEmulator,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
 } from "firebase/firestore";
 
 // ============================================================
@@ -34,18 +34,13 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Initialize Firestore
-export const db = getFirestore(app);
-
-// Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === "failed-precondition") {
-    // Multiple tabs open, persistence can only be enabled in one tab at a time
-    console.warn("Firestore persistence failed: Multiple tabs open");
-  } else if (err.code === "unimplemented") {
-    // The current browser doesn't support persistence
-    console.warn("Firestore persistence not supported in this browser");
-  }
+// Initialize Firestore with an offline cache shared by every open tab.
+// (The old enableIndexedDbPersistence only worked in one tab; any other tab
+// silently ran without a cache, so its unsynced writes were lost on refresh.)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
 });
 
 export default app;

@@ -64,6 +64,7 @@ import {
   getDoc,
   getDocs,
   deleteDoc,
+  deleteField,
   onSnapshot,
   serverTimestamp,
   Bytes,
@@ -2054,8 +2055,11 @@ export default function App(): JSX.Element | null {
     setAuthPassword("");
   };
 
-  // --- FIRESTORE HELPER: Save machine ---
-  const saveMachineToFirestore = async (machine: Machine) => {
+  // --- FIRESTORE HELPER: Save a whole machine (only for NEW machines) ---
+  // Writing a whole machine from this device's copy would overwrite anything
+  // another device changed in the meantime, so existing machines are updated
+  // with patchMachineInFirestore instead.
+  const saveMachineToFirestore = (machine: Machine) => {
     if (!currentUser) return;
     const machineRef = doc(
       db,
@@ -2064,7 +2068,7 @@ export default function App(): JSX.Element | null {
       "machines",
       machine.id
     );
-    await setDoc(
+    setDoc(
       machineRef,
       {
         ...machine,
@@ -2072,7 +2076,24 @@ export default function App(): JSX.Element | null {
         createdAt: serverTimestamp(),
       },
       { merge: true }
-    );
+    ).catch((err) => console.error("Failed to save machine:", err));
+  };
+
+  // --- FIRESTORE HELPER: Update only the given fields of a machine ---
+  // Nested maps such as `data` merge key by key, so
+  // { data: { kvp: "80" } } touches only data.kvp. Use deleteField() to remove
+  // a key.
+  const patchMachineInFirestore = (
+    machineId: string,
+    patch: Record<string, any>
+  ) => {
+    if (!currentUser) return;
+    const machineRef = doc(db, "users", currentUser.uid, "machines", machineId);
+    setDoc(
+      machineRef,
+      { ...patch, updatedAt: serverTimestamp() },
+      { merge: true }
+    ).catch((err) => console.error("Failed to update machine:", err));
   };
 
   // --- FIRESTORE HELPER: Delete machine ---
@@ -2703,13 +2724,9 @@ export default function App(): JSX.Element | null {
           ? { ...m, data: { ...m.data, [key]: value } }
           : m
       );
-      // Save to Firebase immediately
-      const updatedMachine = updated.find((m) => m.id === activeMachineId);
-      if (updatedMachine) {
-        saveMachineToFirestore(updatedMachine);
-      }
       return updated;
     });
+    patchMachineInFirestore(activeMachineId, { data: { [key]: value } });
   };
 
   const updateMachineDetails = (
@@ -2721,13 +2738,9 @@ export default function App(): JSX.Element | null {
       const updated = prev.map((m) =>
         m.id === activeMachineId ? { ...m, [key]: value } : m
       );
-      // Save to Firebase immediately
-      const updatedMachine = updated.find((m) => m.id === activeMachineId);
-      if (updatedMachine) {
-        saveMachineToFirestore(updatedMachine);
-      }
       return updated;
     });
+    patchMachineInFirestore(activeMachineId, { [key]: value });
   };
 
   const updateMachineType = (newType: InspectionType) => {
@@ -2736,13 +2749,9 @@ export default function App(): JSX.Element | null {
       const updated = prev.map((m) =>
         m.id === activeMachineId ? { ...m, inspectionType: newType } : m
       );
-      // Save to Firebase immediately
-      const updatedMachine = updated.find((m) => m.id === activeMachineId);
-      if (updatedMachine) {
-        saveMachineToFirestore(updatedMachine);
-      }
       return updated;
     });
+    patchMachineInFirestore(activeMachineId, { inspectionType: newType });
   };
 
   const updateMachineTypeById = (
@@ -2820,7 +2829,12 @@ export default function App(): JSX.Element | null {
               .filter((m) => m.location !== pairedLocation)
               .map((m) => (m.id === machineId ? updatedMachine : m))
           );
-          saveMachineToFirestore(updatedMachine);
+          patchMachineInFirestore(machineId, {
+            inspectionType: newType,
+            type: typeLabel,
+            location: baseLocation,
+            data: { tube_no: deleteField(), num_tubes: deleteField() },
+          });
         } else {
           const updatedMachine = {
             ...machine,
@@ -2830,7 +2844,10 @@ export default function App(): JSX.Element | null {
           setMachines((prev) =>
             prev.map((m) => (m.id === machineId ? updatedMachine : m))
           );
-          saveMachineToFirestore(updatedMachine);
+          patchMachineInFirestore(machineId, {
+            inspectionType: newType,
+            type: typeLabel,
+          });
         }
       }
     }
@@ -2979,7 +2996,10 @@ export default function App(): JSX.Element | null {
             num_tubes: "1",
           },
         };
-        saveMachineToFirestore(revertedMachine);
+        patchMachineInFirestore(revertedMachine.id, {
+          location: baseLocation,
+          data: { tube_no: "1", num_tubes: "1" },
+        });
         return updatedMachines.map((m) =>
           m.id === remainingMachine.id ? revertedMachine : m
         );
@@ -3004,7 +3024,10 @@ export default function App(): JSX.Element | null {
               num_tubes: String(newTubeCount),
             },
           };
-          saveMachineToFirestore(updated);
+          patchMachineInFirestore(updated.id, {
+            location: updated.location,
+            data: { tube_no: updated.data.tube_no, num_tubes: updated.data.num_tubes },
+          });
           return updated;
         });
 
@@ -3034,7 +3057,10 @@ export default function App(): JSX.Element | null {
       setMachines((prev) =>
         prev.map((m) => (m.id === activeMachineId ? updated : m))
       );
-      saveMachineToFirestore(updated);
+      patchMachineInFirestore(updated.id, {
+        isComplete: true,
+        data: { noDataReason: message },
+      });
     }
 
     setShowNoDataModal(false);
@@ -3053,11 +3079,12 @@ export default function App(): JSX.Element | null {
 
       const { noDataReason, ...cleanData } = machine.data;
       const updatedMachine = { ...machine, isComplete: true, data: cleanData };
-
-      // Save to Firestore inside callback to ensure we have latest data
-      saveMachineToFirestore(updatedMachine);
-
       return prev.map((m) => (m.id === activeMachineId ? updatedMachine : m));
+    });
+
+    patchMachineInFirestore(activeMachineId, {
+      isComplete: true,
+      data: { noDataReason: deleteField() },
     });
 
     // Handle multi-tube sync - don't pass machine, let it read from latest state
@@ -3126,7 +3153,10 @@ export default function App(): JSX.Element | null {
               num_tubes: String(numTubes),
             },
           };
-          saveMachineToFirestore(updatedMachine);
+          patchMachineInFirestore(updatedMachine.id, {
+            location: updatedMachine.location,
+            data: { tube_no: String(idx + 1), num_tubes: String(numTubes) },
+          });
           return updatedMachine;
         });
 
@@ -3179,8 +3209,16 @@ export default function App(): JSX.Element | null {
         }
 
         // Save to Firestore
-        saveMachineToFirestore(updatedOriginal);
-        updatedSiblings.forEach((m) => saveMachineToFirestore(m));
+        patchMachineInFirestore(updatedOriginal.id, {
+          location: updatedOriginal.location,
+          data: { tube_no: "1", num_tubes: String(numTubes) },
+        });
+        updatedSiblings.forEach((m) =>
+          patchMachineInFirestore(m.id, {
+            location: m.location,
+            data: { tube_no: m.data.tube_no, num_tubes: m.data.num_tubes },
+          })
+        );
         newMachines.forEach((m) => saveMachineToFirestore(m));
 
         // Return updated state
@@ -5391,6 +5429,9 @@ export default function App(): JSX.Element | null {
                             : m
                         )
                       );
+                      autoCompletedMachineIds.forEach((id) =>
+                        patchMachineInFirestore(id, { isComplete: false })
+                      );
                       setAutoCompletedMachineIds([]);
                       setShowMachineMenu(false);
                     }}
@@ -5416,6 +5457,9 @@ export default function App(): JSX.Element | null {
                               ? { ...m, isComplete: true }
                               : m
                           )
+                        );
+                        incompleteMachineIds.forEach((id) =>
+                          patchMachineInFirestore(id, { isComplete: true })
                         );
                         setShowMachineMenu(false);
                       }}
@@ -5560,7 +5604,9 @@ export default function App(): JSX.Element | null {
                       setMachines((prev) =>
                         prev.map((m) => (m.id === machineMenuId ? updated : m))
                       );
-                      saveMachineToFirestore(updated);
+                      patchMachineInFirestore(machine.id, {
+                        data: { note: notesText },
+                      });
                     }
                     setShowNotesModal(false);
                     setMachineMenuId(null);
