@@ -1720,6 +1720,8 @@ export default function App(): JSX.Element | null {
     useState<Record<string, string>>(EMPTY_TEMPLATE_NAMES);
   const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isScanning, setIsScanning] = useState<string | null>(null);
+  // Lets the user cancel the scan that is running
+  const scanAbortRef = useRef<AbortController | null>(null);
   // Testing aid: which prompt each step's last scan used, shown under its button
   const [lastScanKind, setLastScanKind] = useState<Record<string, string>>({});
   const [lastScannedText, setLastScannedText] = useState<string>("");
@@ -2624,6 +2626,8 @@ export default function App(): JSX.Element | null {
       return;
     }
 
+    const controller = new AbortController();
+    scanAbortRef.current = controller;
     setIsScanning(stepId || "unknown");
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
@@ -2685,7 +2689,11 @@ export default function App(): JSX.Element | null {
         `;
       }
 
-      const result = await model.generateContent([prompt, ...imageParts]);
+      if (controller.signal.aborted) return;
+      const result = await model.generateContent([prompt, ...imageParts], {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       if (stepId) setLastScanKind((prev) => ({ ...prev, [stepId]: scanKind }));
       const text = result.response
         .text()
@@ -2730,11 +2738,22 @@ export default function App(): JSX.Element | null {
         alert("Gemini analyzed the image but couldn't find the specific data.");
       }
     } catch (error: any) {
+      if (controller.signal.aborted) return; // cancelled by the user
       console.error("Gemini Error:", error);
       alert(`AI Scan Failed: ${error.message}`);
     } finally {
-      setIsScanning(null);
+      // Skip if this scan was cancelled (cancelScan already reset the button)
+      if (scanAbortRef.current === controller) {
+        scanAbortRef.current = null;
+        setIsScanning(null);
+      }
     }
+  };
+
+  const cancelScan = () => {
+    scanAbortRef.current?.abort();
+    scanAbortRef.current = null;
+    setIsScanning(null);
   };
 
   const handleScanClick = (
@@ -2744,8 +2763,11 @@ export default function App(): JSX.Element | null {
     scanType?: string,
     stepId?: string
   ) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
+    const files = Array.from(e.target.files || []);
+    // Reset the picker so choosing the same photo again (e.g. after a
+    // cancelled scan) still starts a new scan
+    e.target.value = "";
+    if (files.length > 0) {
       performGeminiScan(files, fields, indices, scanType || "screen", stepId);
     }
   };
@@ -3979,7 +4001,7 @@ export default function App(): JSX.Element | null {
     // PHYSICIST DATA (Merged Step)
     const reportStep = {
       ...FLUORO_STEPS[1], // Was index 2, now index 1 in the constant definition list
-      label: `${hasHLC ? "3" : "2"}. Physicist Report Data`,
+      label: `${hasHLC ? "2" : "2"}. Physicist Report Data`,
       fields: [...FLUORO_STEPS[1].fields],
       indices: [...FLUORO_STEPS[1].indices],
     };
@@ -4915,9 +4937,17 @@ export default function App(): JSX.Element | null {
                 {!step.isManualEntry && (
                   <div className="flex flex-col items-end">
                   <label
+                    title={isScanning === step.id ? "Tap to cancel the scan" : undefined}
+                    onClick={(e) => {
+                      // While this step is scanning, the button cancels instead
+                      if (isScanning === step.id) {
+                        e.preventDefault();
+                        cancelScan();
+                      }
+                    }}
                     className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
                       isScanning === step.id
-                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                        ? "bg-slate-100 text-slate-400 hover:bg-slate-200"
                         : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
                   >
@@ -4928,7 +4958,7 @@ export default function App(): JSX.Element | null {
                     ) : (
                       <Camera size={14} />
                     )}{" "}
-                    {isScanning === step.id ? " scanning..." : "Scan"}
+                    {isScanning === step.id ? "Scanning" : "Scan"}
                     <input
                       type="file"
                       accept="image/*"
