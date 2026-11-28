@@ -297,6 +297,13 @@ const createWordDoc = (
 };
 
 // --- STEP CONFIGURATIONS ---
+// A step is a scatter measurement when its name or field mentions scatter,
+// operator, or 6 ft / 6 foot / six foot. These use the scatter scan prompt.
+const SCATTER_PATTERN = /scatter|operator|\b6\s*-?\s*f(oo)?t|six[\s_-]*f(oo)?t/i;
+const isScatterStep = (step: { label?: string; fields?: string[] }) =>
+  SCATTER_PATTERN.test(step.label || "") ||
+  (step.fields || []).some((f) => SCATTER_PATTERN.test(f));
+
 const DENTAL_STEPS = [
   {
     id: "scan1",
@@ -1713,6 +1720,8 @@ export default function App(): JSX.Element | null {
     useState<Record<string, string>>(EMPTY_TEMPLATE_NAMES);
   const apiKeySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isScanning, setIsScanning] = useState<string | null>(null);
+  // Testing aid: which prompt each step's last scan used, shown under its button
+  const [lastScanKind, setLastScanKind] = useState<Record<string, string>>({});
   const [lastScannedText, setLastScannedText] = useState<string>("");
   const [isParsingDetails, setIsParsingDetails] = useState(false);
 
@@ -2625,8 +2634,10 @@ export default function App(): JSX.Element | null {
       );
 
       let prompt = "";
+      let scanKind = "";
 
       if (scanType === "document") {
+        scanKind = "Physicist scan";
         // --- PHYSICIST REPORT SCAN (NAME & DATE ONLY; used by CT and fluoro) ---
         prompt = `
           Analyze these report images. Return JSON.
@@ -2635,8 +2646,20 @@ export default function App(): JSX.Element | null {
           Return keys: "pname", "pdate".
           Use null if missing.
         `;
+      } else if (scanType === "scatter") {
+        // --- SCATTER SCAN (DOSE ONLY; every inspection type) ---
+        scanKind = "Scatter scan";
+        prompt = `
+          Analyze RaySafe screen showing a SCATTER measurement. Return JSON.
+          Find "dose": the scatter DOSE (not the dose rate). Return only the number, no units. If you see "12.4 uR", return "12.4".
+
+          - The dose is in the bottom left box on the screen.
+          - It is usually shown in uR, but return the number as displayed whatever the unit.
+          - Use null if no dose value is visible.
+        `;
       } else if (activeMachine?.inspectionType === "fluoroscope") {
         // --- FLUORO SCREEN SCAN (RATE ONLY) ---
+        scanKind = "Fluoro scan";
         prompt = `
           Analyze RaySafe screen. Return JSON.
           Find "kvp", "mR", "mR_unit", "time", "hvl". Ignore pulses. Do not convert units. Do not return units in the number fields. If you see "4.50 R/min", return "mR": "4.50" and "mR_unit": "R/min". If you see "450 mR/min", return "mR": "450" and "mR_unit": "mR/min".
@@ -2650,6 +2673,7 @@ export default function App(): JSX.Element | null {
         `;
       } else {
         // --- STANDARD SCREEN SCAN (DOSE ONLY) ---
+        scanKind = "Standard scan";
         prompt = `
         Analyze RaySafe screen. Return JSON.
         Find "kvp", "mR", "time", "hvl". Ignore pulses. Do not convert units. Do not return units. If you see "4.50 R/min", return "4.50"
@@ -2662,12 +2686,15 @@ export default function App(): JSX.Element | null {
       }
 
       const result = await model.generateContent([prompt, ...imageParts]);
+      if (stepId) setLastScanKind((prev) => ({ ...prev, [stepId]: scanKind }));
       const text = result.response
         .text()
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim();
       const data = JSON.parse(text);
+      // The scatter prompt asks for "dose"; scatter steps read it as "mR"
+      if (scanType === "scatter" && data.dose !== undefined) data.mR = data.dose;
       setLastScannedText(JSON.stringify(data));
 
       const updates: Record<string, string> = {};
@@ -4886,6 +4913,7 @@ export default function App(): JSX.Element | null {
                 </div>
                 {/* Only show camera if not a strictly manual step */}
                 {!step.isManualEntry && (
+                  <div className="flex flex-col items-end">
                   <label
                     className={`px-4 py-2.5 rounded-lg text-xs font-bold cursor-pointer flex gap-2 items-center shadow-sm active:scale-95 transition-all ${
                       isScanning === step.id
@@ -4914,13 +4942,22 @@ export default function App(): JSX.Element | null {
                           e,
                           step.fields,
                           step.indices,
-                          step.scanType,
+                          step.scanType !== "document" && isScatterStep(step)
+                            ? "scatter"
+                            : step.scanType,
                           step.id
                         )
                       }
                       disabled={isScanning !== null}
                     />
                   </label>
+                  {/* Testing aid: which prompt the last scan used */}
+                  {isScanning !== step.id && lastScanKind[step.id] && (
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {lastScanKind[step.id]}
+                    </div>
+                  )}
+                  </div>
                 )}
               </div>
 
