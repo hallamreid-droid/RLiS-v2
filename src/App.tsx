@@ -1079,11 +1079,10 @@ const checkGeneralCompliance = (machine: Machine): ComplianceFailure[] => {
 //  - With HLC activated: <= 20 R/min if made on/after May 19, 1995
 //    (459.570(2)(b)). Older units have no listed limit, so over 20 is a
 //    *possible* discrepancy.
-// Dose-rate units. The RaySafe shows R/min for most units and mR/min for mini
-// C-arms. The app decides the unit itself, unless the user has corrected it
-// by tapping the "Read as ..." note (stored as <field>_unit_override):
-//  1. A unit typed with the value ("450 mR/min"), or the unit the photo scan
-//     read off the screen.
+// Dose-rate units (used only by the fluoro dose-rate check). The RaySafe shows
+// R/min for most units and mR/min for mini C-arms. The app decides the unit:
+//  1. A unit typed with the value ("450 mR/min"). (Older records may also
+//     carry a <field>_unit read by the scan, or a <field>_unit_override.)
 //  2. A sanity check on that: no fluoroscope reads over 100 R/min, so an
 //     "R/min" reading above 100 must really be mR/min (a misread prefix).
 //  3. With no unit at all, the size of the number and the machine decide:
@@ -1197,7 +1196,13 @@ const checkFluoroCompliance = (machine: Machine): ComplianceFailure[] => {
   ];
 };
 
+// Discrepancy checks (kVp/timer accuracy, reproducibility, linearity, HVL,
+// fluoro dose rate) are switched off for now. Set to true to show them again
+// as amber badges on completed machines in the machine list.
+const COMPLIANCE_CHECKS_ENABLED = false;
+
 const checkCompliance = (machine: Machine): ComplianceFailure[] => {
+  if (!COMPLIANCE_CHECKS_ENABLED) return [];
   if (machine.data.noDataReason) return [];
   if (machine.inspectionType === "dental") return checkDentalCompliance(machine);
   if (machine.inspectionType === "general") return checkGeneralCompliance(machine);
@@ -1708,8 +1713,6 @@ export default function App(): JSX.Element | null {
   const [facilityNotes, setFacilityNotes] = useState<Record<string, string>>({});
   const [showFacilityNotesModal, setShowFacilityNotesModal] = useState(false);
   const [facilityNotesText, setFacilityNotesText] = useState("");
-  // Fluoro dose-rate field whose "Read as" unit picker is open
-  const [unitPickerField, setUnitPickerField] = useState<string | null>(null);
 
   // Complete All tracking state
   const [autoCompletedMachineIds, setAutoCompletedMachineIds] = useState<string[]>([]);
@@ -2666,12 +2669,10 @@ export default function App(): JSX.Element | null {
         scanKind = "Fluoro scan";
         prompt = `
           Analyze RaySafe screen. Return JSON.
-          Find "kvp", "mR", "mR_unit", "time", "hvl". Ignore pulses. Do not convert units. Do not return units in the number fields. If you see "4.50 R/min", return "mR": "4.50" and "mR_unit": "R/min". If you see "450 mR/min", return "mR": "450" and "mR_unit": "mR/min".
+          Find "kvp", "mR", "time", "hvl". Ignore pulses. Do not convert units. Do not return units. If you see "4.50 R/min", return "4.50".
           
           - For kVp, this figure is in the top left box on the screen. 
           - For mR, we want the DOSE RATE (R/min, mR/min, mGy/min, uGy/s) not the total dose. This figure is in the middle middle box.
-          - For mR_unit, return the unit shown next to the dose rate exactly as displayed (e.g. "R/min", "mR/min" or "mGy/min"). Read the prefix carefully: "mR/min" and "R/min" differ by 1000x.
-          - Context for the unit: this machine is "${[activeMachine?.type, activeMachine?.make, activeMachine?.model].filter(Boolean).join(" ")}". Most fluoroscopes read about 1-20 R/min; mini C-arms usually read in mR/min (hundreds to thousands). If the prefix is hard to see, use this to decide.
           - For time, this figure is in the top right box.
           - For HVL, this figure is in the middle left box.
         `;
@@ -2710,18 +2711,6 @@ export default function App(): JSX.Element | null {
         const key = indices[i];
         const val = data[key];
         if (val !== null && val !== undefined) updates[field] = val.toString();
-        // Fluoro dose rate: keep the unit the screen showed next to the value
-        if (
-          scanType === "screen" &&
-          activeMachine?.inspectionType === "fluoroscope" &&
-          key === "mR" &&
-          val !== null &&
-          val !== undefined
-        ) {
-          updates[`${field}_unit`] =
-            normalizeDoseRateUnit(data["mR_unit"]) || "";
-          updates[`${field}_unit_override`] = ""; // a new scan replaces a manual correction
-        }
       });
       if (Object.keys(updates).length > 0) {
         if (activeMachineId)
@@ -5174,64 +5163,6 @@ export default function App(): JSX.Element | null {
                       />
                       {/* PENCIL SYMBOL REMOVED HERE */}
                     </div>
-                    {activeMachine.inspectionType === "fluoroscope" &&
-                      (k === "r/min" || k === "r/min_boost") &&
-                      parseNum(activeMachine.data[k]) !== null &&
-                      (() => {
-                        const unit = getDoseRateUnit(activeMachine, k);
-                        const overridden =
-                          !!activeMachine.data[`${k}_unit_override`];
-                        const setOverride = (u: string) => {
-                          updateField(`${k}_unit_override`, u);
-                          setUnitPickerField(null);
-                        };
-                        return (
-                          <div className="mt-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setUnitPickerField(
-                                  unitPickerField === k ? null : k
-                                )
-                              }
-                              className="text-[10px] text-slate-400 hover:text-blue-600 underline decoration-dotted underline-offset-2 flex items-center gap-1"
-                              title="Tap to change the unit"
-                            >
-                              Read as {unit}
-                              {overridden && " (set by you)"}
-                            </button>
-                            {unitPickerField === k && (
-                              <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                                {(["R/min", "mR/min", "mGy/min"] as const).map(
-                                  (u) => (
-                                    <button
-                                      key={u}
-                                      type="button"
-                                      onClick={() => setOverride(u)}
-                                      className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
-                                        unit === u
-                                          ? "bg-blue-600 border-blue-600 text-white"
-                                          : "bg-white border-slate-200 text-slate-500 hover:border-blue-400"
-                                      }`}
-                                    >
-                                      {u}
-                                    </button>
-                                  )
-                                )}
-                                {overridden && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setOverride("")}
-                                    className="px-2 py-0.5 rounded text-[10px] font-bold text-slate-400 hover:text-slate-600"
-                                  >
-                                    Let app decide
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
                   </div>
                 ))}
               </div>
