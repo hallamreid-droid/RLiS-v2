@@ -1626,6 +1626,58 @@ const TEMPLATE_LABELS: Record<string, string> = {
   accelerator: "Accelerator",
   non_mqsa: "Non-MQSA",
 };
+
+// --- TEMPLATE FILE NAME MATCHING ---
+// An uploaded template is matched to a machine type by keywords in its file
+// name, listed here in the order Settings shows them. Short keywords (5
+// characters or fewer, e.g. "ct", "ir", "gen", "rad", "c-arm") must be a
+// separate word, so "IR" no longer matches inside "director" or "air".
+// Longer ones may appear anywhere ("DentalTemplate.docx").
+const TEMPLATE_NAME_KEYWORDS: [string, string[]][] = [
+  ["dental", ["dental"]],
+  ["general", ["general", "radiographic", "gen", "rad"]],
+  ["analytical", ["analytical", "diffraction", "fluorescence"]],
+  ["bone_density", ["bone"]],
+  ["fluoroscope", ["fluoro", "c-arm", "o-arm"]],
+  ["ct", ["ct", "computed", "tomography"]],
+  ["industrial", ["industrial", "ir"]],
+  ["cabinet", ["cabinet", "baggage", "security"]],
+  ["accelerator", ["accelerator"]],
+  ["non_mqsa", ["non-mqsa", "nonmqsa"]],
+];
+const WHOLE_WORD_MAX_LENGTH = 5;
+
+// Lowercase, split letters from digits, and turn any run of other characters
+// into one space: "CT_Template-2024" -> "ct template 2024"
+const normalizeTemplateName = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/([a-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z])/g, "$1 $2")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+// Every template type whose keywords appear in the file name
+const getTemplateTypesForFileName = (fileName: string): string[] => {
+  const name = normalizeTemplateName(fileName.replace(/\.[^.]*$/, ""));
+  return TEMPLATE_NAME_KEYWORDS.filter(([, keywords]) =>
+    keywords.some((kw) => {
+      const k = normalizeTemplateName(kw);
+      return k.length <= WHOLE_WORD_MAX_LENGTH
+        ? ` ${name} `.includes(` ${k} `)
+        : name.includes(k);
+    })
+  ).map(([type]) => type);
+};
+
+const TEMPLATE_NAMING_HELP = [
+  "Put one of these words in the file name:",
+  ...TEMPLATE_NAME_KEYWORDS.map(
+    ([type, keywords]) => `  ${TEMPLATE_LABELS[type]}: ${keywords.join(", ")}`
+  ),
+  `Words of ${WHOLE_WORD_MAX_LENGTH} letters or fewer (like CT, IR, gen, rad, c-arm) must stand on their own, e.g. "CT Template.docx".`,
+].join("\n");
+
 const EMPTY_TEMPLATES: Record<string, ArrayBuffer | null> = Object.fromEntries(
   TEMPLATE_TYPES.map((t) => [t, null])
 );
@@ -2323,76 +2375,72 @@ export default function App(): JSX.Element | null {
     const allFiles = Array.from(files);
     const isWordFile = (file: File) => /\.(doc|docx)$/i.test(file.name);
     const invalidFiles = allFiles.filter((file) => !isWordFile(file));
-    if (invalidFiles.length > 0) {
-      alert(
+    const unmatchedFiles: string[] = [];
+    const ambiguousFiles: string[] = [];
+
+    allFiles.filter(isWordFile).forEach((file) => {
+      const matches = getTemplateTypesForFileName(file.name);
+      if (matches.length === 0) {
+        unmatchedFiles.push(file.name);
+        return;
+      }
+      if (matches.length > 1) {
+        ambiguousFiles.push(
+          `${file.name} (matches ${matches
+            .map((t) => TEMPLATE_LABELS[t])
+            .join(", ")})`
+        );
+        return;
+      }
+      const type = matches[0];
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (evt.target?.result) {
+          const buffer = evt.target?.result as ArrayBuffer;
+          setTemplates((prev) => ({ ...prev, [type]: buffer }));
+          setTemplateNames((prev) => ({ ...prev, [type]: file.name }));
+          if (currentUser) {
+            saveTemplateToFirestore(
+              currentUser.uid,
+              type,
+              file.name,
+              buffer
+            ).catch((error) => {
+              console.error("Failed to save template:", error);
+              alert(
+                `Couldn't save "${file.name}" to your account. It will only be available until you reload.`
+              );
+            });
+          }
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    // One message covering every file that wasn't uploaded
+    const problems: string[] = [];
+    if (invalidFiles.length > 0)
+      problems.push(
         `Please upload a .doc or .docx file. Not uploaded: ${invalidFiles
           .map((f) => f.name)
           .join(", ")}`
       );
-    }
-
-    allFiles.filter(isWordFile).forEach((file) => {
-      const name = file.name.toLowerCase();
-      let type: InspectionType | null = null;
-
-      if (name.includes("dental")) type = "dental";
-      else if (name.includes("gen") || name.includes("rad")) type = "general";
-      else if (name.includes("bone")) type = "bone_density";
-      else if (name.includes("industrial") || name.includes("ir"))
-        type = "industrial";
-      else if (
-        name.includes("analytical") ||
-        name.includes("diffraction") ||
-        name.includes("fluorescence")
-      )
-        type = "analytical";
-      else if (
-        name.includes("fluoro") ||
-        name.includes("c-arm") ||
-        name.includes("o-arm")
-      )
-        type = "fluoroscope";
-      else if (
-        name.includes("ct ") ||
-        name.includes("computed") ||
-        name.includes("tomography")
-      )
-        type = "ct";
-      else if (
-        name.includes("cabinet") ||
-        name.includes("baggage") ||
-        name.includes("security")
-      )
-        type = "cabinet";
-      else if (name.includes("accelerator")) type = "accelerator";
-      else if (name.includes("non-mqsa") || name.includes("non_mqsa"))
-        type = "non_mqsa";
-
-      if (type) {
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-          if (evt.target?.result) {
-            const buffer = evt.target?.result as ArrayBuffer;
-            setTemplates((prev) => ({ ...prev, [type!]: buffer }));
-            setTemplateNames((prev) => ({ ...prev, [type!]: file.name }));
-            if (currentUser) {
-              saveTemplateToFirestore(
-                currentUser.uid,
-                type!,
-                file.name,
-                buffer
-              ).catch((error) => {
-                console.error("Failed to save template:", error);
-                alert(
-                  `Couldn't save "${file.name}" to your account. It will only be available until you reload.`
-                );
-              });
-            }
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-    });
+    if (unmatchedFiles.length > 0)
+      problems.push(
+        `Couldn't tell which machine type these are for, so they weren't uploaded:\n${unmatchedFiles
+          .map((n) => `  • ${n}`)
+          .join("\n")}`
+      );
+    if (ambiguousFiles.length > 0)
+      problems.push(
+        `These match more than one machine type, so they weren't uploaded. Rename them so they match only one:\n${ambiguousFiles
+          .map((n) => `  • ${n}`)
+          .join("\n")}`
+      );
+    if (unmatchedFiles.length > 0 || ambiguousFiles.length > 0)
+      problems.push(TEMPLATE_NAMING_HELP);
+    if (problems.length > 0) alert(problems.join("\n\n"));
   };
 
   const handleBulkTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
