@@ -4026,7 +4026,7 @@ export default function App(): JSX.Element | null {
   // Auth Loading State
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-blue-100 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-slate-500">Loading...</p>
@@ -4228,7 +4228,7 @@ export default function App(): JSX.Element | null {
   // Profile still loading after login
   if (profileLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-blue-100 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-slate-500">Loading...</p>
@@ -4298,7 +4298,7 @@ export default function App(): JSX.Element | null {
 
   if (view === "settings")
     return (
-      <div className="min-h-screen bg-slate-50 p-6 font-sans">
+      <div className="min-h-screen bg-blue-100 p-6 font-sans">
         <button
           onClick={() => setView("facility-list")}
           className="mb-6 flex gap-2 font-bold text-slate-600 active:scale-95 transition-transform"
@@ -4567,7 +4567,7 @@ export default function App(): JSX.Element | null {
   // --- MOBILE FORM VIEW (INSPECTION) ---
   if (view === "mobile-form" && activeMachine)
     return (
-      <div className="min-h-screen bg-slate-50 font-sans relative">
+      <div className="min-h-screen bg-blue-100 font-sans relative">
         <header className="bg-white p-4 border-b sticky top-0 z-20 shadow-sm">
           <div className="flex gap-3 items-center mb-1">
             <button
@@ -5269,7 +5269,7 @@ export default function App(): JSX.Element | null {
   // --- MACHINE LIST VIEW (Specific Facility) ---
   if (view === "machine-list")
     return (
-      <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
+      <div className="min-h-screen bg-blue-100 p-4 font-sans relative">
         <header className="flex justify-between items-center mb-8">
           <div className="flex gap-2 items-center">
             <button
@@ -6090,7 +6090,7 @@ export default function App(): JSX.Element | null {
   const facilities = getFacilities();
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 font-sans relative">
+    <div className="min-h-screen bg-blue-100 p-4 font-sans relative">
       <header className="flex justify-between items-center mb-8">
         <div className="flex gap-2 items-center">
           <div className="bg-blue-600 p-2 rounded-lg">
