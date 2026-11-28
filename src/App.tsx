@@ -2248,6 +2248,11 @@ export default function App(): JSX.Element | null {
             : m
         )
       );
+      patchMachineInFirestore(machine.id, {
+        make: data.make ?? "",
+        model: data.model ?? "",
+        serial: data.serial ?? "",
+      });
     } catch (error) {
       console.error(error);
     } finally {
@@ -2692,6 +2697,8 @@ export default function App(): JSX.Element | null {
                 : m
             )
           );
+        if (activeMachineId)
+          patchMachineInFirestore(activeMachineId, { data: updates });
       } else {
         alert("Gemini analyzed the image but couldn't find the specific data.");
       }
